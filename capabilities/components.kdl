@@ -1,0 +1,77 @@
+// CRADLE Entity Component Registry
+// Defines reusable property schemas (Components) that compose into Entity types.
+// Components are the building blocks of the ECS resource model.
+// Capabilities declare which entities they operate on; policy grants constrain
+// access by filtering on component property values.
+
+// ─── Identity & Location ──────────────────────────────────────────────────────
+
+component "Addressable" {
+    description "An entity that can be identified by a URL"
+    field "url"    type="string" description="Fully-qualified URL"
+    field "domain" type="string" description="Registered domain (e.g. example.com)"
+    field "scheme" type="string" description="URL scheme (https, http, ftp, ...)"
+    field "path"   type="string" description="URL path component"
+}
+
+component "Located" {
+    description "An entity with a position in a hierarchical filesystem or namespace"
+    field "path"      type="string" description="Full path within its namespace"
+    field "name"      type="string" description="Leaf name (filename, folder name, etc.)"
+    field "extension" type="string" description="File extension including dot, e.g. .md"
+    field "parent"    type="string" description="Path of the containing folder or namespace"
+}
+
+component "Identified" {
+    description "An entity with a provider-assigned opaque identifier"
+    field "id"          type="string" description="Provider-assigned unique identifier"
+    field "provider"    type="string" description="The service or system that assigned the ID"
+    field "external_url" type="string" description="Human-readable URL to view this entity"
+}
+
+// ─── Ownership & Access ───────────────────────────────────────────────────────
+
+component "Owned" {
+    description "An entity associated with a credential or user identity"
+    field "credential_id" type="string" description="CRADLE credential ID that owns or can access this entity"
+    field "owner_email"   type="string" description="Email address of the owning user account"
+}
+
+component "Shared" {
+    description "An entity shared with other identities (attendees, collaborators, channel members)"
+    field "members"       type="list<string>" description="Email addresses or IDs of participants"
+    field "is_public"     type="bool"         description="Accessible to anyone with the link"
+    field "access_level"  type="string"       description="Permission level: viewer | commenter | editor | owner"
+}
+
+// ─── Time ─────────────────────────────────────────────────────────────────────
+
+component "Timestamped" {
+    description "An entity with creation and modification times"
+    field "created_at"  type="string" description="ISO8601 UTC creation timestamp"
+    field "modified_at" type="string" description="ISO8601 UTC last-modification timestamp"
+}
+
+component "Scheduled" {
+    description "An entity that spans a time window"
+    field "start"    type="string" description="ISO8601 start datetime with timezone offset"
+    field "end"      type="string" description="ISO8601 end datetime with timezone offset"
+    field "timezone" type="string" description="IANA timezone name (e.g. Europe/London)"
+    field "all_day"  type="bool"   description="True if this spans full days without a time component"
+}
+
+// ─── Content ──────────────────────────────────────────────────────────────────
+
+component "Sized" {
+    description "An entity with a known data size"
+    field "size_bytes" type="int"    description="Size in bytes"
+    field "mime_type"  type="string" description="MIME type (e.g. text/plain, image/png)"
+}
+
+component "Addressed" {
+    description "An entity with sender and recipient addressing (email, messages)"
+    field "from"    type="string"       description="Sender address or identifier"
+    field "to"      type="list<string>" description="Primary recipient addresses"
+    field "cc"      type="list<string>" description="CC recipient addresses"
+    field "subject" type="string"       description="Subject line or title"
+}

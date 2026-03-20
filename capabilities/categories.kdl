@@ -1,0 +1,112 @@
+// CRADLE Capability Categories
+// Defines the namespaces used in the Namespace_Noun_Verb capability grammar.
+// Each category maps to a gateway implementation in the Orchestrator.
+// ─── Browser ──────────────────────────────────────────────────────────────────
+category "Browser" {
+    description "Browser automation via the host-side Chrome CDP firewall"
+    gateway "chrome-sidecar"
+    risk "medium"
+    note "All capabilities require matching entries in agent.kdl browser.whitelist"
+}
+// ─── Information Retrieval ────────────────────────────────────────────────────
+category "Search" {
+    description "Web and corpus search; returns ranked result summaries, not raw pages"
+    gateway "search-gateway"
+    risk "low"
+}
+// ─── Agent Workspace Filesystem ───────────────────────────────────────────────
+category "Filesystem" {
+    description "Read/write access to the agent's own Btrfs subvolume workspace only"
+    gateway "fs-gateway"
+    risk "low"
+    note "Paths are jailed to the agent workspace root; traversal attempts are denied"
+}
+// ─── Code Execution ───────────────────────────────────────────────────────────
+category "Execution" {
+    description "Script and test execution within the agent nspawn jail"
+    gateway "code-gateway"
+    risk "high"
+    note "Execution is confined to the nspawn container; no host filesystem access"
+}
+// ─── Email ────────────────────────────────────────────────────────────────────
+category "Email" {
+    description "Provider-neutral email: read, draft, and send messages"
+    gateway "mail-gateway"
+    risk-read "low"
+    risk-write "critical"
+    note "Send capabilities require explicit allowance; draft-only is the safe default"
+}
+// ─── Calendar & Scheduling ────────────────────────────────────────────────────
+category "Calendar" {
+    description "Provider-neutral calendar: read events, find slots, create and modify bookings"
+    gateway "calendar-gateway"
+    risk-read "low"
+    risk-write "high"
+}
+// ─── Spreadsheets ─────────────────────────────────────────────────────────────
+category "Spreadsheet" {
+    description "Provider-neutral spreadsheet access: read ranges, update cells, append rows"
+    gateway "sheet-gateway"
+    risk-read "low"
+    risk-write "high"
+}
+// ─── Long-form Documents ──────────────────────────────────────────────────────
+category "Document" {
+    description "Provider-neutral document access: read as markdown, append or replace sections"
+    gateway "doc-gateway"
+    risk-read "low"
+    risk-write "high"
+}
+// ─── Real-time Messaging ──────────────────────────────────────────────────────
+category "Messaging" {
+    description "Provider-neutral chat: Slack, Teams, Discord. Send messages, read channels"
+    gateway "msg-gateway"
+    risk-read "low"
+    risk-write "critical"
+    note "Sending messages is visible to humans; treat as critical risk"
+}
+// ─── Agent Memory ─────────────────────────────────────────────────────────────
+category "Memory" {
+    description "Persistent key/semantic memory store scoped to the agent instance"
+    gateway "memory-gateway"
+    risk "low"
+    note "Memory is stored in the agent Btrfs subvolume and included in snapshots"
+}
+// ─── Version Control ──────────────────────────────────────────────────────────
+category "VersionControl" {
+    description "Version control operations within the agent workspace or on permitted remote repositories"
+    gateway "vcs-gateway"
+    risk-read "low"
+    risk-write "high"
+    note "Push capabilities require explicit remote allowlist in agent.kdl"
+}
+// ─── Structured Data ──────────────────────────────────────────────────────────
+category "Database" {
+    description "SQL and NoSQL query execution against permitted data sources"
+    gateway "data-gateway"
+    risk-read "medium"
+    risk-write "critical"
+    note "Write operations require explicit data-source allowlist in agent.kdl"
+}
+// ─── System / Process ─────────────────────────────────────────────────────────
+category "System" {
+    description "Process management and environment inspection within the agent nspawn jail"
+    gateway "sys-gateway"
+    risk "high"
+    note "All process execution is confined to the nspawn container cgroup"
+}
+// ─── Media ────────────────────────────────────────────────────────────────────
+category "Media" {
+    description "Image, audio, and video analysis via vision/speech models"
+    gateway "media-gateway"
+    risk "low"
+    note "Processing may invoke external model APIs; data leaves the container"
+}
+// ─── Swarm Coordination ───────────────────────────────────────────────────────
+category "Swarm" {
+    description "Agent-to-agent messaging via the Orchestrator MUS switchboard"
+    gateway "switchboard"
+    risk "medium"
+    note "Message routing is ACL-enforced by the Orchestrator; agents cannot self-grant destinations"
+}
+
