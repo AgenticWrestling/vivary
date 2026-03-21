@@ -1,31 +1,59 @@
-# WRESTLE
+# VIVARY
 
-**W**orkspace **R**emote **E**xecution **S**warm **T**raceable **L**inux **E**ngine
+**V**irtualized **I**solated **V**erifiable **A**gent **R**untime **Y**ard
 
-WRESTLE is an agent orchestration engine for running swarms of isolated, auditable AI agents on a shared host. It provides high-performance, secure, and fully traceable environments where agents collaborate, invoke capabilities, and evolve iteratively — without ever holding credentials or touching raw network sockets.
+VIVARY is a governed runtime for isolated, auditable AI agents on a shared host. The initial product focus is a single agent running inside a hardened `systemd-nspawn` enclosure with no credentials, no raw network access beyond its LLM API endpoint, and no visibility beyond its own filesystem and a tightly controlled [MUS](https://github.com/mus-format/mus-go) formatted stdio pipe to the central `keeperd` daemon. Multi-agent swarm orchestration is a later phase built on top of this runtime core.
 
 ## Core Features
 
-- **High-Grade Isolation:** Each agent runs inside a `systemd-nspawn` container with User Namespacing (`-U`), isolating process tree, IPC, and hostname.
-- **O(1) Persistence:** Btrfs subvolumes per agent, with atomic snapshot-based rollback before any self-directed configuration changes.
-- **Stdio Switchboard:** A purely stdio-native message router in the Orchestrator. MUS-encoded binary frames are multiplexed across all active agent pipes, with unicast, multicast, and broadcast routing. No network message broker required.
-- **Gateway Architecture:** Each agent's nspawn container runs a purpose-built Go **Gateway binary** that manages the LLM subprocess lifecycle (Claude Code or alternatives), translates JSON tool calls to MUS capability requests, and returns results — acting as the agent's sole control plane.
-- **Headless Cognitive Gateway:** Safe, auditable access to external systems:
-  - **Chrome CDP Firewall:** A shared headless Chrome instance runs on the host OS. The Orchestrator proxies whitelisted, MUS-wrapped CDP verbs to Chrome's debug port — agents never connect to the port directly.
-  - **RESTful API Simplification:** Heavyweight APIs (Google Workspace, etc.) are wrapped by thin Go gateway binaries. The Orchestrator translates MUS verbs into authenticated API calls, stripping metadata bloat before returning results.
-- **Zero-Exposure Credential Management:** The Orchestrator holds all secrets in an AES-256-GCM encrypted vault. Agents reference a `credential_id`; the secret value never enters the nspawn jail.
-- **Identity Integrity:** Agent identity (`FromID`) is stamped by the Orchestrator based on which pipe a message arrived on. Agents cannot spoof each other's identities.
+- **Triple-Boundary Isolation:** Each agent's only environmental access is (1) its own Btrfs subvolume filesystem, (2) a MUS stdio pipe to `keeperd`, and (3) a firewalled veth interface permitting outbound connections to its configured LLM API endpoint _only_. No other network sockets. No credentials in the container.
+
+- **O(1) Persistence:** Btrfs subvolumes per agent, with atomic snapshot-based rollback for operator-directed reconfiguration and recovery; more autonomous evolution flows are deferred.
+
+- **Vivary Keeper: Orchestrator & Policy Core:** A stdio-native control plane in `keeperd` that owns routing, semantic policy enforcement, credential resolution, approvals, and audit logging. The MVP focuses on one agent and one ctl connection; multi-agent routing is introduced in a later phase.
+
+- **Vivary Ward:** Each agent's nspawn container runs a purpose-built Go binary — the **Ward** — that manages the LLM subprocess lifecycle and acts as a syntax/protocol adapter between an LLM's tool-call format and VIVARY's MUS capability schema. It rejects malformed calls locally, forwards well-formed requests to `keeperd`, and returns results. It is the agent's sole control plane.
+
+- **Capability-as-CLI:** Capabilities appear to the LLM as self-documenting bash-invokable CLI tools. Running any capability with `--help` returns its full JSON schema. The Ward handles the syntax translation layer from those invocations into MUS frames, while `keeperd` remains the semantic authority on whether a request is actually allowed.
+
+- **Headless External Access:** Safe, auditable access to the outside world:
+  - **Chrome CDP Firewall:** A shared headless Chrome instance runs on the host OS. `keeperd` proxies whitelisted, carefully designed resource+capability (noun/verb) commands — agents _never_ connect to the debug port directly.
+
+  - **REST Gateway Binaries:** Heavyweight APIs (Google Workspace, etc.) are wrapped by thin Go binaries invoked by `keeperd`. The credential secrets never enters the nspawn container.
+
+- **Zero-Exposure Credential Management:** `keeperd` holds all secrets in an AES-256-GCM encrypted vault. Agents reference a `credential_id` only.
+
+- **Identity Integrity:** Agent identity (`FromID`) is stamped by `keeperd` based on which pipe a message arrived on. Agents cannot spoof each other's identities.
+
 - **Structured Logging:** Three log streams — per-prompt completion events (tokens, cost, context %), agent failure events (schema mismatch, loop detection, crashes), and a binary MUS audit trail in a SQLite WAL.
-- **Cross-Platform Parity:** Packaged as a NixOS LXD/LXC container via a `distrobuild` Nix Flake script. Identical execution environments on Linux (native LXD), Windows 11 (WSL2), and macOS (OrbStack/Lima).
+
+- **Unix-Style Debug Tooling:** `vivary-log` decodes and inspects MUS audit records from the WAL, supports grep-friendly filters, and gives operators a simple CLI for understanding what the runtime actually did.
+
+- **Cross-Platform Parity:** Packaged as a NixOS LXD/LXC container via a `distrobuild` Nix Flake script. Identical highly efficient execution environments on Linux (native LXD), Windows 11 (WSL2), and macOS (OrbStack/Lima).
+
+## Binaries
+
+| Binary | Role |
+|---|---|
+| `keeperd` | Central daemon — message router, policy enforcer, credential vault |
+| `ward` | Per-agent binary inside each nspawn container — LLM lifecycle manager |
+| `vivary` | Operator TUI and CLI — connects to `keeperd` via MUS-over-Unix-socket |
+
+## Documentation
+
+- [DESIGN.md](DESIGN.md) — Full system architecture
+- [CAPABILITIES.md](CAPABILITIES.md) — Capability model, ECS resource system, and policy grant design
+- [SECURITY.md](SECURITY.md) — Threat model, isolation boundaries, and operational security notes
+- [PLAN.md](PLAN.md) — Phased implementation plan and testing strategy
 
 ## Getting Started
 
-*(Deployment instructions pending `distrobuild` implementation — see PLAN.md Phase 1.)*
+_(Deployment instructions pending XXXXXXXXXXXXX implementation — see PLAN.md Phase 1.)_
 
 ## Target: v0.1 MVP
 
-- Go Orchestrator with KDL configuration and BubbleTea matrix TUI.
+- Single-agent governed runtime: `keeperd`, `ward`, and `vivary` ctl/TUI for one local agent.
 - `distrobuild` Nix Flake script for the base NixOS LXD container.
 - nspawn agent workspace provisioning from a template subvolume.
-- Initial Gateway binary with Claude Code subprocess integration.
-- Initial capability set, including `Chrome_Tab_GetWebContent` with Orchestrator-managed domain whitelisting.
+- Initial capability set kept intentionally narrow: `Browser_Page_Read` plus scoped filesystem output.
+- Structured audit/debug tooling, including `vivary-log`, before expanding into multi-agent orchestration.

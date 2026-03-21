@@ -1,4 +1,4 @@
-// CRADLE Entity Type Registry
+// VIVARY Entity Type Registry
 // Defines named entity types as compositions of Components.
 // Entity types are the nouns in the Namespace_Noun_Verb capability grammar.
 // Each capability declares which entity types it reads or writes.
@@ -274,7 +274,7 @@ entity "AudioFile" {
 // ─── Swarm ────────────────────────────────────────────────────────────────────
 
 entity "AgentMessage" {
-    description "A MUS message routed between agents via the Orchestrator switchboard"
+    description "A MUS message routed between agents via the keeperd switchboard"
     components "Timestamped"
     fields {
         field "from_id"  type="string"
@@ -290,7 +290,7 @@ entity "AgentMessage" {
 }
 
 entity "Agent" {
-    description "A registered agent instance in the Orchestrator"
+    description "A registered agent instance in keeperd"
     components "Identified" "Timestamped"
     fields {
         field "status" type="string" // running | stopped | evolving

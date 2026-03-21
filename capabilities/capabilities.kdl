@@ -1,4 +1,4 @@
-// CRADLE Capability Definitions
+// VIVARY Capability Definitions
 // Namespace_Noun_Verb grammar. Permitted verbs: Create Delete Read List Update Stream Exec Invoke
 // Fields: type is one of string | int | float | bool | list<T>
 // Risk levels: low | medium | high | critical
@@ -926,11 +926,11 @@ capability "Media_Audio_Transcribe" {
 // ═══════════════════════════════════════════════════════════════════════════════
 capability "Swarm_Message_Send" {
   category    "Swarm"
-  description "Send a unicast MUS message to a specific agent via the Orchestrator switchboard"
+  description "Send a unicast MUS message to a specific agent via the keeperd switchboard"
   risk        "medium"
   writes      entity="AgentMessage"
   field       "to_id" type="string" required=true {
-    description "Target agent ID as registered in the Orchestrator"
+    description "Target agent ID as registered in keeperd"
     example     "researcher-02"
   }
   field       "payload" type="string" required=true {
@@ -961,7 +961,7 @@ capability "Swarm_Group_Send" {
 }
 capability "Swarm_Agent_List" {
   category    "Swarm"
-  description "List agents currently registered with the Orchestrator"
+  description "List agents currently registered with keeperd"
   risk        "low"
   reads       entity="Agent"
   returns     "list<object>" description="List of {id, status, groups, last_seen} objects"

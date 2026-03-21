@@ -1,15 +1,15 @@
-# WRESTLE System Design
+# VIVARY System Design
 
 ## Architecture Overview
 
-WRESTLE employs a **Star Topology** around a central, Go-based Orchestrator. The Orchestrator acts as the hypervisor, message router, and security firewall for a swarm of isolated AI agents.
+VIVARY centers on a Go daemon, `keeperd`, that acts as the policy authority, message router, and security firewall for isolated AI agents. The MVP is deliberately single-agent; the swarm topology described later in this document is a follow-on phase built on the same runtime core.
 
 ```mermaid
 graph TD
     subgraph "Host OS (NixOS LXD Container)"
-        TUI[wrestle TUI]
-        SOCK((orchestrator.sock))
-        DAEMON[orchestratord Go Daemon]
+        TUI[vivary TUI/CLI]
+        SOCK((keeper.sock))
+        DAEMON[keeperd Go Daemon]
         CHROME[Chrome Headless Host-side]
         VAULT[(Credential Vault AES-256-GCM)]
         LOGS[(SQLite WAL Audit Log)]
@@ -20,111 +20,125 @@ graph TD
         DAEMON <--> LOGS
         DAEMON <-->|CDP Proxy| CHROME
 
-        subgraph "nspawn Agent A"
-            GA["Gateway (Go)"]
+        subgraph "nspawn Agent"
+            WA["Ward (Go)"]
             LA["LLM (Claude Code)"]
-            GA <-->|spawn/stdio| LA
+            WA <-->|spawn/stdio| LA
         end
-
-        subgraph "nspawn Agent B"
-            GB["Gateway (Go)"]
-            LB["LLM (Claude Code)"]
-            GB <-->|spawn/stdio| LB
-        end
-
-        DAEMON <-->|stdio MUS| GA
-        DAEMON <-->|stdio MUS| GB
+        DAEMON <-->|stdio MUS| WA
     end
 ```
 
+**Scope markers used in this document:**
+
+- **MVP:** single-agent runtime core that proves isolation, capability governance, ctl visibility, and audit/debug tooling.
+- **Phase 2:** multi-agent routing, topology controls, and richer fleet UX after the runtime core passes its exit tests.
+- **Later:** self-directed runtime evolution and other higher-risk automation.
+
 ---
 
-### 1. Isolation and Persistence (The "Linux Engine")
+### 1. Isolation and Persistence
 
 - **Containerization:** Each agent runs inside a dedicated `systemd-nspawn` container with User Namespacing (`-U`), isolating process tree, IPC, and hostname.
-- **Filesystem:** Each agent has a dedicated Btrfs subvolume. The Gateway binary and core config are bind-mounted read-only from the host. The agent's working directory, inbox, outbox, and telemetry are writable within the subvolume.
-- **Inbox/Outbox Pattern:** Prompt inputs, responses, and telemetry events are written to well-known paths within the subvolume, making agent state auditable by simply inspecting the filesystem.
-- **Btrfs Snapshots:** A snapshot of the agent subvolume is taken before any self-directed "evolution" (config or skill changes), enabling sub-millisecond atomic rollback.
-- **Resource Limits:** The Orchestrator configures per-agent cgroup v2 limits (CPU shares, memory max, IO weight) at nspawn spawn time, enforcing resource isolation within the swarm.
+
+- **UID Allocation:** Each nspawn container uses a non-overlapping 65,536-entry UID range drawn from `keeperd`'s host-level `/etc/subuid` allocation. `keeperd` assigns and tracks these ranges at agent provision time, ensuring no two agent containers share UIDs within the host namespace.
+
+- **Filesystem:** Each agent has a dedicated Btrfs subvolume. The Ward binary and core config are bind-mounted read-only from the host. The agent's working directory, inbox, outbox, and telemetry are writable within the subvolume.
+
+- **Btrfs Snapshots:** Snapshot support remains part of the runtime foundation, but automated self-directed evolution is not an MVP concern. The first use of snapshots is operator-directed reconfiguration and recovery, with rollback semantics introduced only after the runtime core is proven.
+
+- **Resource Limits:** `keeperd` configures per-agent cgroup v2 limits (CPU shares, memory max, IO weight) at nspawn spawn time.
 
 ---
 
-### 2. The Gateway Binary (Per-Agent Control Plane)
+### 2. The Ward (Per-Agent Control Plane)
 
-The **Gateway** is a purpose-built Go binary deployed into each nspawn container. It is the agent's sole interface to the outside world — both to the Orchestrator and to the LLM.
+The **Ward** is a purpose-built Go binary deployed into each nspawn container. It is the agent's sole interface to the outside world.
+
+Conceptually, Ward is a **syntax/protocol adapter**, not a second policy engine. It is responsible for turning whatever tool-call or structured output dialect a supported LLM emits into VIVARY's MUS capability language. `keeperd` remains the semantic authority on whether a request is permitted, scoped correctly, rate-limited, approval-gated, or otherwise executable.
+
+**Agent environmental access is strictly bounded to three channels:**
+
+1. **Its own Btrfs subvolume** — the writable filesystem within its nspawn jail. No access to the host filesystem or other agents' subvolumes.
+2. **MUS stdio pipe to `keeperd`** — the sole IPC channel. All capability requests, responses, and telemetry flow through this pipe.
+3. **Firewalled LLM API veth** — a dedicated virtual ethernet interface with nftables rules permitting outbound TCP connections only to the configured LLM API endpoint (e.g., `api.anthropic.com:443`). All other outbound traffic is dropped. No other network interfaces exist inside the container.
+
+**Capabilities as CLI tools:**
+
+Capabilities are installed within the nspawn container as self-documenting CLI binaries. The LLM subprocess invokes them as bash tools. Running any capability with `--help` returns its full JSON schema (the static string generated by `vivary-gen`). The Ward intercepts these invocations, parses the LLM-facing tool-call syntax, validates that the call is structurally well-formed against the declared capability schema, translates the valid request into MUS, forwards it to `keeperd`, and injects the response as the tool's stdout. The LLM never sees MUS framing — it sees ordinary CLI tools.
+
+**LLM subprocess lifecycle:**
+
+The Ward uses a **per-prompt subprocess model**: a new LLM CLI process (e.g., `claude --headless`) is spawned for each incoming prompt. This ensures clean context boundaries between prompts and eliminates persistent process state management. Claude Code's startup latency (~500ms) is acceptable at prompt granularity. A persistent session mode will be evaluated if profiling shows startup to be a material bottleneck.
 
 **Responsibilities:**
 
-- Maintains a persistent stdio connection to the Orchestrator (the MUS pipe).
-- Spawns the LLM CLI (e.g., Claude Code, or a pluggable alternative) as a subprocess when a new prompt message arrives on stdin.
-- Translates LLM subprocess output (JSON tool calls) into MUS capability requests, sends them upstream to the Orchestrator, and returns the MUS response to the LLM subprocess as tool call results.
-- Enforces prompt completion boundaries: when the LLM subprocess exits, the Gateway emits a **Completion Event** log record.
-- Detects and reports agent failure modes (see Section 6: Logging).
+- Maintains a persistent stdio connection to `keeperd` (the MUS pipe).
+- Spawns the LLM CLI as a subprocess when a new prompt message arrives.
+- Translates LLM tool invocations into MUS capability requests and returns responses.
+- Enforces syntactic correctness at the translation boundary: malformed or unparseable tool calls are rejected before they reach `keeperd`.
+- Emits execution facts from the local session boundary: subprocess exit status, timeout, malformed-call errors, and completion boundaries.
+- Enforces prompt completion boundaries: emits a **Completion Event** log record when the LLM subprocess exits.
+- Detects and reports local failure modes at the adapter boundary (see §10).
+
+**Responsibility split:**
+
+- **Ward owns:** subprocess lifecycle, backend-specific tool-call parsing, syntactic/schema validation, MUS encoding/decoding at the agent boundary, and local execution reporting.
+- **`keeperd` owns:** identity stamping, ACLs, resource scope checks, schedule/rate/approval policy, credential resolution, audit policy, and capability dispatch.
 
 **LLM invocation model:**
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
-    participant G as Gateway (nspawn)
+    participant O as keeperd
+    participant W as Ward (nspawn)
     participant L as LLM Subprocess
 
-    O->>G: MUS Prompt Message (stdio)
-    G->>L: spawn: claude --headless -p "..."
-    L->>G: JSON Tool Call (stdout)
-    G->>O: MUS Capability Request (stdio)
-    O-->>G: MUS Capability Response
-    G->>L: JSON Tool Result (stdin)
-    L->>G: Final Answer (stdout)
-    G->>O: MUS Completion Event
+    O->>W: MUS Prompt Message (stdio)
+    W->>L: spawn: claude --headless -p "..."
+    L->>W: Tool Invocation (bash CLI call)
+    W->>O: MUS Capability Request (stdio)
+    O-->>W: MUS Capability Response
+    W->>L: Tool Result (CLI stdout)
+    L->>W: Final Answer (stdout)
+    W->>O: MUS Completion Event
 ```
 
-**Pluggability:** The Gateway uses a thin `AgentCLI` interface so that `claude`, `gemini`, or any future CLI-driven LLM can be substituted without changing the Gateway binary.
+**Pluggability:** The Ward uses a thin `AgentCLI` interface so that `claude`, `gemini`, or any future CLI-driven LLM can be substituted without changing the semantic policy core. The adaptation surface should stay narrow: backend-specific parsing belongs in the adapter layer, while policy meaning stays centralized in `keeperd`.
 
 ---
 
-### 3. The Control Plane (TUI ↔ Orchestrator)
+### 3. The Control Plane (vivary ↔ keeperd)
 
-The **`wrestle` TUI** is a separate binary from the Orchestrator daemon (`orchestratord`). They communicate over a **Unix domain socket** at a well-known path inside the NixOS container (e.g., `<workspace_root>/orchestrator.sock`).
+The **`vivary`** TUI and CLI is a separate binary from `keeperd`. They communicate over a **Unix domain socket** at a well-known path inside the NixOS container (e.g., `<workspace_root>/keeper.sock`).
 
-The socket uses the same MUS frame format as the agent stdio pipes — a `SwarmHeader` followed by a typed payload. The TUI identifies itself as `FromID: "ctl"`, a reserved identity that the Orchestrator's ACL layer treats as operator-level, granting access to control messages that agents cannot send.
+The socket uses the same MUS frame format as the agent stdio pipes — a `SwarmHeader` followed by a typed payload. `vivary` identifies itself as `FromID: "ctl"`, a reserved identity the keeper's ACL treats as operator-level, granting access to control messages that agents cannot send.
 
 **Control message types (ctl-only):**
 
 | MsgType | Direction | Purpose |
 |---|---|---|
-| `MsgType_CtlSubscribe` | TUI → Orchestrator | Subscribe to live Completion and Failure event push stream. |
-| `MsgType_CtlEvent` | Orchestrator → TUI | Pushed on each Completion or Failure event; carries the structured log payload. |
-| `MsgType_CtlAgentCreate` | TUI → Orchestrator | Provision a new agent workspace from a template. |
-| `MsgType_CtlAgentStop` | TUI → Orchestrator | Terminate a running agent nspawn container. |
-| `MsgType_CtlVaultAdd` | TUI → Orchestrator | Add or rotate a credential in the vault. |
-| `MsgType_CtlStatus` | TUI → Orchestrator | Request a full snapshot of current agent states (used on TUI startup). |
+| `MsgType_CtlSubscribe` | vivary → keeperd | Subscribe to live Completion and Failure event push stream. |
+| `MsgType_CtlEvent` | keeperd → vivary | Pushed on each Completion or Failure event; carries the structured log payload. |
+| `MsgType_CtlAgentCreate` | vivary → keeperd | Provision a new agent workspace from a template. |
+| `MsgType_CtlAgentStop` | vivary → keeperd | Terminate a running agent nspawn container. |
+| `MsgType_CtlVaultAdd` | vivary → keeperd | Add or rotate a credential in the vault. |
+| `MsgType_CtlStatus` | vivary → keeperd | Request a full snapshot of current agent states (used on startup). |
+| `MsgType_CtlApprovalRequired` | keeperd → vivary | Pushed when a capability is awaiting approval; includes full request detail. |
+| `MsgType_CtlApprovalGrant` | vivary → keeperd | Operator approves the pending request. |
+| `MsgType_CtlApprovalDeny` | vivary → keeperd | Operator denies the pending request. |
 
-The TUI connects to the socket at startup, sends `MsgType_CtlSubscribe`, then receives an initial `MsgType_CtlStatus` response followed by a live stream of `MsgType_CtlEvent` pushes as agents run. The BubbleTea matrix view is driven entirely by these events — no polling.
+`vivary` connects at startup, sends `MsgType_CtlSubscribe`, then receives an initial `MsgType_CtlStatus` followed by a live stream of `MsgType_CtlEvent` pushes. In the MVP this primarily drives a single-agent detail view and CLI status commands; a matrix or fleet view comes with the later multi-agent phase.
 
-Any `wrestle` CLI subcommand (e.g., `wrestle agent create`, `wrestle vault add`) sends the corresponding ctl MUS message to the socket and waits for an acknowledgement, so the daemon is the single source of state even from non-interactive invocations.
+Any `vivary` CLI subcommand (e.g., `vivary agent create`, `vivary vault add`) sends the corresponding ctl MUS message to the socket and waits for acknowledgement. `keeperd` is the single source of state.
 
 ---
 
-### 4. The Swarm Switchboard (Agent Messaging)
+### 4. The Runtime Switchboard (Agent Messaging)
 
-- **Transport:** Pure stdio (`stdin`/`stdout`) pipes between the Orchestrator process and each Gateway binary. No network sockets or message brokers are required.
+- **Transport:** Pure stdio (`stdin`/`stdout`) pipes between `keeperd` and each Ward binary. No network sockets or message brokers required.
 - **Serialization:** All messages use the MUS (Marshal, Unmarshal, Size) binary format for O(1) performance and zero-allocation routing.
 - **Frame Format:** Every message is a length-prefixed MUS frame containing a `SwarmHeader` followed by a payload:
-
-```go
-type SwarmHeader struct {
-    Version uint8
-    FromID  string
-    ToID    string   // "agent-id", "group:name", or "*" for broadcast
-    MsgType uint8    // see MsgType constants
-    SeqNo   uint64   // monotonic, per-sender; used for loop detection
-}
-```
-
-- **Routing:** The Orchestrator reads the `SwarmHeader` from each agent's pipe and routes to unicast, multicast (group prefix), or broadcast destinations. The `SeqNo` field is validated to be strictly increasing per sender — a non-monotonic sequence triggers a security log event.
-- **Identity integrity:** The Orchestrator stamps the `FromID` on all inbound frames itself, derived from which pipe the bytes arrived on. Agent-supplied `FromID` values in the header are ignored and overwritten. This prevents identity spoofing.
-- **Chain tracking:** Two additional fields are carried in the header to enforce invocation depth limits:
 
 ```go
 type SwarmHeader struct {
@@ -134,25 +148,30 @@ type SwarmHeader struct {
     MsgType  uint8
     SeqNo    uint64   // monotonic per-sender; used for loop detection
     ParentID string   // ID of the agent that invoked this one; "" for top-level
-    Depth    uint8    // invocation chain depth; Orchestrator increments on each hop
+    Depth    uint8    // invocation chain depth; keeperd increments on each hop
 }
 ```
 
+- **Routing:** In the MVP, `keeperd` routes request/response traffic between ctl and one Ward pipe. The same framing is designed to extend later to unicast, multicast (group prefix), and broadcast destinations. `SeqNo` is validated to be strictly increasing per sender — a non-monotonic sequence triggers a security log event.
+- **Identity integrity:** `keeperd` stamps `FromID` on all inbound frames from the pipe the bytes arrived on. Agent-supplied `FromID` values are ignored and overwritten. Spoofing is structurally impossible.
+- **Back-pressure:** Before MUS decoding, each pipe is subject to a configurable byte-rate limit. Frames exceeding the limit are dropped and logged as `pipe_flood` security events. The nspawn cgroup CPU ceiling independently limits the throughput any agent can sustain.
+- **Protocol versioning:** The `Version` field in `SwarmHeader` is a wire protocol version, not a per-capability schema version. Breaking capability schema changes require a new capability name (e.g., `Email_Message_Send_v2`). Mixed-version Ward and `keeperd` binaries are not supported in a single swarm — the `distrobuild` image ensures all binaries are compiled from the same Nix Flake revision.
+
 ---
 
-### 5. Agent Topology & Relationships
+### 5. Agent Topology & Relationships (Post-MVP)
 
-The Orchestrator enforces a directed, acyclic **invocation graph** across the swarm. An agent may only send task messages to agents it is explicitly permitted to invoke. This prevents unconstrained fan-out, runaway recursive spawning, and agents communicating outside their intended scope.
+After the single-agent runtime core is proven, `keeperd` can enforce a directed, acyclic **invocation graph** across a swarm. An agent may only send task messages to agents it is explicitly permitted to invoke. This prevents unconstrained fan-out, runaway recursive spawning, and agents communicating outside their intended scope.
 
 #### 5a. Topology Declaration
 
-The swarm topology is declared in `orchestrator.kdl`. Each `agent` block defines which other agents it may invoke, how many concurrently, and whether it may spawn new agent instances from templates.
+The swarm topology is declared in `keeper.kdl`. Each `agent` block defines which other agents it may invoke, how many concurrently, and whether it may spawn new agent instances from templates.
 
 ```kdl
-// orchestrator.kdl
+// keeper.kdl
 swarm {
     max-agents   20   // hard cap on total live agents at any time
-    max-depth     4   // max invocation chain depth before the Orchestrator refuses routing
+    max-depth     4   // max invocation chain depth before keeperd refuses routing
 
     agent "coordinator" {
         can-invoke      "researcher" "writer" "coder"
@@ -189,7 +208,7 @@ swarm {
 
 #### 5b. Enforcement at Routing Time
 
-When the Orchestrator receives a `Swarm_Message_Send` or `Swarm_Agent_Spawn` request, it checks in order:
+When `keeperd` receives a `Swarm_Message_Send` or `Swarm_Agent_Spawn` request, it checks in order:
 
 1. **Relationship permitted:** Is `ToID` in the sender's `can-invoke` list? → else `capability_denied`.
 2. **Concurrency limit:** Does the sender currently have fewer than `max-concurrent` active invocations outstanding? → else `capability_denied`.
@@ -197,11 +216,13 @@ When the Orchestrator receives a `Swarm_Message_Send` or `Swarm_Agent_Spawn` req
 4. **Spawn budget:** For spawn requests, has the sender issued fewer than `max-spawns` this run? → else `capability_denied`.
 5. **Swarm cap:** Would this push total live agents above `max-agents`? → else `capability_denied`.
 
-On each hop the Orchestrator increments `Depth` and sets `ParentID` before forwarding. These fields are stamped by the Orchestrator and cannot be forged by agents.
+On each hop `keeperd` increments `Depth` and sets `ParentID` before forwarding. These fields are stamped by `keeperd` and cannot be forged by agents.
+
+**Identity verification:** A receiving agent can trust that a message with `FromID: "coordinator"` genuinely originated from the coordinator, because `keeperd` overwrites all `FromID` values at ingress from the registered pipe identity. Peer impersonation is structurally prevented. The topology `can-invoke` rules further ensure no agent can route messages to targets it is not permitted to address, validated at step 1.
 
 #### 5c. Agent Spawning
 
-An agent with `can-spawn true` may request the Orchestrator to create a new agent instance from a named template:
+An agent with `can-spawn true` may request `keeperd` to create a new agent instance from a named template:
 
 ```kdl
 // In agent.kdl grant block:
@@ -213,14 +234,14 @@ allow "Swarm_Agent_Spawn" {
 }
 ```
 
-The Orchestrator provisions a new Btrfs subvolume from the named template, starts the nspawn container, registers the new agent in the switchboard with `ParentID` set to the requesting agent, and returns the new agent's ID. The spawned agent is automatically torn down when the parent's run completes, unless it is explicitly promoted to a persistent agent by the operator via the TUI.
+`keeperd` provisions a new Btrfs subvolume from the named template, starts the nspawn container, registers the new agent in the switchboard with `ParentID` set to the requesting agent, and returns the new agent's ID. The spawned agent is automatically torn down when the parent's run completes, unless explicitly promoted to a persistent agent by the operator via `vivary`.
 
 #### 5d. Groups
 
 Agents may be members of named groups, enabling multicast messaging without enumerating individual targets:
 
 ```kdl
-// orchestrator.kdl
+// keeper.kdl
 groups {
     group "researchers" {
         members "researcher-01" "researcher-02" "researcher-03"
@@ -231,42 +252,73 @@ groups {
 }
 ```
 
-An agent sending to `group:researchers` must have each member of that group in its `can-invoke` list. The Orchestrator expands the group and validates each recipient individually before routing.
+An agent sending to `group:researchers` must have each member of that group in its `can-invoke` list. `keeperd` expands the group and validates each recipient individually before routing.
 
 ---
 
-### 6. Headless Cognitive Gateway
+### 6. External Access
 
-Agents interact with the outside world exclusively through MUS capability requests validated by the Orchestrator. Agents never hold credentials or open raw network sockets.
+Agents interact with the outside world exclusively through MUS capability requests validated by `keeperd`. Agents never hold credentials or open raw network sockets.
 
-#### 4a. Browser (Chrome Sidecar)
+#### 6a. Browser (Chrome Sidecar)
 
-A single headless Chrome instance runs on the **host OS** (outside all nspawn containers), bound to `localhost:9222`. The Orchestrator is the sole process that may connect to this port.
+A single headless Chrome instance runs on the **host OS** (outside all nspawn containers), bound to `localhost:9222`. `keeperd` is the sole process that may connect to this port.
 
-- Agents emit MUS-wrapped CDP verbs (e.g., `Chrome_Tab_GetWebContent`).
-- The Orchestrator validates the verb against the agent's ACL in `agent.kdl`.
+- Agents emit MUS-wrapped CDP verbs (e.g., `Browser_Page_Read`).
+- `keeperd` validates the verb against the agent's ACL in `agent.kdl`.
 - Validated requests are translated to Chrome DevTools Protocol JSON-RPC and forwarded to port 9222.
-- A whitelisting proxy in the Orchestrator enforces the `browser.whitelist` domain allowlist from `agent.kdl` — requests to unlisted domains are dropped before reaching Chrome.
+- A whitelisting proxy enforces the `browser.whitelist` domain allowlist — requests to unlisted domains are dropped before reaching Chrome.
 - Each agent is assigned an isolated Chrome profile (`--user-data-dir`) so cookies, sessions, and storage do not bleed between agents.
 - Because Chrome runs on the host OS, the nspawn container image requires no display server, window manager, or GPU drivers.
 
-#### 4b. REST APIs (Google Workspace, etc.)
+**Scaling note:** At high agent counts, each agent's isolated Chrome profile adds ~50–100MB of memory overhead on the host. A lazy-spawn model — shared Chrome instance with per-tab isolation rather than per-profile isolation — is a planned optimisation. At MVP scale (≤20 agents) the single-instance per-profile model is acceptable.
 
-Heavyweight REST APIs are wrapped by separate **Gateway Go binaries** invoked by the Orchestrator. These binaries translate MUS verbs into authenticated API calls.
+#### 6b. REST APIs (Google Workspace, etc.)
 
-- The Orchestrator holds all credentials in an AES-256-GCM encrypted vault. Agents reference a `credential_id` only — the secret value never enters the nspawn jail.
+Heavyweight REST APIs are wrapped by separate **REST Gateway Go binaries** invoked by `keeperd`. These binaries translate MUS verbs into authenticated API calls.
+
+- `keeperd` holds all credentials in an AES-256-GCM encrypted vault. Agents reference a `credential_id` only — the secret value never enters the nspawn container.
 - Gateway binaries strip response metadata bloat before returning results, reducing agent context consumption.
-- The vendor-neutral capability naming layer (e.g., `Calendar_Event_Create` rather than `Gsuite_Calendar_Insert`) allows the Orchestrator to swap underlying providers based on the agent's assigned `credential_id` without changing agent code.
+- The vendor-neutral capability naming layer (e.g., `Calendar_Event_Create` rather than `Gsuite_Calendar_Insert`) allows `keeperd` to swap underlying providers based on the agent's assigned `credential_id` without changing agent code.
+
+#### 6c. LLM API Network Access
+
+Each nspawn container is given a dedicated virtual ethernet pair (`veth`). `keeperd` configures nftables rules on the host-side veth at agent spawn time, whitelisting only the LLM API endpoint:
+
+```text
+# Host-side nftables rules applied per-agent veth
+table ip vivary-agent-<id> {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        ip daddr <resolved-llm-api-ip> tcp dport 443 accept
+        # All other traffic: drop
+    }
+}
+```
+
+The LLM API endpoint is specified per-agent in `agent.kdl`:
+
+```kdl
+agent id="assistant-01" {
+    llm {
+        command       "claude" "--headless"
+        api-endpoint  "api.anthropic.com:443"   // nftables whitelist target
+    }
+    ...
+}
+```
+
+The target hostname is resolved to IP(s) at spawn time and written into the ruleset. The Ward binary itself has no outbound network access — it communicates only via its MUS stdio pipe. Only the LLM subprocess initiates outbound connections, and only to the single whitelisted endpoint.
 
 ---
 
 ### 7. ECS Resource Model
 
-CRADLE uses an **Entity-Component-System** approach to model the resources that agents can act on. This separates *what resources exist* from *what actions can be performed on them*, and from *under what conditions those actions are permitted*.
+VIVARY uses an **Entity-Component-System** approach to model the resources that agents can act on. This separates *what resources exist* from *what actions can be performed on them*, and from *under what conditions those actions are permitted*.
 
 - **Components** (`capabilities/components.kdl`): Reusable property schemas — `Addressable`, `Located`, `Owned`, `Timestamped`, `Scheduled`, `Addressed`, `Sized`, `Shared`. Components are the atomic building blocks.
 - **Entities** (`capabilities/entities.kdl`): Named resource types composed from components — `File`, `Link`, `EmailMessage`, `CalendarEvent`, `Document`, `Repository`, etc. Each entity declares which scope constraint keys are valid for policy grants.
-- **Capabilities** (`capabilities/capabilities.kdl`): Declare which entities they `reads` or `writes`. This allows the Orchestrator to validate that scope constraints in `agent.kdl` are semantically meaningful for the capability being granted.
+- **Capabilities** (`capabilities/capabilities.kdl`): Declare which entities they `reads` or `writes`. This allows `keeperd` to validate at load time that scope constraints in `agent.kdl` are semantically meaningful for the capability being granted.
 - **Policy grants** (`agent.kdl`): Express *when* and *on what subset of resources* a capability may execute, using entity component properties as filter predicates.
 
 **Grant syntax in `agent.kdl`:**
@@ -315,22 +367,22 @@ agent id="assistant-01" {
 }
 ```
 
-**Orchestrator enforcement order** for each incoming capability request:
+**`keeperd` enforcement order** for each incoming capability request:
 
 1. Capability is in the agent's `allow` list → else `capability_denied`.
 2. Current time is within `schedule` window (UTC+TZ) → else `capability_denied`.
 3. Rate counter for this agent+capability within `rate` limit → else `capability_denied`.
 4. Entity scope constraints match the request's target resource → else `capability_denied`.
 5. If `requires-approval true` → pause and emit approval event (see §8).
-6. Dispatch to gateway.
+6. Dispatch to gateway binary.
 
 ---
 
 ### 8. Approval Flow
 
-When a grant includes `requires-approval true`, the Orchestrator suspends the capability request and notifies registered **notification targets** before proceeding.
+When a grant includes `requires-approval true`, `keeperd` suspends the capability request and notifies registered **approval targets** before proceeding.
 
-**Notification target interface (Go):**
+**Approval target interface (Go):**
 
 ```go
 type ApprovalTarget interface {
@@ -339,33 +391,25 @@ type ApprovalTarget interface {
 }
 ```
 
-**Initial target: TUI via ctl socket**
+**Initial target: vivary via ctl socket**
 
-The Orchestrator emits `MsgType_CtlApprovalRequired` to all active ctl subscribers (the TUI). The BubbleTea UI presents the request inline with full detail. The operator responds with `MsgType_CtlApprovalGrant` or `MsgType_CtlApprovalDeny`.
+`keeperd` emits `MsgType_CtlApprovalRequired` to all active ctl subscribers. The BubbleTea UI presents the request inline with full detail. The operator responds with `MsgType_CtlApprovalGrant` or `MsgType_CtlApprovalDeny`.
 
 **Future target: mobile push**
 
-A configurable webhook target in `orchestrator.kdl` sends a signed push notification payload to a mobile app endpoint. The mobile app calls back via a short-lived HTTPS endpoint exposed by the Orchestrator. This is the same `ApprovalTarget` interface — the Orchestrator does not need to know which targets are registered.
+A configurable webhook target sends a signed push notification payload to a mobile app endpoint. The mobile app calls back via a short-lived HTTPS endpoint exposed by `keeperd`. This uses the same `ApprovalTarget` interface — `keeperd` does not need to know which targets are registered.
 
 ```kdl
-// orchestrator.kdl
+// keeper.kdl
 approval {
     timeout "5m"         // auto-deny if no response within this window
     on-timeout "deny"    // deny | approve
     targets {
-        target "ctl"     // always registered; the TUI ctl socket
-        // target "webhook" url="https://notify.example.com/cradle" secret-id="push-key-01"
+        target "ctl"     // always registered; the vivary ctl socket
+        // target "webhook" url="https://notify.example.com/vivary" secret-id="push-key-01"
     }
 }
 ```
-
-**Control messages added to §3:**
-
-| MsgType | Direction | Purpose |
-|---|---|---|
-| `MsgType_CtlApprovalRequired` | Orchestrator → TUI | Pushed when a capability is awaiting approval; includes full request detail. |
-| `MsgType_CtlApprovalGrant` | TUI → Orchestrator | Operator approves the pending request. |
-| `MsgType_CtlApprovalDeny` | TUI → Orchestrator | Operator denies the pending request. |
 
 ---
 
@@ -386,25 +430,25 @@ capability "Email_Message_Send" {
 }
 ```
 
-This lets the Orchestrator validate at load time that every `entity` block in an `allow` grant references an entity type that the capability actually touches.
+This lets `keeperd` validate at load time that every `entity` block in an `allow` grant references an entity type the capability actually touches.
 
 **Go SDK (`SwarmCapability`):**
 
 ```go
 type SwarmCapability interface {
-    Explain() string       // static JSON schema string for LLM tool discovery
+    Explain() string       // static JSON schema string; generated by vivary-gen
     MarshalMUS() ([]byte, error)
     UnmarshalMUS([]byte) error
 }
 ```
 
-**`wrestle-gen` compile-time tool:** Processes Go structs annotated with `jsonschema` tags and generates the static string returned by `Explain()`. This eliminates runtime reflection overhead and ensures the schema the LLM receives is always in sync with what the Orchestrator's binary actually parses.
+**`vivary-gen` compile-time tool:** Processes Go structs annotated with `jsonschema` tags and generates the static string returned by `Explain()`. This eliminates runtime reflection and ensures the schema the LLM receives is always in sync with what `keeperd`'s binary parses.
 
 ```go
-// file: chrome_tab_getwebcontent.go
-//go:generate wrestle-gen -type=Chrome_Tab_GetWebContent
+// file: browser_page_read.go
+//go:generate vivary-gen -type=Browser_Page_Read
 
-type Chrome_Tab_GetWebContent struct {
+type Browser_Page_Read struct {
     URL     string `json:"url"      jsonschema:"description=Fully-qualified URL to fetch,example=https://en.wikipedia.org/wiki/Go_(programming_language)"`
     Timeout int    `json:"timeout"  jsonschema:"description=Max wait in seconds,default=30,minimum=1,maximum=120"`
 }
@@ -412,45 +456,67 @@ type Chrome_Tab_GetWebContent struct {
 
 The linter enforces: Namespace_Noun_Verb naming, `jsonschema` tags on all exported fields (description + at least one example or enum), snake_case JSON keys, no vendor-specific terms in generic namespaces.
 
+**Backward compatibility:** `vivary-gen` checks that any field removed or renamed in a capability struct would break existing `agent.kdl` policy grants referencing that capability's entity types. CI fails if a breaking change is introduced without a new versioned capability name (e.g., `Email_Message_Send_v2`).
+
 ---
 
 ### 10. Logging
 
-Three distinct log streams are produced, each serving a different consumer:
+Three distinct log streams, each serving a different consumer:
 
 #### 10a. Completion Events (Structured, per-prompt)
 
-Emitted by the Gateway to the Orchestrator at the end of every LLM subprocess run. Written to the SQLite WAL and surfaced in the TUI.
+Emitted by the Ward to `keeperd` at the end of every LLM subprocess run. Written to the SQLite WAL and surfaced in `vivary`.
 
 Fields: `agent_id`, `prompt_seq`, `timestamp_start`, `timestamp_end`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `context_window_used_pct`, `tool_calls_made`, `outcome` (`success` | `failure` | `loop_abort`).
 
 #### 10b. Agent Failure Events (Structured, actionable)
 
-Emitted by the Gateway when it detects a known failure mode. Written to the SQLite WAL with severity tagging.
+Emitted by the Ward when it detects a known local failure mode at the adapter/session boundary, or by `keeperd` when a well-formed request is rejected semantically. Written to the SQLite WAL with severity tagging.
 
 | Failure Mode | Trigger | Severity |
 |---|---|---|
-| `schema_mismatch` | LLM tool call JSON does not validate against the MUS capability schema | `warn` |
-| `loop_detected` | Same tool call + arguments repeated N times within a single prompt run | `error` |
-| `capability_denied` | MUS capability request rejected by Orchestrator ACL | `warn` |
+| `schema_mismatch` | LLM tool call cannot be parsed into a request that validates structurally against the capability schema | `warn` |
+| `loop_detected` | Same tool call + full argument set repeated N times within a single prompt run | `error` |
+| `capability_denied` | Well-formed MUS capability request rejected by `keeperd` ACL/policy checks | `warn` |
 | `subprocess_crash` | LLM CLI subprocess exits non-zero unexpectedly | `error` |
 | `timeout` | LLM subprocess exceeds configured wall-clock limit | `error` |
+| `pipe_flood` | Agent pipe exceeded byte-rate limit; frames dropped | `warn` |
+
+**Loop detection:** The hash key is `(capability_name, full_serialised_args)`. All arguments are included — including pagination parameters such as `offset`, `page`, and `cursor`. Legitimate pagination produces distinct argument hashes per page and does not trigger false positives.
 
 #### 10c. Audit Trail (Binary MUS, append-only SQLite WAL)
 
-Every MUS frame passing through the Orchestrator Switchboard is recorded verbatim. Payloads are stored as binary blobs. A companion CLI tool (`wrestle-log`) decodes and pretty-prints records, since raw MUS is opaque to standard shell tools.
+Every MUS frame passing through the Switchboard is recorded. The WAL table schema is: `timestamp TEXT | msg_type TEXT | from_id TEXT | to_id TEXT | payload BLOB` — the text columns are grep-able via `sqlite3`; payloads require `vivary-log` to decode.
 
-The hybrid log index format for the WAL table is: `timestamp TEXT | msg_type TEXT | from_id TEXT | to_id TEXT | payload BLOB` — the text columns remain grep-able via `sqlite3`; the payload requires `wrestle-log` to decode.
+**PII policy:** Capabilities in high-sensitivity categories (`Email`, `Messaging`, `Document`, `Database`) default to `audit-payload false` — `keeperd` logs the frame header (timestamp, agent, capability name, entity type) but not the payload blob. Full payload logging can be enabled per-capability or per-agent in `agent.kdl`. Encryption at rest for the SQLite WAL (SQLCipher) is planned post-MVP.
+
+### 10d. Debug Tooling
+
+The primary debug surface is a Unix-style CLI, `vivary-log`, built for inspection before richer fleet UX exists.
+
+- `vivary log tail` follows new WAL entries in real time.
+- `vivary log show --agent <id>` filters prompt runs and capability events by agent.
+- `vivary log grep --msg-type <type>` exposes grep-friendly headers for shell use.
+- `vivary log decode --seq <n>` renders a specific MUS record in structured form.
+- `vivary log dump --raw` provides raw payload bytes or encoded payload output when policy allows it.
+
+The design intent is that protocol bring-up, ACL debugging, and prompt-run inspection should all be possible from the CLI without needing internal ad hoc tooling.
 
 ---
 
 ### 11. Cross-Platform Deployment Strategy
 
 - **Base Image:** A minimal NixOS instance defined by a Nix Flake (`distrobuild`), pinning all dependencies — Go toolchain, `systemd-nspawn`, btrfs-progs, SQLite, Chrome.
+
 - **Containerization:** Packaged as an LXD/LXC container with `security.nesting=true` and Cgroup v2 delegation to allow `systemd-nspawn` to operate inside it.
-- **Security caveat:** Nesting weakens the outer container's isolation boundary by granting access to additional kernel namespace APIs. This is an accepted tradeoff for the LXD-as-transport-layer design; the Orchestrator's own process isolation is not dependent on the LXD boundary.
+
+- **Nesting security caveat:** `security.nesting=true` expands the kernel attack surface for inner nspawn containers. The threat model treats the LXD boundary as a **transport and distribution layer**, not a security boundary. The nspawn container with `-U` User Namespacing is the agent's actual security boundary. If an agent escapes nspawn, it is within the NixOS LXD container — isolated from the bare host OS and from other LXD containers. A hardened LXD profile (AppArmor policy, seccomp filter) reducing the nesting surface is planned post-MVP. See [SECURITY.md](SECURITY.md) for the full threat model.
+
 - **Host OS:**
   - **Linux:** Native LXD (Ubuntu, Fedora, CachyOS, etc.).
   - **Windows 11:** LXD inside WSL2 (supports Cgroup v2 and GPU offloading).
   - **macOS:** LXD via OrbStack or Lima.
-- **`distrobuild`:** A script that builds and exports the NixOS LXD image from the Flake. Running `distrobuild` on any supported host produces a byte-identical image, ensuring environment parity across the swarm.
+- **`distrobuild`:** A script that builds and exports the NixOS LXD image from the Flake. Running `distrobuild` on any supported host produces a byte-identical image, ensuring environment parity across the swarm. All VIVARY binaries (`keeperd`, `ward`, `vivary`) are compiled from the same Flake revision, ensuring Ward and keeperd schema versions are always in sync.
+
+- **Btrfs on virtualised storage:** In WSL2 and OrbStack environments, Btrfs runs on a virtual disk image. Snapshot creation remains O(1) (a Btrfs metadata operation), but the underlying virtual disk driver may add latency. Known requirements: OrbStack/Lima requires `btrfs.subvol=true` in the VM config; WSL2 requires the VHD to be formatted as Btrfs at creation time. Both are handled automatically by `distrobuild`.

@@ -1,4 +1,4 @@
-// CRADLE Entity Component Registry
+// VIVARY Entity Component Registry
 // Defines reusable property schemas (Components) that compose into Entity types.
 // Components are the building blocks of the ECS resource model.
 // Capabilities declare which entities they operate on; policy grants constrain
@@ -33,7 +33,7 @@ component "Identified" {
 
 component "Owned" {
     description "An entity associated with a credential or user identity"
-    field "credential_id" type="string" description="CRADLE credential ID that owns or can access this entity"
+    field "credential_id" type="string" description="VIVARY credential ID that owns or can access this entity"
     field "owner_email"   type="string" description="Email address of the owning user account"
 }
 

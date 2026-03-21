@@ -1,6 +1,6 @@
-// CRADLE Capability Categories
+// VIVARY Capability Categories
 // Defines the namespaces used in the Namespace_Noun_Verb capability grammar.
-// Each category maps to a gateway implementation in the Orchestrator.
+// Each category maps to a gateway binary invoked by keeperd.
 // ─── Browser ──────────────────────────────────────────────────────────────────
 category "Browser" {
     description "Browser automation via the host-side Chrome CDP firewall"
@@ -104,9 +104,9 @@ category "Media" {
 }
 // ─── Swarm Coordination ───────────────────────────────────────────────────────
 category "Swarm" {
-    description "Agent-to-agent messaging via the Orchestrator MUS switchboard"
+    description "Agent-to-agent messaging via the keeperd MUS switchboard"
     gateway "switchboard"
     risk "medium"
-    note "Message routing is ACL-enforced by the Orchestrator; agents cannot self-grant destinations"
+    note "Message routing is ACL-enforced by keeperd; agents cannot self-grant destinations"
 }
 
