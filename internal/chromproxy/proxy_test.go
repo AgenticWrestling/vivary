@@ -1,0 +1,127 @@
+package chromproxy
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+// ---- urlInScope ------------------------------------------------------------
+
+func TestURLInScope_EmptyScope(t *testing.T) {
+	// Empty scope → caller already enforced; proxy accepts everything.
+	if !urlInScope("https://example.com/page", "") {
+		t.Error("empty scope should allow all URLs (defence-in-depth stub)")
+	}
+}
+
+func TestURLInScope_MatchingPrefix(t *testing.T) {
+	cases := []struct {
+		url   string
+		scope string
+		want  bool
+	}{
+		{"https://example.com/page", "https://example.com", true},
+		{"https://example.com/page", "https://other.com", false},
+		{"https://example.com/page", "https://other.com,https://example.com", true},
+		{"https://example.com/page", "https://example.com,https://other.com", true},
+		{"https://sub.example.com/", "https://example.com", false}, // prefix mismatch
+		{"http://example.com/page", "https://example.com", false},  // scheme mismatch
+		{"", "https://example.com", false},
+	}
+	for _, tc := range cases {
+		got := urlInScope(tc.url, tc.scope)
+		if got != tc.want {
+			t.Errorf("urlInScope(%q, %q) = %v, want %v", tc.url, tc.scope, got, tc.want)
+		}
+	}
+}
+
+// ---- Proxy.ReadPage — no Chrome running ------------------------------------
+
+// TestReadPage_ChromeUnavailable verifies that ReadPage returns an error
+// (not a panic) when the Chrome debug port is not reachable.
+func TestReadPage_ChromeUnavailable(t *testing.T) {
+	// Use a port that is definitely not in use.
+	p := New("127.0.0.1:19222")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", "networkidle", 1024)
+	if err == nil {
+		t.Error("expected error when Chrome is unavailable, got nil")
+	}
+}
+
+// ---- Proxy.ReadPage — mock HTTP server (no actual Chrome) -----------------
+
+// mockCDPServer simulates enough of Chrome's debug HTTP API for testing
+// the proxy connection path.  It responds to /json/new with a fake target
+// and then closes the WebSocket upgrade immediately.
+type mockCDPServer struct {
+	server *httptest.Server
+}
+
+func newMockCDPServer(t *testing.T) *mockCDPServer {
+	t.Helper()
+	mux := http.NewServeMux()
+
+	// /json/new — Chrome creates a new tab and returns its target info.
+	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := map[string]string{
+			"id":                "fake-target-id",
+			"type":              "page",
+			"webSocketDebuggerUrl": "ws://placeholder/devtools/page/fake-target-id",
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	// /json — list targets
+	mux.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return &mockCDPServer{server: srv}
+}
+
+// TestReadPage_MockServer_ConnectionError verifies the proxy fails gracefully
+// when Chrome returns a target but the WebSocket upgrade fails (no CDP support
+// in the mock).
+func TestReadPage_MockServer_ConnectionError(t *testing.T) {
+	mock := newMockCDPServer(t)
+
+	// Strip "http://" to get host:port for the proxy.
+	addr := strings.TrimPrefix(mock.server.URL, "http://")
+	p := New(addr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// The proxy will contact /json/new, get a target, then try to upgrade to
+	// WebSocket — which will fail because our mock doesn't implement CDP.
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", "networkidle", 1024)
+	if err == nil {
+		t.Error("expected error (WebSocket upgrade fails on mock server), got nil")
+	}
+}
+
+// TestReadPage_ContextCancellation verifies that ReadPage respects context cancellation.
+func TestReadPage_ContextCancellation(t *testing.T) {
+	p := New("127.0.0.1:19222")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", "networkidle", 1024)
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+}

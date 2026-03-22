@@ -224,7 +224,7 @@ func parseStructFields(st *ast.StructType) (props map[string]any, required []str
 
 		if enum := st.Get("enum"); enum != "" {
 			var vals []string
-			for _, v := range strings.Split(enum, ",") {
+			for v := range strings.SplitSeq(enum, ",") {
 				vals = append(vals, strings.TrimSpace(v))
 			}
 			prop["enum"] = vals

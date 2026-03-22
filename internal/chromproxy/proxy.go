@@ -374,7 +374,7 @@ func urlInScope(rawURL, scopeStr string) bool {
 		return true // caller already enforced scope; proxy accepts
 	}
 	needle := strings.ToLower(rawURL)
-	for _, prefix := range strings.Split(scopeStr, ",") {
+	for prefix := range strings.SplitSeq(scopeStr, ",") {
 		p := strings.TrimSpace(strings.ToLower(prefix))
 		if p != "" && strings.HasPrefix(needle, p) {
 			return true
