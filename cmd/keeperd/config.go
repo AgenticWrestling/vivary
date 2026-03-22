@@ -299,8 +299,13 @@ func splitLines(s string) []string {
 }
 
 func trimComment(s string) string {
-	for i := 0; i < len(s)-1; i++ {
-		if s[i] == '/' && s[i+1] == '/' {
+	inQuote := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '"' {
+			inQuote = !inQuote
+			continue
+		}
+		if !inQuote && i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
 			return trimSpace(s[:i])
 		}
 	}
