@@ -1,0 +1,34 @@
+<svg width="600" height="200" viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg">
+    <!-- Geometric futuristic font simulation -->
+    <defs>
+        <style>
+            .logo-text {
+                font-family: 'Space Grotesk', sans-serif;
+                font-weight: 700;
+                font-size: 100px;
+                fill: #00d2ff;
+                text-transform: uppercase;
+                letter-spacing: -2px;
+            }
+            .subtitle-text {
+                font-family: 'Sansation', sans-serif;
+                font-size: 24px;
+                fill: #a0a0a0;
+                letter-spacing: 1px;
+            }
+            .accent-line {
+                stroke: #333d4d;
+                stroke-width: 1;
+            }
+        </style>
+    </defs>
+    
+    <!-- VIVIARY text -->
+    <text x="50%" y="110" text-anchor="middle" class="logo-text">VIVIARY</text>
+    
+    <!-- Divider line -->
+    <line x1="150" y1="135" x2="450" y2="135" class="accent-line" />
+    
+    <!-- Subtitle -->
+    <text x="50%" y="170" text-anchor="middle" class="subtitle-text">A place for keeping evolving agents.</text>
+</svg>

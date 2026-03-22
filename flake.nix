@@ -11,13 +11,13 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = lib.genAttrs systems;
 
-      # Build all VIVARY runtime binaries from source via buildGoModule.
+      # Build all VIVARY runtime binaries from source.
       # On first build set vendorHash = lib.fakeHash, run `nix build`, then
-      # replace with the sha256 printed in the error message.
+      # substitute the sha256 printed in the error message.
       mkVivaryPackages = pkgs: pkgs.buildGoModule {
-        pname = "vivary";
+        pname   = "vivary";
         version = "0.1.0-dev";
-        src = lib.cleanSource ./.;
+        src     = lib.cleanSource ./.;
         vendorHash = lib.fakeHash;
         subPackages = [
           "cmd/keeperd"
@@ -26,20 +26,52 @@
           "cmd/ward"
           "cmd/cap-cli"
         ];
-        # vivary-gen is a dev/codegen tool; it is not shipped in the runtime image.
+        # vivary-gen is a dev/codegen tool; not shipped in the runtime image.
       };
 
-      mkImagePackage = { pkgs, rootfs, metadata, name, readme }:
-        pkgs.runCommand name
-          { nativeBuildInputs = [ pkgs.coreutils ]; }
-          ''
-            mkdir -p "$out"
-            ln -s ${rootfs}   "$out/${name}-rootfs.tar.xz"
-            ln -s ${metadata} "$out/${name}-metadata.tar.xz"
-            cat > "$out/README.txt" <<'READMEEOF'
+      # Generate a minimal LXD-compatible metadata tarball.
+      # LXD requires a metadata.tar.xz alongside the rootfs when importing
+      # an image produced outside of LXD itself.
+      mkLxdMetadata = { pkgs, system, description }:
+        let
+          arch = { "x86_64-linux" = "x86_64"; "aarch64-linux" = "aarch64"; }.${system};
+        in
+        pkgs.runCommand "lxd-metadata.tar.xz" {
+          nativeBuildInputs = [ pkgs.gnutar pkgs.xz ];
+          meta = builtins.toJSON {
+            architecture  = arch;
+            creation_date = 0;
+            properties    = { description = description; os = "nixos"; release = "25.11"; };
+            templates     = { };
+          };
+          passAsFile = [ "meta" ];
+        } ''
+          mkdir tmp
+          cp "$metaPath" tmp/metadata.yaml
+          tar -C tmp -cJf "$out" metadata.yaml
+        '';
+
+      # Bundle a NixOS rootfs tarball and a generated LXD metadata tarball
+      # into a single derivation output the distro-lxd.sh script can use.
+      mkImagePackage = { pkgs, system, nixosCfg, name, readme }:
+        let
+          # system.build.tarball is produced by lxc-container.nix via
+          # make-system-tarball.nix; it puts the archive in $drv/tarball/.
+          rootfsDrv = nixosCfg.config.system.build.tarball;
+          metaDrv   = mkLxdMetadata { inherit pkgs system; description = name; };
+        in
+        pkgs.runCommand name {
+          nativeBuildInputs = [ pkgs.coreutils ];
+        } ''
+          mkdir -p "$out"
+          # There is exactly one .tar.xz in the tarball/ subdirectory.
+          rootfs=$(echo ${rootfsDrv}/tarball/*.tar.xz)
+          ln -s "$rootfs"  "$out/${name}-rootfs.tar.xz"
+          ln -s ${metaDrv} "$out/${name}-metadata.tar.xz"
+          cat > "$out/README.txt" <<'READMEEOF'
 ${readme}
 READMEEOF
-          '';
+        '';
     in {
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
 
@@ -50,9 +82,6 @@ READMEEOF
           };
         });
 
-      # Internal NixOS system configurations used to derive LXD image tarballs.
-      # Named with a system suffix to avoid clashing with the standard nixosConfigurations
-      # convention (which expects named machines, not per-system outputs).
       nixosConfigurationsBase = forAllSystems (system:
         lib.nixosSystem {
           inherit system;
@@ -72,18 +101,17 @@ READMEEOF
 
       packages = forAllSystems (system:
         let
-          pkgs      = nixpkgs.legacyPackages.${system};
-          baseCfg   = self.nixosConfigurationsBase.${system};
-          rtCfg     = self.nixosConfigurationsRuntime.${system};
+          pkgs    = nixpkgs.legacyPackages.${system};
+          baseCfg = self.nixosConfigurationsBase.${system};
+          rtCfg   = self.nixosConfigurationsRuntime.${system};
         in {
-          # vivary — Go binaries only (useful for CI artefacts independent of an image build)
+          # Go binaries only — useful as a CI artefact independent of the image build.
           vivary = mkVivaryPackages pkgs;
 
-          # distrobuild — minimal headless NixOS LXC base image, no VIVARY binaries
+          # Minimal headless NixOS LXC base image; no VIVARY binaries.
           distrobuild = mkImagePackage {
-            inherit pkgs;
-            rootfs   = baseCfg.config.system.build.images.lxc;
-            metadata = baseCfg.config.system.build.images.lxc-metadata;
+            inherit pkgs system;
+            nixosCfg = baseCfg;
             name     = "vivary-lxc-base";
             readme   = ''
 VIVARY distrobuild — base image
@@ -94,22 +122,19 @@ Import into LXD:
                    vivary-lxc-base-rootfs.tar.xz \
                    --alias vivary-base
 
-Then launch (see scripts/distro-lxd.sh launch):
+Then launch:
 
-  lxc launch vivary-base vivary \
-    --config security.nesting=true \
-    --config linux.kernel.modules=overlay,nf_tables
+  scripts/distro-lxd.sh launch vivary-base vivary
 
-Minimal headless NixOS.  Includes: btrfs-progs, nftables, cacert.
+Minimal headless NixOS. Includes: btrfs-progs, nftables, cacert.
 Chromium runs at the host OS layer, not inside this image.
             '';
           };
 
-          # distrobuild-runtime — base image + VIVARY binaries at LSB paths
+          # Base image + VIVARY binaries at LSB paths.
           distrobuild-runtime = mkImagePackage {
-            inherit pkgs;
-            rootfs   = rtCfg.config.system.build.images.lxc;
-            metadata = rtCfg.config.system.build.images.lxc-metadata;
+            inherit pkgs system;
+            nixosCfg = rtCfg;
             name     = "vivary-lxc-runtime";
             readme   = ''
 VIVARY distrobuild — runtime image
@@ -120,11 +145,11 @@ Import into LXD:
                    vivary-lxc-runtime-rootfs.tar.xz \
                    --alias vivary-runtime
 
-Then launch (see scripts/distro-lxd.sh launch):
+Then launch:
 
   scripts/distro-lxd.sh launch vivary-runtime vivary
 
-Includes the base image plus: keeperd, vivary, vivary-log at /usr/bin/;
+Includes base image plus: keeperd, vivary, vivary-log in PATH;
 ward and cap-cli at /usr/lib/vivary/ for nspawn bind-mounting.
 Chromium runs at the host OS layer.
             '';
