@@ -18,7 +18,7 @@
         pname   = "vivary";
         version = "0.1.0-dev";
         src     = lib.cleanSource ./.;
-        vendorHash = "sha256-NYcKSTWT2VtDfJNIZiZbELjW8nNRD3SRig46OW+35NQ=";
+        vendorHash = lib.fakeHash;
         subPackages = [
           "cmd/keeperd"
           "cmd/vivary"

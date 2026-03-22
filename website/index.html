@@ -25,7 +25,34 @@
         <section class="hero">
             <div class="container">
                 <div class="logo-container">
-                    <img src="logo.svg" alt="VIVIARY Logo" class="main-logo-svg">
+                    <!-- Inlined VIVIARY Logo SVG -->
+                    <svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" class="main-logo-svg">
+                        <defs>
+                            <style>
+                                .logo-text {
+                                    font-family: 'Space Grotesk', sans-serif;
+                                    font-weight: 700;
+                                    font-size: 100px;
+                                    fill: #00d2ff;
+                                    text-transform: uppercase;
+                                    letter-spacing: -2px;
+                                }
+                                .subtitle-text {
+                                    font-family: 'Sansation', sans-serif;
+                                    font-size: 24px;
+                                    fill: #a0a0a0;
+                                    letter-spacing: 1px;
+                                }
+                                .accent-line {
+                                    stroke: #333d4d;
+                                    stroke-width: 1;
+                                }
+                            </style>
+                        </defs>
+                        <text x="50%" y="110" text-anchor="middle" class="logo-text">VIVIARY</text>
+                        <line x1="150" y1="135" x2="450" y2="135" class="accent-line" />
+                        <text x="50%" y="170" text-anchor="middle" class="subtitle-text">A place for keeping evolving agents.</text>
+                    </svg>
                 </div>
                 <p class="tagline">Virtualized Isolated Verifiable Agent Runtime Yard</p>
                 <p class="description">A governed runtime for isolated, auditable AI agents on a shared host. VIVIARY provides a hardened environment with strict security boundaries, comprehensive audit trails, and zero-exposure credential management.</p>
