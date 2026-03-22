@@ -14,7 +14,7 @@
 <body>
     <header>
         <nav class="container">
-            <div class="logo-asimovian">viviary</div>
+            <div class="logo-viviary">viviary</div>
             <ul class="nav-links">
                 <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fa-brands fa-github"></i> GitHub</a></li>
             </ul>
@@ -25,8 +25,7 @@
         <section class="hero">
             <div class="container">
                 <div class="logo-container">
-                    <h1 class="logo-asimovian-large">viviary</h1>
-                    <p class="logo-subtitle">A place for keeping evolving agents.</p>
+                    <img src="logo.svg" alt="VIVIARY Logo" class="main-logo-svg">
                 </div>
                 <p class="tagline">Virtualized Isolated Verifiable Agent Runtime Yard</p>
                 <p class="description">A governed runtime for isolated, auditable AI agents on a shared host. VIVIARY provides a hardened environment with strict security boundaries, comprehensive audit trails, and zero-exposure credential management.</p>
@@ -107,9 +106,9 @@
                         <text x="75" y="140" class="svg-bold">keeperd</text>
                         <text x="75" y="160" class="svg-small">Policy & Router</text>
 
-                        <!-- vivary TUI -->
+                        <!-- VIVIARY TUI -->
                         <rect x="60" y="210" width="120" height="50" rx="8" class="svg-box tui-box" />
-                        <text x="75" y="240" class="svg-bold">vivary</text>
+                        <text x="75" y="240" class="svg-bold">VIVIARY</text>
                         <text x="75" y="255" class="svg-tiny">TUI/CLI</text>
 
                         <!-- nspawn Agent A -->
@@ -153,8 +152,8 @@
                     <div class="arch-text">
                         <p>VIVIARY separates concerns through a multi-layered isolation model:</p>
                         <ul>
-                            <li><strong>Vivary Keeper (<code>keeperd</code>):</strong> The central daemon, running in the LXD container, managing the secure vault and routing all capability requests.</li>
-                            <li><strong>Vivary Ward (<code>ward</code>):</strong> The adapter inside each nspawn jail that translates LLM tool calls into VIVIARY's MUS protocol.</li>
+                            <li><strong>VIVIARY Keeper (<code>keeperd</code>):</strong> The central daemon, running in the LXD container, managing the secure vault and routing all capability requests.</li>
+                            <li><strong>VIVIARY Ward (<code>ward</code>):</strong> The adapter inside each nspawn jail that translates LLM tool calls into VIVIARY's MUS protocol.</li>
                             <li><strong>Headless Chrome:</strong> Runs on the host OS for maximum performance, with <code>keeperd</code> proxying isolated profiles to each agent.</li>
                         </ul>
                     </div>
