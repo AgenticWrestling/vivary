@@ -28,16 +28,12 @@ in {
     bashInteractive
     btrfs-progs
     cacert
-    chromium
-    curl
-    jq
     nftables
     sqlite
   ];
 
   services.openssh.enable = false;
   services.udisks2.enable = false;
-  services.dbus.implementation = "broker";
 
   security.sudo.enable = false;
   users.mutableUsers = false;
@@ -51,7 +47,6 @@ in {
   environment.etc."subuid".text = "root:100000:${toString subidCount}\n";
   environment.etc."subgid".text = "root:100000:${toString subidCount}\n";
 
-  systemd.enableUnifiedCgroupHierarchy = true;
   systemd.extraConfig = ''
     DefaultTimeoutStopSec=15s
   '';

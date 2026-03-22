@@ -62,7 +62,9 @@ Example:
   lxc image import vivary-lxc-metadata.tar.xz vivary-lxc-rootfs.tar.xz --alias vivary-base
 
 The image is intentionally minimal and headless. It provides the base NixOS runtime,
-systemd-nspawn support, Btrfs tooling, nftables, SQLite, and headless Chromium.
+systemd-nspawn support, Btrfs tooling, nftables, and SQLite.
+Chromium is intentionally not included here because browser execution happens at the host OS layer,
+outside the NixOS LXD guest.
 Project binaries are expected to be layered separately once the Go build is stable.
 EOF
             '';
