@@ -10,135 +10,123 @@
       lib = nixpkgs.lib;
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = lib.genAttrs systems;
-      mkVivaryRuntimePackage = pkgs:
-        let
-          repoRoot = ./.;
-          binaryNames = [ "keeperd" "ward" "vivary" "vivary-log" ];
-          binariesPresent = lib.all (name: builtins.pathExists (repoRoot + "/bin/${name}")) binaryNames;
-        in
-          if binariesPresent then
-            pkgs.stdenvNoCC.mkDerivation {
-              pname = "vivary-runtime-binaries";
-              version = "dev";
-              src = repoRoot + "/bin";
-              dontUnpack = true;
-              installPhase = ''
-                mkdir -p "$out/bin"
-                install -m755 "$src/keeperd" "$out/bin/keeperd"
-                install -m755 "$src/ward" "$out/bin/ward"
-                install -m755 "$src/vivary" "$out/bin/vivary"
-                install -m755 "$src/vivary-log" "$out/bin/vivary-log"
-              '';
-            }
-          else
-            pkgs.runCommandNoCC "vivary-runtime-binaries-unavailable" { } ''
-              echo "missing runtime binaries in ./bin; run go-task build once the Go build is stable" >&2
-              exit 1
-            '';
+
+      # Build all VIVARY runtime binaries from source via buildGoModule.
+      # On first build set vendorHash = lib.fakeHash, run `nix build`, then
+      # replace with the sha256 printed in the error message.
+      mkVivaryPackages = pkgs: pkgs.buildGoModule {
+        pname = "vivary";
+        version = "0.1.0-dev";
+        src = lib.cleanSource ./.;
+        vendorHash = lib.fakeHash;
+        subPackages = [
+          "cmd/keeperd"
+          "cmd/vivary"
+          "cmd/vivary-log"
+          "cmd/ward"
+          "cmd/cap-cli"
+        ];
+        # vivary-gen is a dev/codegen tool; it is not shipped in the runtime image.
+      };
+
       mkImagePackage = { pkgs, rootfs, metadata, name, readme }:
         pkgs.runCommand name
-          {
-            nativeBuildInputs = [ pkgs.coreutils ];
-          }
+          { nativeBuildInputs = [ pkgs.coreutils ]; }
           ''
             mkdir -p "$out"
-            ln -s ${rootfs} "$out/${name}-rootfs.tar.xz"
+            ln -s ${rootfs}   "$out/${name}-rootfs.tar.xz"
             ln -s ${metadata} "$out/${name}-metadata.tar.xz"
-            cat > "$out/README.txt" <<'EOF'
+            cat > "$out/README.txt" <<'READMEEOF'
 ${readme}
-EOF
+READMEEOF
           '';
     in {
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
 
       devShells = forAllSystems (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in {
+        let pkgs = nixpkgs.legacyPackages.${system}; in {
           default = pkgs.mkShell {
-            packages = with pkgs; [
-              go
-              go-task
-              nixfmt-rfc-style
-            ];
+            packages = with pkgs; [ go go-task nixfmt-rfc-style ];
           };
         });
 
-      nixosConfigurations = forAllSystems (system:
+      # Internal NixOS system configurations used to derive LXD image tarballs.
+      # Named with a system suffix to avoid clashing with the standard nixosConfigurations
+      # convention (which expects named machines, not per-system outputs).
+      nixosConfigurationsBase = forAllSystems (system:
         lib.nixosSystem {
           inherit system;
-          modules = [
-            ./nix/modules/distro-base.nix
-          ];
+          modules = [ ./nix/modules/distro-base.nix ];
         });
 
       nixosConfigurationsRuntime = forAllSystems (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-          lib.nixosSystem {
-            inherit system;
-            specialArgs = {
-              vivaryRuntimePackage = mkVivaryRuntimePackage pkgs;
-            };
-            modules = [
-              ./nix/modules/distro-base.nix
-              ./nix/modules/distro-runtime.nix
-            ];
-          });
+        let pkgs = nixpkgs.legacyPackages.${system}; in
+        lib.nixosSystem {
+          inherit system;
+          specialArgs = { vivaryPackages = mkVivaryPackages pkgs; };
+          modules = [
+            ./nix/modules/distro-base.nix
+            ./nix/modules/distro-runtime.nix
+          ];
+        });
 
       packages = forAllSystems (system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
-          baseCfg = self.nixosConfigurations.${system};
-          runtimeCfg = self.nixosConfigurationsRuntime.${system};
+          pkgs      = nixpkgs.legacyPackages.${system};
+          baseCfg   = self.nixosConfigurationsBase.${system};
+          rtCfg     = self.nixosConfigurationsRuntime.${system};
         in {
+          # vivary — Go binaries only (useful for CI artefacts independent of an image build)
+          vivary = mkVivaryPackages pkgs;
+
+          # distrobuild — minimal headless NixOS LXC base image, no VIVARY binaries
           distrobuild = mkImagePackage {
             inherit pkgs;
-            rootfs = baseCfg.config.system.build.images.lxc;
+            rootfs   = baseCfg.config.system.build.images.lxc;
             metadata = baseCfg.config.system.build.images.lxc-metadata;
-            name = "vivary-lxc-base";
-            readme = ''
-VIVARY distrobuild output
+            name     = "vivary-lxc-base";
+            readme   = ''
+VIVARY distrobuild — base image
 
-This directory contains the two tarballs needed to import the base image into LXD:
+Import into LXD:
 
-  - vivary-lxc-base-rootfs.tar.xz
-  - vivary-lxc-base-metadata.tar.xz
+  lxc image import vivary-lxc-base-metadata.tar.xz \
+                   vivary-lxc-base-rootfs.tar.xz \
+                   --alias vivary-base
 
-Example:
+Then launch (see scripts/distro-lxd.sh launch):
 
-  lxc image import vivary-lxc-base-metadata.tar.xz vivary-lxc-base-rootfs.tar.xz --alias vivary-base
+  lxc launch vivary-base vivary \
+    --config security.nesting=true \
+    --config linux.kernel.modules=overlay,nf_tables
 
-The image is intentionally minimal and headless. It provides the base NixOS runtime,
-systemd-nspawn support, Btrfs tooling, nftables, and SQLite.
-Chromium is intentionally not included here because browser execution happens at the host OS layer,
-outside the NixOS LXD guest.
-Project binaries are expected to be layered separately once the Go build is stable.
+Minimal headless NixOS.  Includes: btrfs-progs, nftables, cacert.
+Chromium runs at the host OS layer, not inside this image.
             '';
           };
 
+          # distrobuild-runtime — base image + VIVARY binaries at LSB paths
           distrobuild-runtime = mkImagePackage {
             inherit pkgs;
-            rootfs = runtimeCfg.config.system.build.images.lxc;
-            metadata = runtimeCfg.config.system.build.images.lxc-metadata;
-            name = "vivary-lxc-runtime";
-            readme = ''
-VIVARY runtime distrobuild output
+            rootfs   = rtCfg.config.system.build.images.lxc;
+            metadata = rtCfg.config.system.build.images.lxc-metadata;
+            name     = "vivary-lxc-runtime";
+            readme   = ''
+VIVARY distrobuild — runtime image
 
-This directory contains the two tarballs needed to import the runtime image into LXD:
+Import into LXD:
 
-  - vivary-lxc-runtime-rootfs.tar.xz
-  - vivary-lxc-runtime-metadata.tar.xz
+  lxc image import vivary-lxc-runtime-metadata.tar.xz \
+                   vivary-lxc-runtime-rootfs.tar.xz \
+                   --alias vivary-runtime
 
-Example:
+Then launch (see scripts/distro-lxd.sh launch):
 
-  lxc image import vivary-lxc-runtime-metadata.tar.xz vivary-lxc-runtime-rootfs.tar.xz --alias vivary-runtime
+  scripts/distro-lxd.sh launch vivary-runtime vivary
 
-This image extends the minimal headless base image with the VIVARY runtime filesystem layout
-and the locally prepared VIVARY binaries from ./bin.
-If the binaries are not present yet, this build will fail with an explicit message.
-Chromium is still intentionally excluded because browser execution belongs to the host OS layer.
+Includes the base image plus: keeperd, vivary, vivary-log at /usr/bin/;
+ward and cap-cli at /usr/lib/vivary/ for nspawn bind-mounting.
+Chromium runs at the host OS layer.
             '';
           };
 
