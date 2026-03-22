@@ -1,0 +1,24 @@
+# Build outputs
+bin/
+result
+result-*
+
+# Nix
+.direnv/
+
+# Go test cache / fuzz corpus
+*.test
+
+# Runtime workspace files (not committed)
+keeper.sock
+audit.db
+vault.enc
+orchestrator.kdl
+
+# Accidentally built binaries at repo root
+vivary
+keeperd
+ward
+vivary-log
+cap-cli
+vivary-gen
