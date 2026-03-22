@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIVARY - Virtualized Isolated Verifiable Agent Runtime Yard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <div class="logo">VIVARY</div>
+            <ul class="nav-links">
+                <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fab fa-github"></i> GitHub</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h1>VIVARY</h1>
+                <p class="tagline">Virtualized Isolated Verifiable Agent Runtime Yard</p>
+                <p class="description">A governed runtime for isolated, auditable AI agents on a shared host. VIVARY provides a hardened environment with strict security boundaries, comprehensive audit trails, and zero-exposure credential management.</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fab fa-github"></i> View on GitHub</a>
+                </div>
+            </div>
+        </section>
+
+        <section id="benefits" class="benefits">
+            <div class="container">
+                <h2 class="section-title">Core Benefits</h2>
+                <div class="benefits-grid">
+                    <div class="benefit-card">
+                        <div class="icon"><i class="fas fa-shield-alt"></i></div>
+                        <h3>Triple-Boundary Isolation</h3>
+                        <p>Each agent is isolated via systemd-nspawn jails, Btrfs subvolumes, and firewalled veth interfaces. No raw network access beyond the LLM API endpoint.</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="icon"><i class="fas fa-lock"></i></div>
+                        <h3>Zero-Exposure Governance</h3>
+                        <p>Agents never hold API keys or credentials. <code>keeperd</code> resolves references to a secure vault only at the gateway invocation layer.</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="icon"><i class="fas fa-terminal"></i></div>
+                        <h3>Capability-as-CLI</h3>
+                        <p>Capabilities appear as self-documenting CLI tools. The Ward handles syntax translation into MUS frames, while <code>keeperd</code> remains the semantic authority.</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="icon"><i class="fas fa-list-ul"></i></div>
+                        <h3>Comprehensive Auditability</h3>
+                        <p>Every request and response is recorded in a binary MUS audit trail. Unix-style debug tooling allows operators to inspect and decode the runtime's actions.</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="icon"><i class="fas fa-fingerprint"></i></div>
+                        <h3>Identity Integrity</h3>
+                        <p>Agent identity (FromID) is stamped by <code>keeperd</code> based on the physical pipe a message arrived on. Peer impersonation is structurally impossible.</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="icon"><i class="fas fa-microchip"></i></div>
+                        <h3>Cross-Platform Parity</h3>
+                        <p>Packaged as a NixOS LXD container via a distrobuild script, ensuring identical execution on Linux, Windows 11 (WSL2), and macOS (OrbStack).</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="architecture">
+            <div class="container">
+                <h2 class="section-title">Architecture Overview</h2>
+                <div class="arch-content">
+                    <div class="arch-text">
+                        <p>VIVARY separates concerns through a dual-binary model:</p>
+                        <ul>
+                            <li><strong>Vivary Keeper (<code>keeperd</code>):</strong> The central daemon, message router, policy enforcer, and credential vault.</li>
+                            <li><strong>Vivary Ward (<code>ward</code>):</strong> The per-agent control plane inside each nspawn container, managing the LLM subprocess lifecycle and tool translation.</li>
+                        </ul>
+                        <p>Communication occurs over a tightly controlled MUS-formatted stdio pipe, ensuring O(1) performance and zero-allocation routing.</p>
+                    </div>
+                    <div class="arch-visual">
+                        <!-- Stylized CSS representation of the architecture -->
+                        <div class="arch-box keeper">Keeper Daemon (Control Plane)</div>
+                        <div class="arch-arrow"><span>MUS Stdio Pipe</span></div>
+                        <div class="arch-box agent">
+                            <div class="ward">Ward (Adapter)</div>
+                            <div class="llm">LLM Subprocess</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 VIVARY Project. All rights reserved.</p>
+            <p><a href="https://github.com/AgenticWrestling/vivary">GitHub Repository</a></p>
+        </div>
+    </footer>
+</body>
+</html>
