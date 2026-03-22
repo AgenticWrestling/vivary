@@ -42,6 +42,7 @@ in {
 
   users.mutableUsers = false;
   users.users.root.initialHashedPassword = "!";  # root login disabled
+  users.allowNoPasswordLogin = true;             # headless image; no console
 
   # Nix daemon is not needed in the runtime image; disable it to reduce
   # the attack surface.  keeperd manages its own software layout.
@@ -52,9 +53,7 @@ in {
   environment.etc."subuid".text = "root:100000:${toString subidCount}\n";
   environment.etc."subgid".text = "root:100000:${toString subidCount}\n";
 
-  systemd.extraConfig = ''
-    DefaultTimeoutStopSec=15s
-  '';
+  systemd.settings.Manager.DefaultTimeoutStopSec = "15s";
 
   system.stateVersion = "25.11";
 }

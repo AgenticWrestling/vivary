@@ -323,8 +323,17 @@ func (d *daemon) dispatchPrompt(payload []byte) error {
 		return fmt.Errorf("agent %q has no active pipe (not yet spawned)", req.AgentID)
 	}
 
-	// TODO: forward prompt to Ward via agent.pipe.
-	d.log.Info("prompt dispatched (stub)", "agent", req.AgentID, "seq", req.Seq)
+	// Forward the prompt to Ward as a CtlPrompt MUS frame.
+	// Ward.run() dispatches MsgType_CtlPrompt to handlePrompt().
+	hdr := switchboard.SwarmHeader{
+		Version: 0, Type: switchboard.MsgType_CtlPrompt,
+		FromID: "keeper", ToID: req.AgentID,
+		SeqNo: d.seqOut.Next(),
+	}
+	if err := d.router.Send(req.AgentID, hdr, payload); err != nil {
+		return fmt.Errorf("forward prompt to agent %q: %w", req.AgentID, err)
+	}
+	d.log.Info("prompt forwarded to ward", "agent", req.AgentID, "seq", req.Seq)
 	return nil
 }
 
@@ -368,7 +377,7 @@ func (d *daemon) buildAgentStatusList() []ctl.AgentStatus {
 // ---- Helpers ---------------------------------------------------------------
 
 func errorPayload(err error) []byte {
-	return []byte(fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error()))
+	return fmt.Appendf(nil, `{"ok":false,"error":%q}`, err.Error())
 }
 
 func newLogger(level string) *slog.Logger {
