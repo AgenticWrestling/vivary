@@ -20,6 +20,7 @@ import (
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/internal/chromproxy"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
 )
@@ -52,9 +53,11 @@ func main() {
 	}
 	defer auditDB.Close()
 
+	chromeProxy := chromproxy.New(cfg.ChromeRemoteDebugAddr)
+
 	reg := capabilities.NewRegistry()
 	reg.Register(&capabilities.BrowserPageRead{
-		ChromeProxy: nil, // set when Chrome sidecar is ready (Phase 3.2)
+		ChromeProxy: chromeProxy.ReadPage,
 	})
 	reg.Register(&capabilities.FilesystemFileWrite{})
 
