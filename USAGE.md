@@ -86,7 +86,24 @@ vault-path     "./vault.enc"
 chrome-debug-addr "127.0.0.1:9222"
 max-pipe-bytes-per-sec 1048576
 log-level      "info"   // debug | info | warn | error
+providers-file "./providers.kdl"
 ```
+
+keeperd also reads `providers.kdl` (see `providers.kdl` at the project root for
+the built-in registry).  Each provider entry maps a name to a canonical API URL:
+
+```kdl
+// providers.kdl
+provider "anthropic" {
+    api-url     "https://api.anthropic.com"
+    description "Anthropic Claude API"
+}
+```
+
+The provider name is referenced when creating an agent (`--provider anthropic`).
+At spawn time keeperd resolves the hostname to IPv4 addresses and restricts the
+agent's nftables egress to those IPs on port 443.  Falls back to port-443-only
+if the provider is omitted or cannot be resolved.
 
 ---
 
@@ -104,6 +121,7 @@ bin/vivary status
 # Agent management
 bin/vivary agent list
 bin/vivary agent create --id my-agent --template /path/to/template
+bin/vivary agent create --id my-agent --template /path/to/template --provider anthropic
 bin/vivary agent destroy --id my-agent
 
 # Dispatch a prompt to a running agent
@@ -230,9 +248,16 @@ task dev:vivary-log CLI_ARGS="tail --n 5"
 
 | Feature | Phase | Notes |
 |---|---|---|
-| End-to-end prompt run (keeperd → Ward → Claude) | MVP | Ward tool-socket server is implemented; prompt forwarding from keeperd to Ward pipe is stubbed |
-| nftables veth egress rules | 1.4 | Applied at nspawn spawn time; not yet scripted |
-| Headless Chrome sidecar | 3.2 | `internal/chromproxy` is implemented; Chrome must be started separately |
+| End-to-end prompt run (keeperd → Ward → Claude) | MVP | Prompt forwarding wired; Ward tool-socket and LLM subprocess implemented; full run needs a live agent + Claude CLI |
+| Headless Chrome sidecar | 3.2 | `internal/chromproxy` wired; Chrome must be started separately (`chromium --headless --remote-debugging-port=9222`) |
 | BubbleTea TUI | 1.3 | CLI is fully functional; TUI is scaffolded |
-| Nix distrobuild (`flake.nix`) | 1.1 | `task distro` exits early until `flake.nix` exists |
 | Multi-agent routing | Phase 5 | Intentionally deferred until MVP exit tests pass |
+
+### What is now working
+
+| Feature | Notes |
+|---|---|
+| Nix distrobuild | `nix build .#distrobuild` and `.#distrobuild-runtime` produce LXD-importable tarballs |
+| nftables veth egress | Applied at nspawn spawn time; restricted to provider IPs when `--provider` is set |
+| providers.kdl | Registry of LLM provider API endpoints; controls nftables IP allowlist |
+| Prompt forwarding | keeperd → Ward via `MsgType_CtlPrompt` MUS frame |
