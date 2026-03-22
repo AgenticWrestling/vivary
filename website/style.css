@@ -49,7 +49,7 @@ nav {
     height: 70px;
 }
 
-.logo-asimovian {
+.logo-viviary {
     font-family: var(--font-logo);
     font-size: 1.8rem;
     font-weight: 700;
@@ -58,30 +58,18 @@ nav {
     text-transform: lowercase;
 }
 
-.logo-asimovian-large {
-    font-family: var(--font-logo);
-    font-size: 6rem;
-    font-weight: 700;
-    color: var(--accent-color);
-    margin-bottom: 0.5rem;
-    line-height: 1;
-    text-transform: lowercase;
-    letter-spacing: -2px;
-}
-
 .logo-container {
     margin-bottom: 3rem;
     display: flex;
     flex-direction: column;
     align-items: center;
+    width: 100%;
 }
 
-.logo-subtitle {
-    font-family: var(--font-main);
-    font-size: 1.2rem;
-    color: var(--text-secondary);
-    letter-spacing: 0.5px;
-    margin-top: -0.5rem;
+.main-logo-svg {
+    width: 100%;
+    max-width: 600px;
+    height: auto;
 }
 
 /* Hero Section */
@@ -229,6 +217,38 @@ nav {
 .svg-path { fill: none; stroke: #00d2ff; stroke-width: 1.5; }
 .svg-path-dashed { fill: none; stroke: #484f58; stroke-width: 1; stroke-dasharray: 4; }
 
+/* Architecture Section */
+.architecture {
+    padding: 6rem 0;
+}
+
+.arch-content {
+    display: flex;
+    justify-content: center;
+}
+
+.arch-text {
+    max-width: 800px;
+}
+
+.arch-text ul {
+    list-style: none;
+    margin-top: 1.5rem;
+}
+
+.arch-text li {
+    margin-bottom: 1.5rem;
+    padding-left: 2rem;
+    position: relative;
+}
+
+.arch-text li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--accent-color);
+}
+
 /* Footer */
 footer {
     padding: 4rem 0;
@@ -253,20 +273,14 @@ footer a:hover {
 
 /* Responsive Styles */
 @media (max-width: 968px) {
-    .hero h1 {
-        font-size: 3.5rem;
-    }
-    .arch-content {
-        grid-template-columns: 1fr;
+    .main-logo-svg {
+        max-width: 100%;
     }
 }
 
 @media (max-width: 600px) {
     .nav-links {
         display: none;
-    }
-    .hero h1 {
-        font-size: 2.5rem;
     }
     .cta-buttons {
         flex-direction: column;
