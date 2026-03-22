@@ -3,19 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIVARY - Virtualized Isolated Verifiable Agent Runtime Yard</title>
+    <title>VIVIARY - Virtualized Isolated Verifiable Agent Runtime Yard</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
+    <link href="https://fonts.cdnfonts.com/css/sansation" rel="stylesheet">
 </head>
 <body>
     <header>
         <nav class="container">
-            <div class="logo">VIVARY</div>
+            <div class="logo-asimovian">viviary</div>
             <ul class="nav-links">
-                <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fab fa-github"></i> GitHub</a></li>
+                <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fa-brands fa-github"></i> GitHub</a></li>
             </ul>
         </nav>
     </header>
@@ -23,11 +24,14 @@
     <main>
         <section class="hero">
             <div class="container">
-                <h1>VIVARY</h1>
+                <div class="logo-container">
+                    <h1 class="logo-asimovian-large">viviary</h1>
+                    <p class="logo-subtitle">A place for keeping evolving agents.</p>
+                </div>
                 <p class="tagline">Virtualized Isolated Verifiable Agent Runtime Yard</p>
-                <p class="description">A governed runtime for isolated, auditable AI agents on a shared host. VIVARY provides a hardened environment with strict security boundaries, comprehensive audit trails, and zero-exposure credential management.</p>
+                <p class="description">A governed runtime for isolated, auditable AI agents on a shared host. VIVIARY provides a hardened environment with strict security boundaries, comprehensive audit trails, and zero-exposure credential management.</p>
                 <div class="cta-buttons">
-                    <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fab fa-github"></i> View on GitHub</a>
+                    <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> View on GitHub</a>
                 </div>
             </div>
         </section>
@@ -72,24 +76,87 @@
 
         <section class="architecture">
             <div class="container">
-                <h2 class="section-title">Architecture Overview</h2>
+                <h2 class="section-title">System Architecture</h2>
+                <div class="arch-svg-container">
+                    <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" class="arch-svg">
+                        <!-- Definitions for arrows and filters -->
+                        <defs>
+                            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#00d2ff" />
+                            </marker>
+                        </defs>
+
+                        <!-- Host OS Boundary -->
+                        <rect x="10" y="10" width="780" height="480" rx="15" class="svg-border host-border" />
+                        <text x="30" y="35" class="svg-label host-label">BARE HOST OS</text>
+
+                        <!-- Host-side Chrome -->
+                        <rect x="550" y="50" width="220" height="150" rx="10" class="svg-box chrome-box" />
+                        <text x="560" y="75" class="svg-label">CHROME HEADLESS</text>
+                        <rect x="565" y="90" width="190" height="30" rx="4" class="svg-box profile-box" />
+                        <text x="575" y="110" class="svg-text">Profile Agent A</text>
+                        <rect x="565" y="130" width="190" height="30" rx="4" class="svg-box profile-box" />
+                        <text x="575" y="150" class="svg-text">Profile Agent B</text>
+
+                        <!-- VIVIARY LXD Container -->
+                        <rect x="30" y="60" width="500" height="410" rx="12" class="svg-border lxd-border" />
+                        <text x="50" y="85" class="svg-label lxd-label">VIVIARY LXD CONTAINER (NixOS)</text>
+
+                        <!-- keeperd -->
+                        <rect x="60" y="110" width="200" height="80" rx="8" class="svg-box keeper-box" />
+                        <text x="75" y="140" class="svg-bold">keeperd</text>
+                        <text x="75" y="160" class="svg-small">Policy & Router</text>
+
+                        <!-- vivary TUI -->
+                        <rect x="60" y="210" width="120" height="50" rx="8" class="svg-box tui-box" />
+                        <text x="75" y="240" class="svg-bold">vivary</text>
+                        <text x="75" y="255" class="svg-tiny">TUI/CLI</text>
+
+                        <!-- nspawn Agent A -->
+                        <rect x="280" y="110" width="230" height="150" rx="10" class="svg-border agent-border" />
+                        <text x="295" y="130" class="svg-label">nspawn AGENT A</text>
+                        <rect x="295" y="145" width="200" height="40" rx="5" class="svg-box ward-box" />
+                        <text x="305" y="170" class="svg-bold">ward</text>
+                        <rect x="295" y="195" width="200" height="40" rx="5" class="svg-box llm-box" />
+                        <text x="305" y="220" class="svg-bold">LLM (Claude)</text>
+
+                        <!-- nspawn Agent B -->
+                        <rect x="280" y="280" width="230" height="150" rx="10" class="svg-border agent-border" />
+                        <text x="295" y="300" class="svg-label">nspawn AGENT B</text>
+                        <rect x="295" y="315" width="200" height="40" rx="5" class="svg-box ward-box" />
+                        <text x="305" y="340" class="svg-bold">ward</text>
+                        <rect x="295" y="365" width="200" height="40" rx="5" class="svg-box llm-box" />
+                        <text x="305" y="390" class="svg-bold">LLM (Claude)</text>
+
+                        <!-- Connectivity -->
+                        <!-- TUI to Keeper -->
+                        <path d="M120 210 V190" class="svg-path" marker-end="url(#arrowhead)" />
+                        <text x="65" y="200" class="svg-tiny">Unix Socket</text>
+
+                        <!-- Keeper to Ward A -->
+                        <path d="M260 130 H295" class="svg-path" marker-end="url(#arrowhead)" />
+                        <text x="262" y="125" class="svg-tiny">MUS Stdio</text>
+
+                        <!-- Keeper to Ward B -->
+                        <path d="M260 180 Q 270 335 295 335" class="svg-path" marker-end="url(#arrowhead)" />
+
+                        <!-- Keeper to Chrome -->
+                        <path d="M260 150 H550" class="svg-path" marker-end="url(#arrowhead)" />
+                        <text x="400" y="145" class="svg-tiny">CDP Proxy (Port 9222)</text>
+
+                        <!-- External API access -->
+                        <path d="M495 215 H780" class="svg-path-dashed" />
+                        <text x="650" y="235" class="svg-tiny">LLM API (veth whitelist)</text>
+                    </svg>
+                </div>
                 <div class="arch-content">
                     <div class="arch-text">
-                        <p>VIVARY separates concerns through a dual-binary model:</p>
+                        <p>VIVIARY separates concerns through a multi-layered isolation model:</p>
                         <ul>
-                            <li><strong>Vivary Keeper (<code>keeperd</code>):</strong> The central daemon, message router, policy enforcer, and credential vault.</li>
-                            <li><strong>Vivary Ward (<code>ward</code>):</strong> The per-agent control plane inside each nspawn container, managing the LLM subprocess lifecycle and tool translation.</li>
+                            <li><strong>Vivary Keeper (<code>keeperd</code>):</strong> The central daemon, running in the LXD container, managing the secure vault and routing all capability requests.</li>
+                            <li><strong>Vivary Ward (<code>ward</code>):</strong> The adapter inside each nspawn jail that translates LLM tool calls into VIVIARY's MUS protocol.</li>
+                            <li><strong>Headless Chrome:</strong> Runs on the host OS for maximum performance, with <code>keeperd</code> proxying isolated profiles to each agent.</li>
                         </ul>
-                        <p>Communication occurs over a tightly controlled MUS-formatted stdio pipe, ensuring O(1) performance and zero-allocation routing.</p>
-                    </div>
-                    <div class="arch-visual">
-                        <!-- Stylized CSS representation of the architecture -->
-                        <div class="arch-box keeper">Keeper Daemon (Control Plane)</div>
-                        <div class="arch-arrow"><span>MUS Stdio Pipe</span></div>
-                        <div class="arch-box agent">
-                            <div class="ward">Ward (Adapter)</div>
-                            <div class="llm">LLM Subprocess</div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -98,7 +165,7 @@
 
     <footer>
         <div class="container">
-            <p>&copy; 2026 VIVARY Project. All rights reserved.</p>
+            <p>&copy; 2026 VIVIARY Project. All rights reserved.</p>
             <p><a href="https://github.com/AgenticWrestling/vivary">GitHub Repository</a></p>
         </div>
     </footer>
