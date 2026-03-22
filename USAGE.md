@@ -84,6 +84,8 @@ socket-path    "./keeper.sock"
 audit-db       "./audit.db"
 vault-path     "./vault.enc"
 chrome-debug-addr "127.0.0.1:9222"
+chrome-binary  "chromium"       // path or name; empty = disable sidecar
+chrome-user-data-dir "./chrome-data"
 max-pipe-bytes-per-sec 1048576
 log-level      "info"   // debug | info | warn | error
 providers-file "./providers.kdl"
@@ -249,7 +251,7 @@ task dev:vivary-log CLI_ARGS="tail --n 5"
 | Feature | Phase | Notes |
 |---|---|---|
 | End-to-end prompt run (keeperd → Ward → Claude) | MVP | Prompt forwarding wired; Ward tool-socket and LLM subprocess implemented; full run needs a live agent + Claude CLI |
-| Headless Chrome sidecar | 3.2 | `internal/chromproxy` wired; Chrome must be started separately (`chromium --headless --remote-debugging-port=9222`) |
+| Headless Chrome sidecar | 3.2 | keeperd launches Chrome automatically at startup; non-fatal if `chromium` not in PATH |
 | BubbleTea TUI | 1.3 | CLI is fully functional; TUI is scaffolded |
 | Multi-agent routing | Phase 5 | Intentionally deferred until MVP exit tests pass |
 

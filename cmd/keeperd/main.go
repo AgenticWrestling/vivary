@@ -53,6 +53,16 @@ func main() {
 	}
 	defer auditDB.Close()
 
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// Launch headless Chrome sidecar (non-fatal if unavailable).
+	stopChrome, chromeErr := launchChrome(ctx, cfg, log)
+	if chromeErr != nil {
+		log.Warn("chrome sidecar unavailable; Browser_Page_Read will fail", "err", chromeErr)
+	}
+	defer stopChrome()
+
 	chromeProxy := chromproxy.New(cfg.ChromeRemoteDebugAddr)
 
 	reg := capabilities.NewRegistry()
@@ -62,9 +72,6 @@ func main() {
 	reg.Register(&capabilities.FilesystemFileWrite{})
 
 	dispatcher := capabilities.NewDispatcher(reg)
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	router := switchboard.NewRouter(log, func(ev switchboard.SecurityEvent) {
 		_ = auditDB.WriteSecurityEvent(ev.Time, ev.AgentID, ev.Kind, ev.Detail)

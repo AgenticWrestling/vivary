@@ -39,6 +39,15 @@ type OrchestratorConfig struct {
 	// ProvidersFile is the path to providers.kdl.
 	// Default: <WorkspaceRoot>/providers.kdl
 	ProvidersFile string
+
+	// ChromeBinaryPath is the path to the Chromium executable.
+	// Default: "chromium" (resolved via PATH).
+	// Set to empty string to disable the Chrome sidecar entirely.
+	ChromeBinaryPath string
+
+	// ChromeUserDataDir is the base directory for Chromium profile data.
+	// Default: <WorkspaceRoot>/chrome-data
+	ChromeUserDataDir string
 }
 
 // ProviderConfig is one entry from providers.kdl.
@@ -64,6 +73,8 @@ func DefaultOrchestratorConfig(workspaceRoot string) OrchestratorConfig {
 		MaxAgentPipeBytesPerSec: 1 * 1024 * 1024,
 		LogLevel:                "info",
 		ProvidersFile:           workspaceRoot + "/providers.kdl",
+		ChromeBinaryPath:        "chromium",
+		ChromeUserDataDir:       workspaceRoot + "/chrome-data",
 	}
 }
 
@@ -123,6 +134,10 @@ func parseOrchestratorKDL(data []byte, cfg *OrchestratorConfig) error {
 			cfg.LogLevel = val
 		case "providers-file":
 			cfg.ProvidersFile = val
+		case "chrome-binary":
+			cfg.ChromeBinaryPath = val
+		case "chrome-user-data-dir":
+			cfg.ChromeUserDataDir = val
 		}
 	}
 	return nil
