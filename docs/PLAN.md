@@ -52,7 +52,7 @@
 
 - Command: `vivary agent create <id> --template <path>` (sends `MsgType_CtlAgentCreate` to `keeperd`).
 - `keeperd` creates a Btrfs subvolume, copies the template, bind-mounts the Ward binary read-only, writes the agent's `agent.kdl`, configures per-agent cgroup v2 limits, and spawns the nspawn container with the Ward binary as the init process.
-- Per-agent veth pair created at spawn time; nftables rules applied on the host-side veth to whitelist only the configured LLM API endpoint (see DESIGN.md §6c).
+- Per-agent veth pair created at spawn time; nftables rules applied on the host-side veth to whitelist only the configured LLM API endpoint (see `DESIGN.md` §6c).
 
 ---
 

@@ -63,14 +63,20 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	router := switchboard.NewRouter(log, func(ev switchboard.SecurityEvent) {
+		_ = auditDB.WriteSecurityEvent(ev.Time, ev.AgentID, ev.Kind, ev.Detail)
+	})
+
 	d := &daemon{
 		cfg:        cfg,
 		log:        log,
 		auditDB:    auditDB,
 		dispatcher: dispatcher,
+		router:     router,
 		agents:     make(map[string]*agentState),
 		startedAt:  time.Now(),
 	}
+	router.RegisterHandler(d.handleFrame)
 
 	// Start the ctl socket listener.
 	if err := d.listenCtl(ctx); err != nil {
@@ -97,10 +103,15 @@ type daemon struct {
 	log        *slog.Logger
 	auditDB    *audit.DB
 	dispatcher *capabilities.Dispatcher
+	router     *switchboard.Router
+	seqOut     switchboard.SeqCounter
 
 	mu        sync.RWMutex
 	agents    map[string]*agentState
 	startedAt time.Time
+
+	subsMu  sync.RWMutex
+	ctlSubs []chan switchboard.Frame // push channels for CtlSubscribe connections
 }
 
 // ---- Ctl socket ------------------------------------------------------------
@@ -148,24 +159,51 @@ func (d *daemon) listenCtl(ctx context.Context) error {
 
 // handleCtlConn services one ctl connection (one vivary CLI/TUI process).
 // The connection exchanges MUS frames; the ctl identity is enforced here.
+// If the client sends CtlSubscribe, keeperd will push CompletionEvent and
+// FailureEvent frames to it for the lifetime of the connection.
 func (d *daemon) handleCtlConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	d.log.Debug("ctl connection accepted")
 
 	var seqOut switchboard.SeqCounter
 
+	// pushCh receives event frames to forward to this subscriber.
+	// It is registered on CtlSubscribe and deregistered on disconnect.
+	pushCh := make(chan switchboard.Frame, 64)
+	var subscribed bool
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
+
+	// Push goroutine: forwards queued events to the ctl connection.
+	go func() {
+		for {
+			select {
+			case <-connCtx.Done():
+				return
+			case f := <-pushCh:
+				hdr := switchboard.SwarmHeader{
+					Version: 0, Type: f.Header.Type,
+					FromID: "keeper", ToID: ctl.CtlIdentity,
+					SeqNo: seqOut.Next(),
+				}
+				if err := switchboard.WriteFrame(conn, hdr, f.Payload); err != nil {
+					connCancel()
+					return
+				}
+			}
+		}
+	}()
+
 	for {
 		select {
-		case <-ctx.Done():
+		case <-connCtx.Done():
 			return
 		default:
 		}
 
 		hdr, payload, err := switchboard.ReadFrame(conn)
 		if err != nil {
-			if err != switchboard.ErrUnexpectedEOF {
-				d.log.Debug("ctl connection closed", "err", err)
-			}
 			return
 		}
 
@@ -175,12 +213,38 @@ func (d *daemon) handleCtlConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 
-		// Audit the ctl frame (ctl frames always store payload — no sensitive data).
 		_ = d.auditDB.WriteFrame(time.Now(), hdr.Type.String(), hdr.FromID, hdr.ToID, hdr.SeqNo, payload)
+
+		// CtlSubscribe is handled here rather than in dispatchCtl because it
+		// needs access to pushCh and the subscription list.
+		if hdr.Type == switchboard.MsgType_CtlSubscribe && !subscribed {
+			subscribed = true
+			d.subsMu.Lock()
+			d.ctlSubs = append(d.ctlSubs, pushCh)
+			d.subsMu.Unlock()
+			// Deregister on disconnect.
+			defer func() {
+				d.subsMu.Lock()
+				for i, ch := range d.ctlSubs {
+					if ch == pushCh {
+						d.ctlSubs = append(d.ctlSubs[:i], d.ctlSubs[i+1:]...)
+						break
+					}
+				}
+				d.subsMu.Unlock()
+			}()
+			// Ack the subscribe.
+			ack := switchboard.SwarmHeader{
+				Version: 0, Type: switchboard.MsgType_CtlSubscribe,
+				FromID: "keeper", ToID: ctl.CtlIdentity, SeqNo: seqOut.Next(),
+			}
+			_ = switchboard.WriteFrame(conn, ack, []byte(`{"ok":true}`))
+			continue
+		}
 
 		resp, respPayload := d.dispatchCtl(ctx, hdr, payload)
 		if resp.Type == 0 {
-			continue // no response needed
+			continue
 		}
 		resp.FromID = "keeper"
 		resp.ToID = ctl.CtlIdentity
@@ -241,46 +305,7 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 	}
 }
 
-// ---- Agent lifecycle -------------------------------------------------------
-
-func (d *daemon) agentCreate(_ context.Context, payload []byte) error {
-	// TODO Phase 1.4: parse CtlAgentCreatePayload, create Btrfs subvolume,
-	// write agent.kdl, configure cgroups, spawn nspawn, open Ward stdio pipe.
-	// For MVP skeleton: just register a stub agent state.
-	var req ctl.AgentCreatePayload
-	if err := jsonUnmarshal(payload, &req); err != nil {
-		return fmt.Errorf("invalid AgentCreatePayload: %w", err)
-	}
-	if req.ID == "" {
-		return fmt.Errorf("agent ID is required")
-	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if _, exists := d.agents[req.ID]; exists {
-		return fmt.Errorf("agent %q already exists", req.ID)
-	}
-	d.agents[req.ID] = &agentState{id: req.ID, subvolPath: req.Template}
-	d.log.Info("agent created (stub)", "id", req.ID)
-	return nil
-}
-
-func (d *daemon) agentDestroy(payload []byte) error {
-	var req ctl.AgentDestroyPayload
-	if err := jsonUnmarshal(payload, &req); err != nil {
-		return fmt.Errorf("invalid AgentDestroyPayload: %w", err)
-	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if _, exists := d.agents[req.ID]; !exists {
-		return fmt.Errorf("agent %q not found", req.ID)
-	}
-	delete(d.agents, req.ID)
-	d.dispatcher.RemoveACL(req.ID)
-	d.log.Info("agent destroyed", "id", req.ID)
-	return nil
-}
+// ---- Agent lifecycle (see provisioning.go for agentCreate/agentDestroy) ----
 
 func (d *daemon) dispatchPrompt(payload []byte) error {
 	var req ctl.PromptPayload

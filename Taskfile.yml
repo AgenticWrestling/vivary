@@ -1,0 +1,75 @@
+version: '3'
+
+vars:
+  BIN_DIR: ./bin
+  WORKSPACE: '{{default "." .WORKSPACE}}'
+  CLI_ARGS: '{{default "" .CLI_ARGS}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - go-task --list-all
+
+  test:
+    desc: Run the Go test suite
+    cmds:
+      - go test ./...
+
+  build:
+    desc: Build all VIVARY binaries into ./bin
+    deps:
+      - build:keeperd
+      - build:ward
+      - build:vivary
+      - build:vivary-log
+
+  build:keeperd:
+    desc: Build keeperd
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/keeperd ./cmd/keeperd
+
+  build:ward:
+    desc: Build ward
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/ward ./cmd/ward
+
+  build:vivary:
+    desc: Build vivary CLI
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/vivary ./cmd/vivary
+
+  build:vivary-log:
+    desc: Build vivary-log
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/vivary-log ./cmd/vivary-log
+
+  dev:
+    desc: Build binaries and run the Go test suite
+    deps:
+      - build
+      - test
+
+  dev:keeperd:
+    desc: Run keeperd against the current workspace
+    cmds:
+      - go run ./cmd/keeperd --workspace {{.WORKSPACE}}
+
+  dev:vivary:
+    desc: Run the vivary CLI against the local keeper socket
+    cmds:
+      - go run ./cmd/vivary --socket {{.WORKSPACE}}/keeper.sock {{.CLI_ARGS}}
+
+  dev:vivary-log:
+    desc: Run vivary-log against the local audit DB
+    cmds:
+      - go run ./cmd/vivary-log --db {{.WORKSPACE}}/audit.db {{.CLI_ARGS}}
+
+  distro:
+    desc: Build the minimal headless LXD base image
+    cmds:
+      - nix --extra-experimental-features 'nix-command flakes' build .#distrobuild

@@ -39,6 +39,7 @@ func main() {
 	agentID := flag.String("agent-id", "", "agent identity (required)")
 	loopThreshold := flag.Int("loop-threshold", 5, "repeated tool call threshold before loop_detected")
 	logLevel := flag.String("log-level", "info", "log level: debug|info|warn|error")
+	toolSock := flag.String("tool-sock", defaultToolSockPath, "path for capability CLI Unix socket")
 	flag.Parse()
 
 	if *agentID == "" {
@@ -62,11 +63,21 @@ func main() {
 		agentID:       *agentID,
 		pipe:          pipe,
 		loopThreshold: *loopThreshold,
+		toolSockPath:  *toolSock,
 		log:           log,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start the capability CLI tool server before entering the main loop.
+	ts := &toolServer{sockPath: *toolSock, w: w}
+	go func() {
+		if err := ts.run(ctx); err != nil && ctx.Err() == nil {
+			log.Error("tool server exited", "err", err)
+			cancel()
+		}
+	}()
 
 	if err := w.run(ctx); err != nil {
 		log.Error("ward exiting with error", "err", err)
@@ -98,6 +109,21 @@ func (p *musPipe) send(msgType switchboard.MsgType, toID string, payload []byte)
 	return switchboard.WriteFrame(p.w, hdr, payload)
 }
 
+// sendWithSeq sends a CapabilityRequest frame with a pre-allocated seqNo so
+// that the toolserver can register the pending slot before sending.
+func (p *musPipe) sendWithSeq(seqNo uint64, payload []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	hdr := switchboard.SwarmHeader{
+		Version: 0,
+		Type:    switchboard.MsgType_CapabilityRequest,
+		FromID:  p.agentID,
+		ToID:    "keeper",
+		SeqNo:   seqNo,
+	}
+	return switchboard.WriteFrame(p.w, hdr, payload)
+}
+
 func (p *musPipe) recv() (switchboard.SwarmHeader, []byte, error) {
 	return switchboard.ReadFrame(p.r)
 }
@@ -108,6 +134,7 @@ type ward struct {
 	agentID       string
 	pipe          *musPipe
 	loopThreshold int
+	toolSockPath  string
 	log           *slog.Logger
 
 	promptSeq atomic.Uint64
@@ -249,15 +276,58 @@ type llmOutcome struct {
 	toolCalls    int
 }
 
+// getCapabilitySchema returns the static JSON Schema string for a named
+// capability.  Ward has a local copy of all registered schemas so that cap-cli
+// --help works without a keeperd round-trip.
+func (w *ward) getCapabilitySchema(name string) string {
+	// Schemas are loaded from capability CLI binaries' --help output at startup,
+	// or hard-coded here for the MVP capability set.
+	switch name {
+	case "Browser_Page_Read":
+		return browserPageReadSchema
+	case "Filesystem_File_Write":
+		return filesystemFileWriteSchema
+	}
+	return ""
+}
+
+// Static schemas mirrored from the capability package (kept in sync by vivary-gen).
+const browserPageReadSchema = `{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Browser_Page_Read",
+  "description": "Navigate to a URL and return the readable text of the page via the accessibility tree.",
+  "type": "object",
+  "required": ["url"],
+  "properties": {
+    "url": {"type": "string", "description": "The fully-qualified HTTPS URL to load."},
+    "wait_for": {"type": "string", "enum": ["networkidle","domcontentloaded","load"], "default": "networkidle"},
+    "max_chars": {"type": "integer", "default": 32768, "minimum": 1, "maximum": 262144}
+  }
+}`
+
+const filesystemFileWriteSchema = `{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Filesystem_File_Write",
+  "description": "Write text content to a file in the agent output directory.",
+  "type": "object",
+  "required": ["path", "content"],
+  "properties": {
+    "path": {"type": "string", "description": "Relative path within the agent output directory."},
+    "content": {"type": "string", "description": "UTF-8 text content to write."},
+    "append": {"type": "boolean", "default": false}
+  }
+}`
+
 // runLLMSubprocess spawns the LLM CLI, intercepts tool calls, and returns when
 // the subprocess exits.  Returns (outcome, "", nil) on success, or
 // (zero, failureKind, err) on failure.
 func (w *ward) runLLMSubprocess(ctx context.Context, promptSeq uint64, promptText string) (llmOutcome, string, error) {
 	// Build the subprocess command.
-	// claude --headless reads the prompt from stdin and writes tool calls +
-	// final answer to stdout.
-	cmd := exec.CommandContext(ctx, "claude", "--headless", "--output-format", "stream-json")
+	// claude --print runs headlessly with the prompt as the argument.
+	// WARD_TOOL_SOCK is set so capability CLIs find the tool socket.
+	cmd := exec.CommandContext(ctx, "claude", "--print", promptText, "--output-format", "stream-json")
 	cmd.Stdin = strings.NewReader(promptText)
+	cmd.Env = append(os.Environ(), toolServerEnvKey+"="+w.toolSockPath)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {

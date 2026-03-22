@@ -41,14 +41,14 @@ VIVARY is a governed runtime for isolated, auditable AI agents on a shared host.
 
 ## Documentation
 
-- [DESIGN.md](DESIGN.md) — Full system architecture
-- [CAPABILITIES.md](CAPABILITIES.md) — Capability model, ECS resource system, and policy grant design
-- [SECURITY.md](SECURITY.md) — Threat model, isolation boundaries, and operational security notes
-- [PLAN.md](PLAN.md) — Phased implementation plan and testing strategy
+- [docs/DESIGN.md](docs/DESIGN.md) — Full system architecture
+- [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — Capability model, ECS resource system, and policy grant design
+- [docs/SECURITY.md](docs/SECURITY.md) — Threat model, isolation boundaries, and operational security notes
+- [docs/PLAN.md](docs/PLAN.md) — Phased implementation plan and testing strategy
 
 ## Getting Started
 
-_(Deployment instructions pending XXXXXXXXXXXXX implementation — see PLAN.md Phase 1.)_
+_(Deployment instructions pending XXXXXXXXXXXXX implementation — see `docs/PLAN.md` Phase 1.)_
 
 ## Target: v0.1 MVP
 
