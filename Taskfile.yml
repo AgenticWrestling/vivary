@@ -73,3 +73,23 @@ tasks:
     desc: Build the minimal headless LXD base image
     cmds:
       - nix --extra-experimental-features 'nix-command flakes' build .#distrobuild
+
+  distro:runtime:
+    desc: Build the LXD runtime image with local VIVARY binaries
+    cmds:
+      - nix --extra-experimental-features 'nix-command flakes' build .#distrobuild-runtime
+
+  distro:import:
+    desc: Build and import the base LXD image
+    cmds:
+      - ./scripts/distro-lxd.sh import base {{.CLI_ARGS}}
+
+  distro:import:runtime:
+    desc: Build and import the runtime LXD image
+    cmds:
+      - ./scripts/distro-lxd.sh import runtime {{.CLI_ARGS}}
+
+  distro:export:
+    desc: Export an LXD image alias to tarballs
+    cmds:
+      - ./scripts/distro-lxd.sh export {{.CLI_ARGS}}
