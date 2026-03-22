@@ -22,6 +22,11 @@ type AgentCreatePayload struct {
 	// ID is the unique agent identifier.  Must match [a-z0-9][a-z0-9\-]{0,62}.
 	ID string `json:"id"`
 
+	// Provider is the LLM provider name (from providers.kdl).
+	// Controls which network endpoint nftables egress rules permit.
+	// Example: "anthropic", "openai", "google".
+	Provider string `json:"provider,omitempty"`
+
 	// Template is the host path to the Btrfs subvolume template directory.
 	Template string `json:"template"`
 

@@ -38,16 +38,16 @@
         in
         pkgs.runCommand "lxd-metadata.tar.xz" {
           nativeBuildInputs = [ pkgs.gnutar pkgs.xz ];
-          meta = builtins.toJSON {
+          lxdMeta = builtins.toJSON {
             architecture  = arch;
             creation_date = 0;
             properties    = { description = description; os = "nixos"; release = "25.11"; };
             templates     = { };
           };
-          passAsFile = [ "meta" ];
+          passAsFile = [ "lxdMeta" ];
         } ''
           mkdir tmp
-          cp "$metaPath" tmp/metadata.yaml
+          cp "$lxdMetaPath" tmp/metadata.yaml
           tar -C tmp -cJf "$out" metadata.yaml
         '';
 

@@ -1,8 +1,4 @@
 // vivary is the operator CLI/TUI for the VIVARY runtime.
-//
-// It connects to keeperd's Unix socket and exchanges MUS frames with a FromID
-// of "ctl".  In the MVP the initial surface is CLI-only; the BubbleTea TUI is
-// scaffolded as a subcommand but deferred to Phase 1.3.
 package main
 
 import (
@@ -27,24 +23,21 @@ func main() {
 
 	args := flag.Args()
 	if len(args) == 0 {
-		printUsage()
-		os.Exit(1)
+		runTUI(*socketPath)
+		return
 	}
-
-	conn, err := dialKeeper(*socketPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "vivary: cannot connect to keeperd at %q: %v\n", *socketPath, err)
-		fmt.Fprintln(os.Stderr, "  Is keeperd running?  Try: keeperd --workspace <path>")
-		os.Exit(1)
-	}
-	defer conn.Close()
-
-	c := &client{conn: conn}
 
 	switch args[0] {
+	case "tui":
+		runTUI(*socketPath)
+		return
 	case "status":
+		c := mustDialClient(*socketPath)
+		defer c.conn.Close()
 		c.cmdStatus()
 	case "agent":
+		c := mustDialClient(*socketPath)
+		defer c.conn.Close()
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "vivary agent <create|destroy|list> ...")
 			os.Exit(1)
@@ -61,8 +54,12 @@ func main() {
 			os.Exit(1)
 		}
 	case "prompt":
+		c := mustDialClient(*socketPath)
+		defer c.conn.Close()
 		c.cmdPrompt(args[1:])
 	case "ping":
+		c := mustDialClient(*socketPath)
+		defer c.conn.Close()
 		c.cmdPing()
 	case "version":
 		fmt.Println(cliVersion)
@@ -80,6 +77,7 @@ Usage:
   vivary [--socket <path>] <command> [args]
 
 Commands:
+  tui                        Launch the BubbleTea operator TUI (default)
   status                     Show daemon and agent status
   agent list                 List provisioned agents
   agent create --id <id> --template <path>
@@ -184,14 +182,15 @@ func (c *client) cmdAgentCreate(args []string) {
 	fs := flag.NewFlagSet("agent create", flag.ExitOnError)
 	id := fs.String("id", "", "agent ID (required)")
 	template := fs.String("template", "", "btrfs template path (required)")
+	provider := fs.String("provider", "", "LLM provider name from providers.kdl (e.g. anthropic)")
 	_ = fs.Parse(args)
 
 	if *id == "" || *template == "" {
-		fmt.Fprintln(os.Stderr, "vivary agent create --id <id> --template <path>")
+		fmt.Fprintln(os.Stderr, "vivary agent create --id <id> --template <path> [--provider <name>]")
 		os.Exit(1)
 	}
 
-	payload := ctl.MarshalJSON(ctl.AgentCreatePayload{ID: *id, Template: *template})
+	payload := ctl.MarshalJSON(ctl.AgentCreatePayload{ID: *id, Template: *template, Provider: *provider})
 	if err := c.send(switchboard.MsgType_CtlAgentCreate, payload); err != nil {
 		fatal("send: %v", err)
 	}
@@ -251,6 +250,16 @@ func (c *client) cmdPrompt(args []string) {
 
 func dialKeeper(socketPath string) (net.Conn, error) {
 	return net.DialTimeout("unix", socketPath, 3*time.Second)
+}
+
+func mustDialClient(socketPath string) *client {
+	conn, err := dialKeeper(socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vivary: cannot connect to keeperd at %q: %v\n", socketPath, err)
+		fmt.Fprintln(os.Stderr, "  Is keeperd running?  Try: keeperd --workspace <path>")
+		os.Exit(1)
+	}
+	return &client{conn: conn}
 }
 
 func printOKOrError(payload []byte) {

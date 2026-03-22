@@ -35,6 +35,23 @@ type OrchestratorConfig struct {
 
 	// LogLevel controls structured log verbosity: "debug", "info", "warn", "error".
 	LogLevel string
+
+	// ProvidersFile is the path to providers.kdl.
+	// Default: <WorkspaceRoot>/providers.kdl
+	ProvidersFile string
+}
+
+// ProviderConfig is one entry from providers.kdl.
+type ProviderConfig struct {
+	// Name is the provider identifier used in agent.kdl.
+	Name string
+
+	// APIURL is the canonical HTTPS endpoint (e.g. "https://api.anthropic.com").
+	// The hostname is resolved at agent spawn time for nftables egress rules.
+	APIURL string
+
+	// Description is a human-readable label.
+	Description string
 }
 
 // DefaultOrchestratorConfig returns the config with all defaults populated.
@@ -46,6 +63,7 @@ func DefaultOrchestratorConfig(workspaceRoot string) OrchestratorConfig {
 		VaultPath:               workspaceRoot + "/vault.enc",
 		MaxAgentPipeBytesPerSec: 1 * 1024 * 1024,
 		LogLevel:                "info",
+		ProvidersFile:           workspaceRoot + "/providers.kdl",
 	}
 }
 
@@ -103,15 +121,100 @@ func parseOrchestratorKDL(data []byte, cfg *OrchestratorConfig) error {
 			cfg.MaxAgentPipeBytesPerSec = n
 		case "log-level":
 			cfg.LogLevel = val
+		case "providers-file":
+			cfg.ProvidersFile = val
 		}
 	}
 	return nil
+}
+
+// LoadProvidersConfig reads providers.kdl and returns a map from provider name
+// to ProviderConfig.  Returns an empty map (not an error) if the file does not
+// exist, so that keeperd still starts without a providers file.
+func LoadProvidersConfig(path string) (map[string]ProviderConfig, error) {
+	providers := make(map[string]ProviderConfig)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return providers, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("providers: read %q: %w", path, err)
+	}
+	if err := parseProvidersKDL(data, providers); err != nil {
+		return nil, fmt.Errorf("providers: parse %q: %w", path, err)
+	}
+	return providers, nil
+}
+
+// parseProvidersKDL parses a providers.kdl file into the supplied map.
+// It handles blocks of the form:
+//
+//	provider "name" {
+//	    api-url     "https://..."
+//	    description "..."
+//	}
+func parseProvidersKDL(data []byte, out map[string]ProviderConfig) error {
+	var current *ProviderConfig
+	for _, line := range splitLines(string(data)) {
+		line = trimComment(line)
+		if line == "" {
+			continue
+		}
+		if line == "}" {
+			if current != nil && current.Name != "" {
+				out[current.Name] = *current
+			}
+			current = nil
+			continue
+		}
+		// provider "name" {
+		if len(line) > 9 && line[:9] == "provider " {
+			rest := trimSpace(line[9:])
+			// strip trailing " {" if present
+			if len(rest) > 1 && rest[len(rest)-1] == '{' {
+				rest = trimSpace(rest[:len(rest)-1])
+			}
+			name := unquote(rest)
+			current = &ProviderConfig{Name: name}
+			continue
+		}
+		if current != nil {
+			node, val, ok := parseSimpleNode(line)
+			if !ok {
+				continue
+			}
+			switch node {
+			case "api-url":
+				current.APIURL = val
+			case "description":
+				current.Description = val
+			}
+		}
+	}
+	// Handle unterminated block (shouldn't happen in valid KDL).
+	if current != nil && current.Name != "" {
+		out[current.Name] = *current
+	}
+	return nil
+}
+
+// unquote strips surrounding double-quotes from a KDL string value.
+func unquote(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
 }
 
 // AgentConfig is parsed from <agent-subvolume>/agent.kdl.
 type AgentConfig struct {
 	// ID is the agent identifier (must match the directory name).
 	ID string
+
+	// Provider is the name of the LLM provider (from providers.kdl).
+	// Controls which network endpoint the agent's nftables egress allows.
+	// Example: "anthropic", "openai", "google".
+	Provider string
 
 	// Capabilities lists the capability names and optional scopes allowed.
 	// KDL representation:
@@ -165,6 +268,8 @@ func ParseAgentKDL(data []byte) (AgentConfig, error) {
 		switch node {
 		case "id":
 			cfg.ID = val
+		case "provider":
+			cfg.Provider = val
 		case "cpu-shares":
 			n, _ := strconv.ParseUint(val, 10, 32)
 			cfg.CPUShares = uint32(n)

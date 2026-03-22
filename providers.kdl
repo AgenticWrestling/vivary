@@ -1,0 +1,37 @@
+// providers.kdl — LLM provider registry for VIVARY
+//
+// keeperd reads this file to determine which network endpoints agents are
+// permitted to reach.  The canonical api-url hostname is resolved to IPs at
+// agent spawn time and written into per-agent nftables egress rules, so only
+// traffic to the declared provider endpoint is allowed.
+//
+// Default location: providers.kdl in the workspace root (alongside
+// orchestrator.kdl).  Override with providers-file in orchestrator.kdl.
+//
+// Agents reference a provider by name in their agent.kdl:
+//   provider "anthropic"
+
+provider "anthropic" {
+    api-url     "https://api.anthropic.com"
+    description "Anthropic Claude API"
+}
+
+provider "openai" {
+    api-url     "https://api.openai.com"
+    description "OpenAI GPT-4 / ChatGPT API"
+}
+
+provider "google" {
+    api-url     "https://generativelanguage.googleapis.com"
+    description "Google Gemini API"
+}
+
+provider "mistral" {
+    api-url     "https://api.mistral.ai"
+    description "Mistral AI API"
+}
+
+provider "groq" {
+    api-url     "https://api.groq.com"
+    description "Groq inference API"
+}
