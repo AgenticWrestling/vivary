@@ -89,6 +89,7 @@ Testing is a first-class requirement in this repo. New work is not complete with
 - Choose the design that makes failures easier to inspect.
 - Choose the design that preserves the `ward`/`keeperd` boundary.
 - Ask whether the change strengthens the single-agent governed runtime before it strengthens later swarm features.
+- Don't add new dependencies without a very good reason, and ask for confirmation.
 
 # Version Control
 
