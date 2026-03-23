@@ -116,6 +116,8 @@ The socket uses the same MUS frame format as the agent stdio pipes — a `SwarmH
 
 **Control message types (ctl-only):**
 
+Current MVP implementation status: subscribe/status/prompt/agent lifecycle/ping are implemented. Approval and vault message families remain designed-but-not-yet-implemented and should be treated as deferred until the MVP runtime core is fully consolidated.
+
 | MsgType | Direction | Purpose |
 |---|---|---|
 | `MsgType_CtlSubscribe` | viv → keeperd | Subscribe to live Completion and Failure event push stream. |
@@ -267,11 +269,11 @@ A single headless Chrome instance runs on the **host OS** (outside all nspawn co
 - Agents emit MUS-wrapped CDP verbs (e.g., `Browser_Page_Read`).
 - `keeperd` validates the verb against the agent's ACL in `agent.kdl`.
 - Validated requests are translated to Chrome DevTools Protocol JSON-RPC and forwarded to port 9222.
-- A whitelisting proxy enforces the `browser.whitelist` domain allowlist — requests to unlisted domains are dropped before reaching Chrome.
-- Each agent is assigned an isolated Chrome profile (`--user-data-dir`) so cookies, sessions, and storage do not bleed between agents.
+- The runtime now enforces browser whitelist policy in two places: first in the capability layer during ACL/scope validation, then again in the Chrome proxy before any CDP traffic is sent. This defence-in-depth behavior is part of the MVP runtime and should remain testable at both layers.
+- The current implementation uses a single shared headless Chrome process plus per-agent target/session bookkeeping inside `keeperd`. The originally-described per-agent `--user-data-dir` profile isolation is **not** implemented in the current MVP and should be treated as a future hardening/clarification task rather than an existing guarantee.
 - Because Chrome runs on the host OS, the nspawn container image requires no display server, window manager, or GPU drivers.
 
-**Scaling note:** At high agent counts, each agent's isolated Chrome profile adds ~50–100MB of memory overhead on the host. A lazy-spawn model — shared Chrome instance with per-tab isolation rather than per-profile isolation — is a planned optimisation. At MVP scale (≤20 agents) the single-instance per-profile model is acceptable.
+**Scaling note:** The current MVP uses one shared Chrome instance. If stronger per-agent browser isolation is required later, we can evaluate either per-agent profiles or a more explicit browser-context model, but the docs should not imply that profile isolation already exists today.
 
 #### 6b. REST APIs (Google Workspace, etc.)
 
@@ -380,7 +382,9 @@ agent id="assistant-01" {
 
 ### 8. Approval Flow
 
-When a grant includes `requires-approval true`, `keeperd` suspends the capability request and notifies registered **approval targets** before proceeding.
+Approval is part of the intended policy model, but it is **not implemented in the current MVP runtime**. Until the ctl approval path is built, grants using `requires-approval true` should be treated as future-facing design rather than current behavior.
+
+When implemented, a grant including `requires-approval true` will cause `keeperd` to suspend the capability request and notify registered **approval targets** before proceeding.
 
 **Approval target interface (Go):**
 
@@ -393,7 +397,7 @@ type ApprovalTarget interface {
 
 **Initial target: vivary via ctl socket**
 
-`keeperd` emits `MsgType_CtlApprovalRequired` to all active ctl subscribers. The BubbleTea UI presents the request inline with full detail. The operator responds with `MsgType_CtlApprovalGrant` or `MsgType_CtlApprovalDeny`.
+The first implementation target should be the ctl socket only: `keeperd` emits `MsgType_CtlApprovalRequired` to active ctl subscribers, and the operator responds with `MsgType_CtlApprovalGrant` or `MsgType_CtlApprovalDeny`.
 
 **Future target: mobile push**
 

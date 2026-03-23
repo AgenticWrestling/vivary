@@ -12,7 +12,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sync"
+
+	"vivary.dev/vivary/pkg/mus"
+	"vivary.dev/vivary/internal/switchboard"
 )
 
 // Request carries a decoded capability invocation.
@@ -66,6 +70,88 @@ type Capability interface {
 	// Execute performs the capability action.  keeperd calls this only after
 	// ACL, scope, and approval checks pass.
 	Execute(ctx context.Context, req Request) (Response, error)
+}
+
+// SwarmCapability adds binary MUS marshalling to the base interface.
+type SwarmCapability interface {
+	Capability
+	MarshalMUS() []byte
+	UnmarshalMUS(r io.Reader) error
+}
+
+// ---- Payload Structs -------------------------------------------------------
+
+// CapabilityRequestPayload is the binary MUS payload for MsgType_CapabilityRequest.
+type CapabilityRequestPayload struct {
+	Capability string
+	Args       []byte // Binary MUS encoded arguments for the specific capability
+}
+
+func (p *CapabilityRequestPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.Capability)
+	b = mus.AppendVarint(b, uint64(len(p.Args)))
+	b = append(b, p.Args...)
+	return b
+}
+
+func (p *CapabilityRequestPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.Capability, err = mus.ReadString(r, switchboard.MaxIDLen); err != nil {
+		return err
+	}
+	l, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.Args = make([]byte, l)
+	_, err = io.ReadFull(r, p.Args)
+	return err
+}
+
+// CapabilityResponsePayload is the binary MUS payload for MsgType_CapabilityResponse.
+type CapabilityResponsePayload struct {
+	OK          bool
+	Data        []byte // Binary MUS encoded result data
+	ErrorCode   string
+	ErrorDetail string
+}
+
+func (p *CapabilityResponsePayload) MarshalMUS() []byte {
+	var b []byte
+	if p.OK {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	b = mus.AppendVarint(b, uint64(len(p.Data)))
+	b = append(b, p.Data...)
+	b = mus.AppendString(b, p.ErrorCode)
+	b = mus.AppendString(b, p.ErrorDetail)
+	return b
+}
+
+func (p *CapabilityResponsePayload) UnmarshalMUS(r io.Reader) error {
+	var fixed [1]byte
+	if _, err := io.ReadFull(r, fixed[:]); err != nil {
+		return err
+	}
+	p.OK = fixed[0] != 0
+	l, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.Data = make([]byte, l)
+	if _, err := io.ReadFull(r, p.Data); err != nil {
+		return err
+	}
+	if p.ErrorCode, err = mus.ReadString(r, switchboard.MaxIDLen); err != nil {
+		return err
+	}
+	if p.ErrorDetail, err = mus.ReadString(r, 1024); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ---- Registry --------------------------------------------------------------

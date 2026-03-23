@@ -89,8 +89,8 @@ func (t *liveTransport) RequestStatus() error {
 }
 
 func (t *liveTransport) SendPrompt(agentID, text string, seq uint64) error {
-	payload := ctl.MarshalJSON(ctl.PromptPayload{AgentID: agentID, Seq: seq, Text: text})
-	return t.send(switchboard.MsgType_CtlPrompt, payload)
+	payload := ctl.PromptPayload{AgentID: agentID, Seq: seq, Text: text}
+	return t.send(switchboard.MsgType_CtlPrompt, payload.MarshalMUS())
 }
 
 func (t *liveTransport) Ping() error {

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/bits"
+
+	"vivary.dev/vivary/pkg/mus"
 )
 
 // MUS wire format overview
@@ -25,95 +26,16 @@ const (
 	// IDs longer than this are rejected before allocation.
 	MaxIDLen = 256
 
-	// MaxPayloadBytes is the largest payload keeperd will accept in one frame.
-	// 4 MiB is generous for capability responses; adjust per capability class.
-	MaxPayloadBytes = 4 * 1024 * 1024
-
 	// MaxHeaderBytes is the largest on-wire header we will attempt to read.
 	// 2 + 2*(1+MaxIDLen) + 10 + 5 = comfortably under 600 bytes.
 	MaxHeaderBytes = 600
 )
 
 var (
-	ErrPayloadTooLarge  = errors.New("mus: payload exceeds MaxPayloadBytes")
-	ErrIDTooLong        = errors.New("mus: identity field exceeds MaxIDLen")
-	ErrVarintOverflow   = errors.New("mus: varint overflow (>10 bytes)")
-	ErrUnexpectedEOF    = errors.New("mus: unexpected EOF reading header")
-	ErrFrameTruncated   = errors.New("mus: frame truncated during payload read")
+	ErrPayloadTooLarge = errors.New("mus: payload exceeds MaxPayloadBytes")
+	ErrIDTooLong       = errors.New("mus: identity field exceeds MaxIDLen")
+	ErrFrameTruncated  = errors.New("mus: frame truncated during payload read")
 )
-
-// ---- varint helpers --------------------------------------------------------
-
-// appendVarint appends the LEB128 encoding of v to b and returns the result.
-func appendVarint(b []byte, v uint64) []byte {
-	for v >= 0x80 {
-		b = append(b, byte(v)|0x80)
-		v >>= 7
-	}
-	return append(b, byte(v))
-}
-
-// varintLen returns the number of bytes needed to encode v.
-func varintLen(v uint64) int {
-	if v == 0 {
-		return 1
-	}
-	return (bits.Len64(v) + 6) / 7
-}
-
-// readVarint reads a single LEB128 unsigned integer from r.
-// Returns ErrVarintOverflow if more than 10 bytes are consumed.
-func readVarint(r io.Reader) (uint64, error) {
-	var result uint64
-	var shift uint
-	buf := [1]byte{}
-	for i := 0; i < 10; i++ {
-		if _, err := io.ReadFull(r, buf[:]); err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				return 0, ErrUnexpectedEOF
-			}
-			return 0, err
-		}
-		b := buf[0]
-		result |= uint64(b&0x7F) << shift
-		if b < 0x80 {
-			return result, nil
-		}
-		shift += 7
-	}
-	return 0, ErrVarintOverflow
-}
-
-// ---- string helpers --------------------------------------------------------
-
-// appendString encodes s as varuint-length + UTF-8 bytes into b.
-func appendString(b []byte, s string) []byte {
-	b = appendVarint(b, uint64(len(s)))
-	return append(b, s...)
-}
-
-// readString reads a length-prefixed string from r.
-// Returns ErrIDTooLong if the decoded length exceeds maxLen.
-func readString(r io.Reader, maxLen int) (string, error) {
-	n, err := readVarint(r)
-	if err != nil {
-		return "", fmt.Errorf("reading string length: %w", err)
-	}
-	if n > uint64(maxLen) {
-		return "", ErrIDTooLong
-	}
-	if n == 0 {
-		return "", nil
-	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			return "", ErrUnexpectedEOF
-		}
-		return "", err
-	}
-	return string(buf), nil
-}
 
 // ---- SwarmHeader -----------------------------------------------------------
 
@@ -132,10 +54,10 @@ type SwarmHeader struct {
 func (h *SwarmHeader) MarshalMUS() []byte {
 	b := make([]byte, 0, 32+len(h.FromID)+len(h.ToID))
 	b = append(b, h.Version, byte(h.Type))
-	b = appendString(b, h.FromID)
-	b = appendString(b, h.ToID)
-	b = appendVarint(b, h.SeqNo)
-	b = appendVarint(b, uint64(h.PayloadLen))
+	b = mus.AppendString(b, h.FromID)
+	b = mus.AppendString(b, h.ToID)
+	b = mus.AppendVarint(b, h.SeqNo)
+	b = mus.AppendVarint(b, uint64(h.PayloadLen))
 	return b
 }
 
@@ -159,23 +81,23 @@ func UnmarshalMUS(r io.Reader) (SwarmHeader, error) {
 		return SwarmHeader{}, err
 	}
 
-	fromID, err := readString(r, MaxIDLen)
+	fromID, err := mus.ReadString(r, MaxIDLen)
 	if err != nil {
 		return SwarmHeader{}, fmt.Errorf("from_id: %w", err)
 	}
-	toID, err := readString(r, MaxIDLen)
+	toID, err := mus.ReadString(r, MaxIDLen)
 	if err != nil {
 		return SwarmHeader{}, fmt.Errorf("to_id: %w", err)
 	}
-	seqNo, err := readVarint(r)
+	seqNo, err := mus.ReadVarint(r)
 	if err != nil {
 		return SwarmHeader{}, fmt.Errorf("seq_no: %w", err)
 	}
-	payloadLen, err := readVarint(r)
+	payloadLen, err := mus.ReadVarint(r)
 	if err != nil {
 		return SwarmHeader{}, fmt.Errorf("payload_len: %w", err)
 	}
-	if payloadLen > MaxPayloadBytes {
+	if payloadLen > uint64(mus.MaxPayloadBytes) {
 		return SwarmHeader{}, ErrPayloadTooLarge
 	}
 
@@ -224,10 +146,10 @@ func WriteFrame(w io.Writer, hdr SwarmHeader, payload []byte) error {
 // HeaderSize returns the encoded byte length of h (without payload).
 func (h *SwarmHeader) HeaderSize() int {
 	return 2 +
-		varintLen(uint64(len(h.FromID))) + len(h.FromID) +
-		varintLen(uint64(len(h.ToID))) + len(h.ToID) +
-		varintLen(h.SeqNo) +
-		varintLen(uint64(h.PayloadLen))
+		mus.VarintLen(uint64(len(h.FromID))) + len(h.FromID) +
+		mus.VarintLen(uint64(len(h.ToID))) + len(h.ToID) +
+		mus.VarintLen(h.SeqNo) +
+		mus.VarintLen(uint64(h.PayloadLen))
 }
 
 // ---- Little-endian helpers used by payload structs -------------------------

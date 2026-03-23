@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"vivary.dev/vivary/internal/chromproxy"
 )
 
 // Browser_Page_Read navigates headless Chrome to a URL and returns the page's
@@ -20,13 +22,13 @@ const BrowserPageReadName = "Browser_Page_Read"
 // BrowserPageRead implements Capability for Browser_Page_Read.
 type BrowserPageRead struct {
 	// ChromeProxy dispatches CDP read requests after scope validation.
-	// Signature: func(ctx context.Context, agentID, targetURL, waitFor string, maxChars int) (string, error)
-	ChromeProxy func(ctx context.Context, agentID, targetURL, waitFor string, maxChars int) (string, error)
+	// Signature: func(ctx context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error)
+	ChromeProxy func(ctx context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error)
 }
 
-func (b *BrowserPageRead) Name() string         { return BrowserPageReadName }
-func (b *BrowserPageRead) Explain() string      { return Browser_Page_ReadSchema }
-func (b *BrowserPageRead) AuditPayload() bool   { return true }
+func (b *BrowserPageRead) Name() string       { return BrowserPageReadName }
+func (b *BrowserPageRead) Explain() string    { return Browser_Page_ReadSchema }
+func (b *BrowserPageRead) AuditPayload() bool { return true }
 
 func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, error) {
 	var args Browser_Page_Read
@@ -58,14 +60,37 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 		return Response{OK: false, ErrorCode: "unavailable", ErrorDetail: "chrome proxy not initialised"}, nil
 	}
 
+	policy := buildBrowserWhitelistPolicy(scope, ConstraintsFromContext(ctx))
+
 	// TODO: use args.Timeout
-	text, err := b.ChromeProxy(ctx, req.AgentID, args.URL, args.WaitFor, 32768)
+	text, err := b.ChromeProxy(ctx, req.AgentID, args.URL, policy, args.WaitFor, 32768)
 	if err != nil {
 		return Response{OK: false, ErrorCode: "chrome_error", ErrorDetail: err.Error()}, nil
 	}
 
 	data, _ := json.Marshal(map[string]string{"text": text})
 	return Response{OK: true, Data: data}, nil
+}
+
+func buildBrowserWhitelistPolicy(scope string, constraints []ScopeConstraint) chromproxy.WhitelistPolicy {
+	policy := chromproxy.WhitelistPolicy{}
+	if scope != "" {
+		for _, prefix := range strings.Split(scope, ",") {
+			prefix = strings.TrimSpace(prefix)
+			if prefix != "" {
+				policy.Prefixes = append(policy.Prefixes, prefix)
+			}
+		}
+	}
+	for _, sc := range constraints {
+		if sc.Entity != "Link" {
+			continue
+		}
+		policy.Domains = append(policy.Domains, sc.Constraints["domain"]...)
+		policy.DomainSuffixes = append(policy.DomainSuffixes, sc.Constraints["domain-suffix"]...)
+		policy.PathPrefixes = append(policy.PathPrefixes, sc.Constraints["path-prefix"]...)
+	}
+	return policy
 }
 
 // urlMatchesScope returns true if rawURL starts with any of the comma-separated

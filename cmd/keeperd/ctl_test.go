@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +13,7 @@ import (
 	"vivary.dev/vivary/internal/capabilities"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 // newTestDaemon creates an in-process daemon with a temp workspace.
@@ -136,7 +137,7 @@ func TestCtlSocket_Status(t *testing.T) {
 		t.Fatalf("expected CtlStatus response, got %v", hdr.Type)
 	}
 	var status ctl.StatusPayload
-	if err := json.Unmarshal(payload, &status); err != nil {
+	if err := status.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		t.Fatalf("unmarshal status: %v", err)
 	}
 	if status.DaemonVersion == "" {
@@ -160,7 +161,7 @@ func TestCtlSocket_AgentList(t *testing.T) {
 		t.Fatalf("expected CtlAgentList response, got %v", hdr.Type)
 	}
 	var list ctl.AgentListPayload
-	if err := json.Unmarshal(payload, &list); err != nil {
+	if err := list.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		t.Fatalf("unmarshal agent list: %v", err)
 	}
 	if len(list.Agents) != 0 {
@@ -180,9 +181,8 @@ func TestCtlSocket_Subscribe(t *testing.T) {
 	if hdr.Type != switchboard.MsgType_CtlSubscribe {
 		t.Fatalf("expected CtlSubscribe ack, got %v", hdr.Type)
 	}
-	var ack struct{ OK bool `json:"ok"` }
-	if err := json.Unmarshal(payload, &ack); err != nil || !ack.OK {
-		t.Errorf("subscribe ack not ok: payload=%s err=%v", payload, err)
+	if len(payload) == 0 || payload[0] != 1 {
+		t.Errorf("subscribe ack not ok: payload=%v", payload)
 	}
 }
 
@@ -192,27 +192,27 @@ func TestCtlSocket_AgentCreateInvalidID(t *testing.T) {
 	defer cancel()
 
 	c := dialCtl(t, sockPath)
-	payload, _ := json.Marshal(ctl.AgentCreatePayload{
+	req := ctl.AgentCreatePayload{
 		ID:       "INVALID_ID!", // uppercase + special chars
-		Template: "",
-	})
-	c.send(t, switchboard.MsgType_CtlAgentCreate, payload)
+		Template: "any",
+	}
+	c.send(t, switchboard.MsgType_CtlAgentCreate, req.MarshalMUS())
 	hdr, respPayload := c.recv(t)
 
 	if hdr.Type != switchboard.MsgType_CtlAgentCreate {
 		t.Fatalf("expected CtlAgentCreate response, got %v", hdr.Type)
 	}
-	var resp struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+	if len(respPayload) == 0 {
+		t.Fatal("empty response payload")
 	}
-	if err := json.Unmarshal(respPayload, &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
+	if respPayload[0] != 0 {
+		t.Errorf("expected error code 0, got %d", respPayload[0])
 	}
-	if resp.OK {
-		t.Error("expected error for invalid agent ID, got ok=true")
+	errStr, err := mus.ReadString(bytes.NewReader(respPayload[1:]), 1024)
+	if err != nil {
+		t.Fatalf("failed to decode error string: %v", err)
 	}
-	if resp.Error == "" {
+	if errStr == "" {
 		t.Error("expected non-empty error message")
 	}
 }

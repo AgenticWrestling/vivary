@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,16 @@ type Proxy struct {
 
 	mu      sync.Mutex
 	targets map[string]*target // keyed by targetID
+}
+
+// WhitelistPolicy is the browser allow-list enforced before CDP traffic is sent
+// to Chrome. It supports both legacy URL-prefix policies and the typed Link
+// constraints used by the MVP browser capability.
+type WhitelistPolicy struct {
+	Prefixes       []string
+	Domains        []string
+	DomainSuffixes []string
+	PathPrefixes   []string
 }
 
 // New creates a Proxy pointing at debugAddr.
@@ -52,12 +63,9 @@ func New(debugAddr string) *Proxy {
 // ReadPage navigates to rawURL, waits for the network to settle, extracts
 // accessible text, and returns it truncated to maxChars.
 //
-// scope is a comma-separated list of allowed URL prefixes (from the agent ACL).
-// ReadPage rejects rawURL before any CDP activity if it does not match scope.
-func (p *Proxy) ReadPage(ctx context.Context, agentID, rawURL, waitFor string, maxChars int) (string, error) {
-	if !urlInScope(rawURL, scope(agentID)) {
-		// Note: scope enforcement is also done by the capability layer before
-		// calling ReadPage.  This is defence-in-depth.
+// policy defines the browser whitelist enforced before any CDP activity.
+func (p *Proxy) ReadPage(ctx context.Context, agentID, rawURL string, policy WhitelistPolicy, waitFor string, maxChars int) (string, error) {
+	if !policy.Allows(rawURL) {
 		return "", fmt.Errorf("URL %q not permitted for agent %q", rawURL, agentID)
 	}
 
@@ -247,8 +255,8 @@ func (t *target) extractAccessibleText(ctx context.Context) (string, error) {
 
 	var tree struct {
 		Nodes []struct {
-			Role       struct{ Value string }              `json:"role"`
-			Name       struct{ Value string }              `json:"name"`
+			Role       struct{ Value string }      `json:"role"`
+			Name       struct{ Value string }      `json:"name"`
 			Properties []struct{ Name, Value any } `json:"properties"`
 		} `json:"nodes"`
 	}
@@ -363,20 +371,48 @@ func (t *target) readLoop() {
 
 // ---- Scope helpers ---------------------------------------------------------
 
-// scope returns the scope string for agentID.  In the proxy package the scope
-// is passed in via the caller (BrowserPageRead.Execute → ReadPage), so this
-// stub is only used for the defence-in-depth check which receives it as a
-// parameter.  The function signature is kept for clarity.
-func scope(_ string) string { return "" }
-
-func urlInScope(rawURL, scopeStr string) bool {
-	if scopeStr == "" {
-		return true // caller already enforced scope; proxy accepts
+// Allows reports whether rawURL is permitted by the policy.
+func (p WhitelistPolicy) Allows(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
 	}
+	if p.allowsByPrefix(rawURL) {
+		return true
+	}
+	domain := strings.ToLower(u.Host)
+	path := u.Path
+	for _, d := range p.Domains {
+		if domain == strings.ToLower(strings.TrimSpace(d)) {
+			return true
+		}
+	}
+	for _, s := range p.DomainSuffixes {
+		suffix := strings.ToLower(strings.TrimSpace(s))
+		if suffix != "" && (domain == suffix || strings.HasSuffix(domain, "."+suffix)) {
+			return true
+		}
+	}
+	for _, prefix := range p.PathPrefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix != "" && strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p WhitelistPolicy) allowsByPrefix(rawURL string) bool {
 	needle := strings.ToLower(rawURL)
-	for prefix := range strings.SplitSeq(scopeStr, ",") {
-		p := strings.TrimSpace(strings.ToLower(prefix))
-		if p != "" && strings.HasPrefix(needle, p) {
+	for _, prefix := range p.Prefixes {
+		candidate := strings.TrimSpace(strings.ToLower(prefix))
+		if candidate == "" || !strings.HasPrefix(needle, candidate) {
+			continue
+		}
+		rest := needle[len(candidate):]
+		last := candidate[len(candidate)-1]
+		if rest == "" || rest[0] == '/' || rest[0] == '?' || rest[0] == '#' ||
+			last == '/' || last == '?' || last == '#' {
 			return true
 		}
 	}

@@ -111,6 +111,35 @@ type Browser_Page_Read struct {
 	WaitFor string `json:"wait_for,omitempty"` // Page load event to wait for before extracting content
 }
 
+// MarshalMUS serialises Browser_Page_Read into binary MUS format.
+func (a *Browser_Page_Read) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.URL)
+	b = mus.AppendVarint(b, uint64(a.Timeout))
+	b = mus.AppendString(b, a.WaitFor)
+	return b
+}
+
+// UnmarshalMUS deserialises Browser_Page_Read from binary MUS format.
+func (a *Browser_Page_Read) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.URL, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "url", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "timeout", err)
+		}
+		a.Timeout = int(v)
+	}
+	if a.WaitFor, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "wait_for", err)
+	}
+	return nil
+}
+
 ---SNIP---
 
 const Filesystem_File_WriteSchema = `{
@@ -162,4 +191,41 @@ type Filesystem_File_Write struct {
 	Content  string `json:"content"`          // Content to write; use base64 encoding for binary data
 	Append   bool   `json:"append,omitempty"` // If true, append to the file instead of overwriting
 	Encoding string `json:"encoding,omitempty"`
+}
+
+// MarshalMUS serialises Filesystem_File_Write into binary MUS format.
+func (a *Filesystem_File_Write) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Path)
+	b = mus.AppendString(b, a.Content)
+	if a.Append {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	b = mus.AppendString(b, a.Encoding)
+	return b
+}
+
+// UnmarshalMUS deserialises Filesystem_File_Write from binary MUS format.
+func (a *Filesystem_File_Write) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Path, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "path", err)
+	}
+	if a.Content, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "content", err)
+	}
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "append", err)
+		}
+		a.Append = b[0] != 0
+	}
+	if a.Encoding, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "encoding", err)
+	}
+	return nil
 }

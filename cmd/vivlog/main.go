@@ -13,6 +13,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +22,8 @@ import (
 	"time"
 
 	"vivary.dev/vivary/internal/audit"
+	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/internal/ctl"
 )
 
 func main() {
@@ -148,7 +151,7 @@ func (l *logCLI) cmdDecode(args []string) {
 		fmt.Fprintf(os.Stderr, "no frame found with seq_no=%d\n", *seqNo)
 		os.Exit(1)
 	}
-	// Full decode: pretty-print header fields + payload JSON if available.
+	// Full decode: pretty-print header fields + payload MUS if available.
 	for _, r := range records {
 		fmt.Printf("id:       %d\n", r.ID)
 		fmt.Printf("ts:       %s\n", r.Ts.Format(time.RFC3339Nano))
@@ -158,19 +161,66 @@ func (l *logCLI) cmdDecode(args []string) {
 		fmt.Printf("seq_no:   %d\n", r.SeqNo)
 		if r.Payload != nil {
 			fmt.Println("payload:")
-			var prettyJSON map[string]json.RawMessage
-			if err := json.Unmarshal(r.Payload, &prettyJSON); err == nil {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("  ", "  ")
-				_ = enc.Encode(prettyJSON)
+			decoded, err := decodePayload(r.MsgType, r.Payload)
+			if err == nil {
+				b, _ := json.MarshalIndent(decoded, "  ", "  ")
+				fmt.Printf("  %s\n", string(b))
 			} else {
 				fmt.Printf("  (raw) %q\n", r.Payload)
+				fmt.Printf("  (decode error: %v)\n", err)
 			}
 		} else {
 			fmt.Println("payload:  (not stored)")
 		}
 		fmt.Println()
 	}
+}
+
+func decodePayload(msgType string, payload []byte) (any, error) {
+	r := bytes.NewReader(payload)
+	switch msgType {
+	case "CtlStatus":
+		var p ctl.StatusPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CtlAgentList":
+		var p ctl.AgentListPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CtlAgentCreate":
+		var p ctl.AgentCreatePayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CtlAgentDestroy":
+		var p ctl.AgentDestroyPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CtlPrompt":
+		var p ctl.PromptPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CtlApproval":
+		var p ctl.ApprovalPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CapabilityRequest":
+		var p capabilities.CapabilityRequestPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CapabilityResponse":
+		var p capabilities.CapabilityResponsePayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "CompletionEvent":
+		var p ctl.CompletionEventPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	case "FailureEvent":
+		var p ctl.FailureEventPayload
+		err := p.UnmarshalMUS(r)
+		return p, err
+	}
+	return nil, fmt.Errorf("unsupported msg_type for decoding: %s", msgType)
 }
 
 // ---- Output formatting -----------------------------------------------------

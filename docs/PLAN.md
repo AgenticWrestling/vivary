@@ -1,20 +1,35 @@
 # VIVARY Implementation Plan
 
+This plan tracks the MVP runtime core first and distinguishes between:
+
+- implemented foundations already in the repo
+- remaining MVP consolidation work needed to make the runtime trustworthy
+- later multi-agent and gateway work that should stay explicitly deferred
+
 ## MVP: v0.1 Runtime Core
 
-**Goal:** Prove the core VIVARY runtime with one local agent in MVP scope: isolated execution, narrow capability access, operator visibility, and strong audit/debug tooling. Multi-agent orchestration is intentionally deferred to the next phase.
+**Goal:** Prove the core VIVARY runtime with one local agent in MVP scope: isolated execution, narrow capability access, operator visibility, and strong audit/debug tooling. Multi-agent orchestration remains intentionally deferred.
 
-**Deliverables:**
+**Implemented foundations:**
 
-1. `keeperd` Go daemon with KDL config parsing; exposes a MUS-over-Unix-socket control plane.
-2. BubbleTea TUI/CLI (`viv`) as a separate binary that connects to `keeper.sock`.
-3. `distrobuild` Nix Flake script producing a reproducible NixOS LXD image.
-4. Single-agent workspace provisioning: nspawn environment from a Btrfs template subvolume.
-5. Ward binary (deployed inside nspawn) with Claude Code subprocess integration.
-6. Narrow initial capability set:
-   - `Browser_Page_Read` end-to-end: agent → MUS pipe → `keeperd` ACL check → whitelisting proxy → Chrome CDP → response.
-   - `Filesystem_File_Write` scoped to an output path inside the agent subvolume, to prove local write policy enforcement.
-7. SQLite-backed audit trail plus a Unix-style `vivlog` CLI for decoding and inspecting MUS records.
+1. `keeperd` exists and exposes a MUS-framed Unix-socket control plane.
+2. `viv` exists as a separate CLI/TUI binary.
+3. `vivlog` exists and reads the SQLite audit database.
+4. `ward` exists and exchanges MUS frames with `keeperd`.
+5. MUS framing, routing, SeqNo enforcement, identity stamping, and byte-rate limiting exist.
+6. `vivgen` exists and generates capability schemas/types from `capabilities/*.kdl`.
+7. `Filesystem_File_Write` exists with strong path and symlink protections.
+8. Browser/CDP plumbing exists in substantial form.
+9. Nix flake packaging for base/runtime images exists.
+
+**Remaining MVP deliverables:**
+
+1. Make the prompt -> tool -> capability response -> completion path fully coherent in Ward.
+2. Make browser mediation obviously correct, including real proxy-layer whitelist enforcement.
+3. Make `keeperd` runtime state authoritative enough for truthful ctl/TUI status.
+4. Finish audit payload policy so stored payload behavior matches capability sensitivity.
+5. Make provisioning behavior safe and predictable on Linux.
+6. Expand test coverage from unit-level pieces to real MVP end-to-end assertions.
 
 **MVP non-goals:**
 
@@ -22,6 +37,7 @@
 - topology governance (`can-invoke`, `max-depth`, `max-spawns`)
 - REST gateway families beyond the minimal runtime demonstration
 - self-evolution, snapshot governance, or rollback automation
+- broad provider/plugin abstractions beyond what is needed for one clear runtime path
 
 ---
 
@@ -29,39 +45,67 @@
 
 ### 1.1 `distrobuild` (Nix Flake)
 
-- Define the Nix Flake for the NixOS base system, pinning: Go toolchain, `systemd-nspawn`, btrfs-progs, SQLite, and `lxd`.
-- Produce a minimal LXD image with `security.nesting=true` and Cgroup v2 delegation configured.
+**Already done:**
+
+- Flake exists and builds base/runtime images.
+- Runtime image includes `keeperd`, `viv`, `vivlog`, `ward`, and `cap-cli`.
+- Chrome stays outside the guest image.
+
+**Remaining work:**
+
 - Validate the image boots identically on Linux (native LXD), macOS (OrbStack/Lima), and Windows 11 (WSL2).
-- Configure `/etc/subuid` and `/etc/subgid` with sufficient range for `max-agents` × 65,536 UID entries.
-- Keep Chrome out of the guest image. Browser execution is a host-side concern; the guest only needs the runtime pieces required for `keeperd`, `ward`, provisioning, and audit/debug tooling.
+- Document the operational path that replaces the original standalone `distrobuild` script wording.
+- Configure and verify `/etc/subuid` and `/etc/subgid` with sufficient range for later multi-agent work.
+- Add a smoke test for image contents so runtime artifacts and expected binary paths do not drift.
 
 ### 1.2 Keeper Daemon (`keeperd`)
 
-- Go project structure: `cmd/keeperd`, `cmd/viv` (TUI/CLI), `cmd/vivlog`, `cmd/ward`, `internal/switchboard`, `internal/capabilities`, `internal/vault`, `internal/chromproxy`, `internal/tui`, `internal/ctl`.
-- `keeperd` starts as a daemon, creates a Unix domain socket at a well-known path (`<workspace_root>/keeper.sock`).
-- MUS-over-socket control protocol: `viv` and any `viv` subcommands connect to this socket and exchange the same MUS frame format used on agent pipes (`SwarmHeader` + payload). The TUI's `FromID` is `"ctl"` — a reserved identity the ACL layer treats as operator-level.
-- KDL config parsing for `orchestrator.kdl` (socket path, log paths, Chrome settings, vault path) and per-agent `agent.kdl`.
-- **Replace hand-rolled KDL parser** with `github.com/sblinch/kdl-go`. The current scanner handles only single-line nodes and basic blocks; the library gives full spec compliance (multi-line strings, type annotations, slashdash comments) and removes a class of edge-case bugs (e.g., `//` inside quoted strings). `OrchestratorConfig`, `AgentConfig`, and `ProviderConfig` structs should be aligned strictly with the schemas described in `DESIGN.md` as part of this migration. Add structured validation (required fields, naming conventions, uniqueness of agent IDs) at parse time rather than at first use.
-- Move configuration loading and validation into a dedicated `internal/config` package so `cmd/keeperd` remains startup/wiring code rather than parser code.
-- Keep `keeperd` runtime state explicit and small: agent status, last prompt seq, last completion, last failure, active ctl subscribers, and current runtime handles. Build ctl responses directly from this state.
+**Already done:**
+
+- Go daemon startup, ctl socket listener, audit DB wiring, router wiring, capability dispatcher, and Chrome sidecar launch exist.
+- Config loading has moved into `internal/config`.
+- `kdl-go` is in use for orchestrator and agent config parsing.
+
+**Remaining work:**
+
+- Keep `cmd/keeperd` as wiring code only; continue moving runtime-specific logic into internal packages where it improves clarity.
+- Tighten config validation at parse time: required fields, naming conventions, uniqueness, enum validation, and clearer operator-facing errors.
+- Replace the still-manual provider tree walk with a stricter typed validation path.
+- Make `keeperd` runtime state explicit and authoritative: agent status, last prompt seq, last completion, last failure, last event time, and operator-visible cost/token metadata.
+- Build ctl responses directly from that runtime state instead of sparse agent records.
+- Keep semantic enforcement in `keeperd`; do not let policy leak into Ward or browser helpers.
 
 ### 1.3 BubbleTea TUI (`viv`)
 
-- Separate binary connecting to `keeper.sock` via MUS frames.
-- Single-agent detail view first: status, current prompt seq, last token count, last cost, last event, and approval/debug shortcuts.
-- Live-updates via `MsgType_CtlSubscribe` sent on connect; `keeperd` pushes Completion Events and Failure Events to all `ctl` subscribers.
-- The initial CLI surface should be at least as important as the TUI: status, prompt dispatch, agent lifecycle, and log inspection must all work without the full screen UI.
-- `keeperd` must maintain enough real runtime state that the TUI is showing authoritative values rather than sparse placeholders. Status, last event, and cost data should come from keeper-owned state, not incidental side effects.
+**Already done:**
+
+- Separate binary exists.
+- CLI commands for status, prompt dispatch, ping, and agent lifecycle exist.
+- TUI subscribe/status flow and event rendering exist.
+
+**Remaining work:**
+
+- Ensure status, last event, token counts, and cost come from keeper-owned state rather than only live event arrival.
+- Make status output and TUI detail views agree on field meanings and fallback behavior.
+- Keep the CLI surface as important as the TUI: every MVP operator action should stay available without fullscreen UI.
+- Add tests for richer status snapshots once keeper-owned runtime state is expanded.
 
 ### 1.4 Agent Workspace Provisioning
 
-- Command: `viv agent create <id> --template <path>` (sends `MsgType_CtlAgentCreate` to `keeperd`).
-- `keeperd` creates a Btrfs subvolume, copies the template, bind-mounts the Ward binary read-only, writes the agent's `agent.kdl`, configures per-agent cgroup v2 limits, and spawns the nspawn container with the Ward binary as the init process.
-- Per-agent veth pair created at spawn time; nftables rules applied on the host-side veth to whitelist only the configured LLM API endpoint (see `DESIGN.md` §6c).
-- **`ContainerRuntime` interface**: extract all nspawn/btrfs/machinectl/nft `exec.Command` calls into a `ContainerRuntime` interface (`Provision`, `Destroy`, `ApplyNetworkRules`, `RemoveNetworkRules`). Provide a real Linux implementation and a stub/fake for non-Linux test runs. This makes provisioning logic unit-testable without requiring real kernel resources and eases future support for alternative runtimes (e.g., OCI containers).
-- **Provisioning error recovery**: if any provisioning step fails (subvolume creation, bind-mount, nftables, nspawn spawn) the partially-created state (subvolume, veth pair, nftables table) must be torn down reliably before returning the error. Use a deferred cleanup stack pattern.
-- Treat the direct Ward subprocess path on non-Linux as a development/testing fallback only, not as the target runtime architecture.
-- Fix Linux provisioning correctness before broadening features: nspawn argument construction, cleanup ordering, and runtime registration should be verified on real Linux before more orchestration work lands.
+**Already done:**
+
+- `ContainerRuntime` interface exists.
+- Linux and stub runtimes exist.
+- Provisioning uses a cleanup stack for create-time rollback.
+
+**Remaining work:**
+
+- Keep Linux provisioning correctness as a top MVP priority: nspawn argument construction, cleanup ordering, runtime registration, and shutdown behavior should be verified on real Linux.
+- Treat the direct Ward subprocess path on non-Linux as a development/testing fallback only, not as the target runtime story.
+- Move agent ACL creation away from hard-coded default grants and toward config-driven installation from validated agent policy.
+- Make nftables setup and teardown reliable; decide which failures are fatal versus degraded but acceptable.
+- Add tests around partial-failure cleanup for subvolume creation, process spawn, and network rule application.
+- Make agent destroy symmetric with create, including teardown of network rules, process lifetime, router registration, and ACL removal.
 
 ---
 
@@ -69,48 +113,70 @@
 
 ### 2.1 MUS Codec
 
-- Define `SwarmHeader` and all v0.1 `MsgType` constants in Go using `mus-go`.
-- For MVP, standardize on `MUS header + payload bytes`, with JSON payloads where that keeps the code simpler. Make this explicit in docs and code comments rather than implying a fuller typed MUS payload system already exists.
-- Fuzz `UnmarshalMUS` with random byte sequences — malformed frames must never panic `keeperd`.
-- Benchmark: establish a baseline framing/decoding target and capture operator-visible latency for prompt dispatch and capability round-trips.
-- **SeqNo edge cases**: handle SeqNo wrapping (sender restarts from 0) more gracefully — a configurable grace window or explicit reconnect handshake rather than silently dropping all frames until reboot.
-- **Router performance**: benchmark the `io.MultiReader(peek, pipe)` approach in `readLoop` against a `bufio.Reader`-based alternative. If allocations per frame are measurably higher, switch to the buffered approach.
+**Already done:**
+
+- Shared MUS framing and codec exist.
+- `pkg/mus` provides public binary encoding/decoding helpers.
+- All core communications (viv ↔ keeperd, keeperd ↔ Ward) are fully binary MUS encoded.
+- Capability argument structs and control plane payloads have binary MUS marshallers.
+- Round-trip and malformed-frame tests exist.
+
+**Remaining work:**
+
+- Make the binary MUS choice explicit in docs and code comments everywhere the protocol is introduced.
+- Fuzz `UnmarshalMUS` with random byte sequences so malformed frames never panic `keeperd`.
+- Benchmark framing/decoding and capture operator-visible latency for prompt dispatch and capability round-trips.
+- Handle SeqNo restart/wrap behavior more gracefully than simple rewind denial.
+- Benchmark the `io.MultiReader(peek, pipe)` read path against a buffered alternative and switch only if it measurably improves allocations or clarity.
 
 ### 2.2 Pipe Router
 
-- One Ward stdio pipe in MVP, implemented in a way that can later generalize to multiple agents.
-- Identity enforcement: overwrite `FromID` on all inbound frames with the pipe's registered agent ID.
-- `SeqNo` monotonicity check: non-increasing sequence from a sender drops the frame and emits a security log event.
-- Byte-rate limiter per pipe (before MUS decoding): frames exceeding the budget are dropped and logged as `pipe_flood` events.
-- Single-recipient request/response routing between ctl, keeper, and one Ward in MVP.
-- Keep a shared frame codec and shared message model across ctl and Ward traffic.
-- Decide explicitly whether ctl should share the same router implementation as Ward traffic or only the same codec/message model. Choose the simpler implementation for MVP; architectural symmetry is secondary to clarity.
-- If ctl remains on a separate handler path for MVP, extract a small shared frame-handling layer so protocol behavior does not drift.
+**Already done:**
+
+- Identity stamping, SeqNo enforcement, and byte-rate limiting exist.
+- Router tests cover the core security invariants.
+- ctl and Ward traffic share the same frame codec and binary message model.
+
+**Remaining work:**
+
+- Decide explicitly whether ctl should share the same router implementation as Ward traffic or only the same codec/message model; choose the simpler MVP implementation.
+- If ctl stays on a separate handler path, keep a small shared frame-handling layer so behavior cannot drift.
+- Add tests for payload-too-large/operator-visible error handling where the codec rejects frames.
 
 ### 2.3 Ward Binary
 
-- `cmd/ward`: standalone Go binary, bind-mounted read-only into nspawn.
-- `AgentCLI` interface for spawning the LLM subprocess; initial implementation wraps `claude --headless`. The interface must be thin enough that a Gemini CLI or OpenAI-compatible runner can be wired in without touching core Ward logic. Each implementation parses its own JSON stream format and emits normalised `tool_use` / `message_stop` events.
-- Capability CLI binaries installed alongside the Ward; each supports `--help` to emit its JSON schema.
-- Prompt dispatch loop: receive MUS prompt → spawn LLM subprocess → intercept CLI tool invocations → parse backend-specific call syntax → validate structural/schema correctness → translate valid calls to MUS capability requests → return MUS results as CLI stdout → collect final answer → emit Completion Event.
-- Keep Ward narrow: it is the syntax/protocol adapter at the LLM boundary, not the semantic policy authority.
-- Pick one real LLM integration path and make it crisp. Remove overlapping or partially-implemented tool-call paths so the prompt → tool call → MUS request flow is obvious to a Go reader.
-- Introduce one normalized internal event shape inside Ward (`tool_use`, `message_stop`, etc.) so backend-specific parsing stays behind a tiny adapter boundary.
-- **Schema synchronisation**: Ward must load capability schemas from the same source of truth as `keeperd`: generated artifacts derived from the `capabilities/*.kdl` files by `vivgen`. The hard-coded schema constants in `ward/main.go` are an MVP shortcut and must be removed once `vivgen` is part of the build pipeline (§3.1).
-- Schema validation on every tool call against the registered `SwarmCapability.Explain()` schema.
-- `keeperd` remains responsible for semantic enforcement after a request is well-formed: ACLs, scope, rate limits, approvals, credential use, and dispatch.
-- Loop detection: `(capability_name, full_serialised_args)` hash ring with configurable repeat threshold; on trigger, terminate subprocess and emit `loop_detected` failure event.
+**Already done:**
+
+- Standalone Ward binary exists.
+- Per-prompt subprocess execution exists.
+- Loop detection exists.
+- Tool socket server for capability CLIs exists.
+- Completion and failure events exist.
+- Generated schemas and binary MUS marshallers are available inside Ward.
+
+**Remaining work:**
+
+- Pick one real LLM integration path and make it completely crisp end-to-end.
+- Finish the prompt -> tool call -> capability response -> tool result -> completion path so there is no partially-implemented branch left in normal execution.
+- Remove overlapping or speculative tool-call mechanisms once the chosen path is complete.
+- Introduce one normalized internal event shape inside Ward so backend-specific parsing stays behind a very small adapter boundary.
+- Add explicit schema validation on every forwarded tool call against the generated schema, with operator-visible failure events for malformed/schema-invalid calls.
+- Keep schema synchronization through `vivgen` as the only source of truth; do not reintroduce hard-coded schema copies.
+- If a future `AgentCLI` interface is added, keep it thin and justified by actual need, not speculative provider generalization.
 
 ### 2.4 Debug Tooling
 
-- `vivlog` CLI reads the SQLite WAL and decodes MUS records into a Unix-style inspection surface.
-- First commands should include:
-  - `vivlog tail`
-  - `vivlog show --agent <id>`
-  - `vivlog grep --msg-type <type>`
-  - `vivlog decode --seq <n>`
-- Output priorities: readable headers, stable field names, raw payload access when allowed, and machine-friendly output modes for shell pipelines.
-- `vivlog` must be good enough to debug protocol and ACL issues before richer UI tooling exists.
+**Already done:**
+
+- `vivlog tail`, `show`, `grep`, and `decode` exist.
+- `vivlog decode` supports full binary MUS decoding for all message types.
+- SQLite audit queries and decode helpers exist.
+
+**Remaining work:**
+
+- Add filtering by time range and event type where it materially improves operator debugging.
+- Add tests covering stable machine-readable output modes.
+- Make sure `vivlog` stays sufficient for protocol bring-up, ACL debugging, and prompt-run inspection before richer UI work lands.
 
 ---
 
@@ -118,75 +184,96 @@
 
 ### 3.1 `vivgen` Tool
 
-- `vivgen` is the compile-time schema/code generation tool for capabilities.
-- Source of truth: `capabilities/*.kdl` (`categories.kdl`, `capabilities.kdl`, `components.kdl`, `entities.kdl`). Go types are generated from KDL, then compiled into the binaries.
-- Generate capability request/response types, static `Explain()` schema strings, and any registry/lookup data needed by `keeperd`, `ward`, and capability CLIs.
-- Linter rules enforced at generation time: Namespace_Noun_Verb naming, description + example/enum on all required fields, snake_case JSON keys, no vendor-specific terms, and consistency between capability/entity references.
-- Backward compatibility check: CI fails if a field is removed or renamed without a versioned capability name.
-- `vivgen` should generate or validate a central capability registry used by `keeperd`.
-- `vivgen` should have dedicated tests covering name linting, schema generation, and backward-compatibility failure cases.
-- Included in `distrobuild` so generated files are part of the reproducible build.
+**Already done:**
+
+- `vivgen` loads `capabilities/*.kdl` and generates Go types, schemas, and a registry.
+- Backward-compat tests exist.
+
+**Remaining work:**
+
+- Continue tightening generator/linter rules: Namespace_Noun_Verb naming, descriptions/examples/enums, snake_case JSON keys, and cross-file consistency.
+- Generate or validate the central capability registry used by `keeperd`, not just Ward.
+- Keep generated output stability covered by contract/golden tests.
+- Ensure generated artifacts are part of the reproducible runtime build path.
 
 #### `TestVivgen` coverage
 
-- **KDL load success:** valid `categories.kdl`, `capabilities.kdl`, `components.kdl`, and `entities.kdl` load into one coherent in-memory model.
-- **KDL load failure:** malformed KDL, duplicate names, unknown categories, unknown entities, and invalid component references fail with explicit error messages.
-- **Name linting:** capability names that violate `Namespace_Noun_Verb`, use vendor terms, or use forbidden verbs fail generation.
-- **Field metadata linting:** missing descriptions, examples/enums/defaults where required, invalid JSON keys, and inconsistent required/optional field metadata fail generation.
-- **Cross-file consistency:** category references in `capabilities.kdl`, entity references in capabilities, and scope-constraint references in `entities.kdl` are validated against the rest of the KDL model.
-- **Go type generation:** generated request/response structs have stable names, field types, JSON tags, and package layout derived from the KDL definitions.
-- **Schema generation:** generated `Explain()` output matches the KDL field metadata exactly, including descriptions, enums, defaults, and required fields.
-- **Registry generation:** the generated central capability registry includes all declared capabilities with stable lookup keys and schema references usable by `keeperd` and `ward`.
-- **Backward compatibility:** removing or renaming a capability field, changing a field's wire name, or changing required/optional semantics fails unless a new capability version is introduced.
-- **Golden output stability:** representative generated files from a fixture KDL set are compared against golden files so accidental generator drift is detected in CI.
+- **Already present in part:** KDL load success, some failure cases, schema generation, type generation, registry generation, and backward-compat checks.
+- **Still needed:** fuller duplicate/unknown-reference coverage, stronger metadata lint coverage, and representative golden output stability checks if current tests do not fully pin output shape.
 
 ### 3.2 Chrome Sidecar & Whitelisting Proxy
 
 #### 3.2a Browser Launch and Profile Isolation
 
-- `keeperd` launches Chromium on the host with `--remote-debugging-port=9222` and a per-agent `--user-data-dir` on agent spawn.
-- Profile isolation must either work exactly as described in the docs or be reduced to a simpler documented model. Do not leave this ambiguous.
+- `keeperd` already launches Chromium on the host side in a non-fatal way.
+- Make profile isolation match the docs exactly or simplify the docs to the implementation actually shipped.
+- Do not leave agent browser context/profile isolation ambiguous.
 
 #### 3.2b Whitelisting Proxy
 
-- Before forwarding any CDP verb to port 9222, check the target URL against the agent's `browser.whitelist`. Deny with a `capability_denied` log event if not listed.
-- Whitelist enforcement must happen in a testable layer and must not depend only on higher-level capability checks.
+- Keep capability-layer whitelist checks, but also make whitelist enforcement real in the proxy layer as defence-in-depth.
+- Remove the current effective allow-all fallback in the proxy's local scope check path.
+- Make proxy-layer allow/deny behavior directly testable without relying only on higher-level capability checks.
+- Emit clear `capability_denied`/security records for blocked browser targets.
 
 #### 3.2c `Browser_Page_Read`
 
-- Implement `Browser_Page_Read`: navigate to URL, wait for `networkidle`, extract readable text via the accessibility tree (not raw HTML), return as MUS response.
-- Keep the browser surface very small in MVP. Get `Browser_Page_Read` correct before adding any broader browser capability family.
+- Keep `Browser_Page_Read` as the only browser capability in MVP.
+- Ensure navigation, wait strategy, and readable text extraction are deterministic enough for testing.
+- Add explicit allow/deny integration tests before expanding browser surface area.
+- Make failure behavior legible when Chrome is unavailable, the target is denied, or extraction fails.
 
 ### 3.3 Filesystem Output Capability
 
-- Implement `Filesystem_File_Write` with scope constraints limited to a configured writable prefix such as `output/`.
-- Deny path traversal, absolute paths, symlink escapes, and writes outside the agent subvolume.
-- Require stable audit records for write attempts, including denied requests.
+- `Filesystem_File_Write` is already implemented with good path safety.
+- Keep scope constraints limited to a configured writable prefix such as `output/`.
+- Add explicit operator-observable audit assertions for allowed and denied writes.
+- Keep deny behavior for traversal, absolute paths, and symlink escapes covered by tests.
 
 ### 3.4 Logging Infrastructure
 
-- SQLite WAL table: `timestamp TEXT | msg_type TEXT | from_id TEXT | to_id TEXT | payload BLOB`.
-- Completion Event writer: emitted by the Ward on subprocess exit (fields: `agent_id`, `prompt_seq`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `context_window_used_pct`, `tool_calls_made`, `outcome`).
-- Failure Event writer: emitted by the Ward for each failure mode (`schema_mismatch`, `loop_detected`, `capability_denied`, `subprocess_crash`, `timeout`, `pipe_flood`).
-- `vivlog` CLI: decodes MUS payloads from the WAL, pretty-prints records; filters by agent, time range, event type, and sequence number.
-- Honour per-capability `audit-payload false` default for high-sensitivity categories (Email, Messaging, Document, Database).
-- **`shouldAuditPayload` implementation**: replace the current stub (always `true`) with real per-capability logic driven by a `AuditPayload() bool` method on the `Capability` interface. High-sensitivity categories (Email, Messaging, Document, Database, Credential) default to `false`; operator config can override per capability.
-- **Audit DB maintenance**: treat retention/pruning as post-MVP hardening unless real usage forces it earlier. The MVP requirement is correct payload policy and reliable inspection, not a full audit lifecycle subsystem.
+**Already done:**
+
+- SQLite frames table exists.
+- Completion and failure event payloads exist.
+- `vivlog` exists.
+
+**Remaining work:**
+
+- Replace the current `shouldAuditPayload` stub with real per-capability logic driven by `Capability.AuditPayload()`.
+- Default high-sensitivity capability categories (`Email`, `Messaging`, `Document`, `Database`, `Credential`) to `audit-payload false`.
+- Keep payload policy small and explicit for MVP; retention/pruning remains post-MVP unless usage forces it sooner.
+- Add tests proving payload omission/storage behavior for both allow and deny paths.
+- Ensure all operator-visible event kinds have stable names and payload shapes.
 
 ### 3.5 ECS Scope Model
 
-- Migrate the raw `Scope` string passed through `context` to the Entity-Component-System resource model described in `CAPABILITIES.md`. Scope constraints should be expressed as typed key-value pairs (`to-domain`, `path-prefix`, `max-chars`, etc.) rather than free-form strings.
-- The `ACLEntry.Scope` field becomes a structured `ScopeConstraint` that each capability validates against its own schema. This eliminates the ad-hoc parsing currently done inside `urlMatchesScope`, `checkNoSymlinkEscape`, etc.
-- Backward-compatible migration: keep the raw-string path working behind a compat shim until all built-in capabilities are migrated.
+- The codebase now has an initial compatibility bridge: legacy `Scope string` plus structured `ScopeConstraint`.
+- For MVP, finish a small explicit typed-scope model for the built-in capabilities rather than forcing the full ECS design everywhere at once.
+- Migrate browser scope to typed domain/domain-suffix constraints.
+- Migrate filesystem scope to typed path-prefix constraints.
+- Keep the raw-string path only as a compatibility shim until built-ins no longer depend on it.
+- Defer the full schedule/rate/approval-rich ECS policy realization until the MVP core is stable unless one of those policies becomes necessary for the current runtime slice.
 
 ### 3.6 MVP Consolidation
 
-- Remove hard-coded Ward schema constants and finish schema synchronization through `vivgen` as the single source of generated artifacts from `capabilities/*.kdl`.
+This is now the most important section of the plan.
+
 - Make browser mediation and whitelist enforcement obviously correct and integration-tested before adding more capability families.
-- Make provisioning safe and recoverable: cleanup-on-failure, correct runtime registration, and predictable Linux behavior.
+- Make provisioning safe and recoverable: cleanup-on-failure, correct runtime registration, predictable Linux behavior.
 - Make ctl/event semantics explicit and stable so the TUI, CLI, and audit log all agree on message behavior.
-- Eliminate duplicate or speculative code paths in Ward and keeperd. The MVP should read as one clear runtime path, not several half-finished alternatives.
-- Ensure the TUI and `keeperd` runtime state model reflect real prompt, event, and cost data.
+- Make `keeperd` status authoritative with real prompt/event/cost state.
+- Finish the Ward execution path so the MVP reads as one clear runtime path, not several partially-overlapping ones.
+- Keep the runtime single-agent and boring until these pieces are solid.
+
+### 3.7 Approval and Policy Gating
+
+Approval is documented in the design but not yet implemented.
+
+- Decide whether approval is required for the MVP exit slice.
+- If yes, implement one narrow approval path only: ctl subscriber notification, grant/deny response, timeout handling, and audit emission.
+- If no, document approval as explicitly deferred and remove any implication that it is already part of the MVP runtime claim.
+- Do not partially implement multiple approval targets before the ctl path is real.
 
 ---
 
@@ -199,36 +286,39 @@ Before adding multi-agent orchestration, VIVARY must pass an explicit runtime-co
 | Suite | Coverage |
 |---|---|
 | `TestMUSCodec` | Round-trip marshal/unmarshal for all MVP MsgTypes; fuzz `UnmarshalMUS`; benchmark allocations per frame. |
-| `TestCtlSocket` | Subscribe, status, prompt dispatch, approval messages, and agent lifecycle commands round-trip correctly. |
-| `TestRuntimeRouter` | Identity stamping, `SeqNo` enforcement, and byte-rate limiting on the Ward pipe. |
+| `TestCtlSocket` | Subscribe, status, prompt dispatch, approval messages if enabled, and agent lifecycle commands round-trip correctly. |
+| `TestRuntimeRouter` | Identity stamping, `SeqNo` enforcement, byte-rate limiting, and oversize/malformed frame handling. |
 | `TestCapabilityACL` | Authorized verbs permitted; unauthorized dropped with security log event; `Browser_Page_Read` and `Filesystem_File_Write` scope checks enforced. |
-| `TestVivgen` | Generated `Explain()` validates as JSON Schema; linter rejects missing descriptions or naming violations; backward-compat check fails on removed field. |
+| `TestVivgen` | Generated schema/registry/type output remains correct and lint rules reject bad definitions. |
 | `TestWardLoop` | Loop detection triggers at threshold; malformed or schema-invalid tool call emits correct failure event; subprocess crash emits correct failure event. |
-| `TestChromeProxy` | Whitelisted domain forwarded; unlisted domain denied and logged; readable text extraction returns normalized content. |
-| `TestFilesystemWrite` | Allowed writes succeed under configured prefix; path traversal, symlink escape, and absolute path writes are denied and logged. |
-| `TestVivaryLog` | WAL decoding, filtering, and raw record inspection behave consistently across output modes. |
+| `TestChromeProxy` | Whitelisted domain forwarded; unlisted domain denied in the proxy layer; readable text extraction returns normalized content. |
+| `TestFilesystemWrite` | Allowed writes succeed; path traversal, symlink escape, and absolute path writes are denied and logged. |
+| `TestVivaryLog` | WAL decoding, filtering, payload omission, and raw record inspection behave consistently across output modes. |
+| `TestKeeperRuntimeState` | Status snapshots reflect prompt seq, last event, and cost/token state accurately after runtime activity. |
 
 ### 4.2 End-to-End Tests
 
 | Test | Assertion |
 |---|---|
-| Environment parity | `keeperd` boots and passes health check on Linux, macOS (OrbStack), Windows (WSL2). |
+| Environment parity | `keeperd` boots and passes health check on Linux, macOS (OrbStack/Lima), and Windows (WSL2). |
 | TUI/CLI connection | `viv` connects to `keeper.sock`, receives live Completion/Failure events, and can inspect state without polling. |
-| Prompt run | A prompt reaches the Ward, spawns the LLM subprocess, converts well-formed tool calls into MUS requests, executes allowed tools, and returns a final answer plus completion event. |
-| Filesystem isolation | Agent attempts write to `/etc` and read of keeper host files — both fail. |
-| Network isolation | Agent attempts TCP connection to an arbitrary external host — nftables drops it. |
+| Prompt run | A prompt reaches the Ward, spawns the LLM subprocess, converts well-formed tool calls into capability requests, executes allowed tools, returns tool results correctly, and emits a completion event. |
+| Filesystem isolation | Agent attempts write to `/etc` and read of keeper host files - both fail. |
+| Network isolation | Agent attempts TCP connection to an arbitrary external host - nftables drops it. |
 | Browser whitelist allow | Agent requests `Browser_Page_Read` for a whitelisted URL; content returned. |
-| Browser whitelist deny | Agent requests `Browser_Page_Read` for an unlisted URL; `capability_denied` logged, empty or denied response returned. |
+| Browser whitelist deny | Agent requests `Browser_Page_Read` for an unlisted URL; denial logged and response refused. |
 | Scoped file write allow | Agent writes to allowed `output/` path; content appears in its subvolume and audit trail records the action. |
 | Scoped file write deny | Agent attempts traversal or disallowed path write; request denied and recorded. |
 | Pipe flood resilience | Agent floods stdout with garbage; frames are dropped, event logged, and `keeperd` remains responsive. |
-| Audit/debug workflow | Operator can use `vivlog` commands to locate a specific prompt run, inspect associated events, and decode the relevant MUS record. |
+| Audit/debug workflow | Operator can use `vivlog` commands to locate a specific prompt run, inspect associated events, and decode the relevant frame. |
+| Provisioning cleanup | A failed agent create leaves no stale router pipe, ACL entry, subvolume, or nftables table behind. |
 
 ### 4.3 Exit Criteria
 
 - Single-agent runtime is stable across supported host environments.
 - Policy denials are understandable from CLI/TUI output and audit logs.
-- Operators can debug capability failures and prompt runs using `vivlog` without bespoke internal tooling.
+- Operators can debug capability failures and prompt runs using `vivlog` without bespoke tooling.
+- Browser and filesystem capability boundaries are enforced in the layers the docs claim they are enforced in.
 - The MVP demonstrates clear value as a capability-restricted, isolated, auditable runtime even with no swarm features enabled.
 
 ---
@@ -239,9 +329,10 @@ Only after the MVP exit tests pass do we add swarm concerns.
 
 ### 5.1 Swarm Routing and Topology
 
-- Extend the pipe router from MVP request/response routing to unicast, multicast (`group:` prefix), and broadcast (`*`) routing.
+- Extend the router from MVP request/response routing to unicast, multicast (`group:` prefix), and broadcast (`*`) routing.
 - Add topology governance: `can-invoke`, `max-concurrent`, `max-depth`, and `max-agents`.
 - Add `ParentID`/`Depth` enforcement for subagent invocation chains.
+- Implement deliberate UID/subuid allocation and tracking as described in the design once multi-agent runtime identity isolation matters operationally.
 
 ### 5.2 Multi-Agent Operator UX
 
@@ -252,29 +343,29 @@ Only after the MVP exit tests pass do we add swarm concerns.
 ### 5.3 Credential Vault
 
 - AES-256-GCM encrypted store in `keeperd`.
-- Agents use a `credential_id` in capability requests; `keeperd` resolves to the actual secret only at gateway invocation time, after ACL checks pass.
-- Secret passed to REST gateway binaries via environment variable — never via MUS or agent filesystem.
-- `viv vault add|rotate|list` commands (sent as MUS ctl messages to `keeperd`).
-- **Encryption at rest (SQLCipher)**: once the vault is introduced, evaluate replacing the plain SQLite audit DB with SQLCipher (AES-256) so that audit records and vault data share the same encrypted file. Key derived from operator passphrase or hardware token; `keeperd` prompts on startup if the key is not in the environment.
+- Agents use a `credential_id`; `keeperd` resolves the secret only at gateway invocation time.
+- Secret passed to REST gateway binaries via environment variable, never via MUS or agent filesystem.
+- `viv vault add|rotate|list` commands sent as ctl messages to `keeperd`.
+- Once the vault is real, re-evaluate SQLCipher or equivalent encrypted-at-rest storage for audit/vault data.
 
 ### 5.4 REST API Gateway Binaries
 
-- Separate Go binary per API family (e.g., `cmd/gateway-gsuite`), invoked by `keeperd`.
+- Separate Go binary per API family.
 - Initial set: `Spreadsheet_Range_Read`, `Spreadsheet_Cell_Update`, `Email_Message_List`, `Email_Message_Read`, `Calendar_Event_List`, `Calendar_Event_Create`.
-- Response normalization: strip formatting metadata before returning to agent.
-- Vendor-neutral capability names resolve to the appropriate provider based on the assigned `credential_id`.
+- Response normalization strips formatting metadata before returning to the agent.
+- Vendor-neutral capability names resolve to the appropriate provider based on assigned credentials.
 
 ---
 
 ## Later Phase: Runtime Evolution and Snapshot Governance
 
-- Agent-driven self-evolution is explicitly out of MVP and out of the first multi-agent phase.
-- If introduced later, it should come only after the runtime core and swarm governance layers are already operationally proven.
+- Agent-driven self-evolution remains out of MVP and out of the first multi-agent phase.
+- If introduced later, it should come only after the runtime core and swarm governance layers are operationally proven.
 - Snapshot-based reconfiguration should begin with operator-directed changes before any agent-directed proposal mechanism is added.
 
 ### Full Telemetry Hook
 
-- All Switchboard frames (including ctl messages) appended to the SQLite WAL at the router level.
+- All switchboard frames, including ctl messages, should remain appendable to the audit trail at the router/control-plane boundary.
 
 ---
 
@@ -282,49 +373,42 @@ Only after the MVP exit tests pass do we add swarm concerns.
 
 These items are worth tracking but are not committed to any phase yet.
 
-### Dynamic UID Range Allocation
-
-The MVP uses `systemd-nspawn -U` for automatic UID allocation. `DESIGN.md` describes a deliberate 65,536-entry-per-agent allocation scheme managed by `keeperd` against `/etc/subuid`. Implement this when multi-agent is introduced (Phase 5) so that agent UID ranges are predictable, non-overlapping, and recoverable across daemon restarts.
-
 ### MCP Tool Protocol
 
-Investigate whether Ward can act as a Model Context Protocol (MCP) host, exposing capability CLIs as MCP tools rather than Unix socket connections. This would simplify tool discovery for LLM subprocesses that speak MCP natively and reduce Ward's bespoke JSON parsing surface. Note: this is a significant architectural change — Ward's current design as a narrow syntax/protocol adapter is deliberate. Any MCP integration must not weaken the ACL enforcement boundary or route capability requests around `keeperd`. Evaluate after Phase 4 exit tests pass.
+Investigate whether Ward can act as a Model Context Protocol (MCP) host, exposing capability CLIs as MCP tools rather than relying on the current bespoke integration path.
+
+Constraints for any future investigation:
+
+- it must not weaken the `keeperd` enforcement boundary
+- it must not route capability requests around `keeperd`
+- it should only be evaluated after the MVP runtime path is already crisp and tested
 
 ---
 
-## Testing Plan
+## Ordered MVP Checklist
 
-### Unit Tests
+If the goal is to finish the MVP cleanly, work should happen in this order:
 
-| Suite | Coverage |
-|---|---|
-| `TestMUSCodec` | Round-trip marshal/unmarshal for all MsgTypes; fuzz `UnmarshalMUS`; benchmark allocations per frame. |
-| `TestSwitchboard` | For multi-agent phase: unicast, multicast, broadcast correctness; SeqNo enforcement; FromID overwrite; pipe-flood rate limiter; concurrent routing under race detector. |
-| `TestCtlSocket` | TUI subscribe message results in Completion/Failure events pushed to the ctl connection; operator commands (agent create, vault add) round-trip correctly. |
-| `TestCapabilityACL` | Authorized verbs permitted; unauthorized dropped with security log event; unknown agent ID rejected; `ctl` identity passes operator-level verbs. |
-| `TestVivgen` | Generated `Explain()` validates as JSON Schema; linter rejects structs missing descriptions or violating naming convention; backward-compat check fails on removed field. |
-| `TestWardLoop` | Loop detection triggers at threshold; schema mismatch emits correct failure event; subprocess crash emits correct failure event. |
-| `TestChromeProxy` | Whitelisted domain forwarded; unlisted domain denied and logged; CDP response correctly normalised. |
-
-### End-to-End Tests
-
-| Test | Assertion |
-|---|---|
-| Environment parity | `keeperd` boots and passes health check on Linux, macOS (OrbStack), Windows (WSL2). |
-| TUI connection | `viv` TUI connects to `keeper.sock`, receives live Completion Events as an agent runs. |
-| Filesystem isolation | Agent attempts write to `/etc` and read of keeper host files — both fail. |
-| Network isolation | Agent attempts TCP connection to an arbitrary external host — nftables drops it. |
-| Identity integrity | Agent embeds a foreign `FromID` in its header; `keeperd` overwrites with the pipe's registered ID. |
-| Chrome whitelist allow | Agent requests `Browser_Page_Read` for a whitelisted URL; content returned. |
-| Chrome whitelist deny | Agent requests `Browser_Page_Read` for an unlisted URL; `capability_denied` logged, empty response returned. |
-| Completion event | After a prompt run, SQLite WAL contains a Completion Event with correct token counts and cost. |
-| Loop detection | Repeating tool call sequence triggers `loop_detected` event; subprocess terminated cleanly. |
-| Debug tooling | `vivlog` locates and decodes the relevant WAL entries for a given prompt run. |
-
-### Deferred to Multi-Agent Phase
-
-| Test | Assertion |
-|---|---|
-| Process isolation | Agent A cannot see Agent B's processes via `ps` or access its IPC namespace. |
-| UID isolation | Agent A cannot read Agent B's subvolume files even with direct UID guessing. |
-| Swarm unicast | Agent A sends MUS message to Agent B; Agent C does not receive it; payload integrity verified. |
+1. Finish Ward's single clear prompt/tool execution path.
+   - complete the chosen prompt -> tool -> result -> completion flow
+   - remove overlapping or half-implemented execution branches
+   - emit explicit schema/failure events for malformed tool calls
+2. Make browser proxy whitelist enforcement real and test it.
+   - enforce whitelist policy in the proxy layer, not only the capability layer
+   - make profile/context isolation match the docs or simplify the docs
+   - add explicit allow/deny tests
+3. Make `keeperd` runtime state/status authoritative.
+   - track last prompt seq, last completion, last failure, last event time, cost, and token counts
+   - return those values consistently to CLI/TUI callers
+4. Implement real audit payload policy.
+   - wire `Capability.AuditPayload()` into keeper-side storage decisions
+   - add tests for stored vs omitted payload behavior
+5. Harden Linux provisioning behavior and cleanup guarantees.
+   - verify create/destroy symmetry on real Linux
+   - prove partial-failure cleanup for runtime/network/subvolume setup
+6. Close the most important MVP end-to-end test gaps.
+   - prompt run
+   - browser allow/deny
+   - scoped filesystem allow/deny
+   - provisioning cleanup
+   - audit/debug workflow

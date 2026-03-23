@@ -5,12 +5,13 @@
 package audit
 
 import (
+	"bytes"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver
+	"vivary.dev/vivary/internal/ctl"
 )
 
 // DB wraps a SQLite connection with the audit schema.
@@ -173,43 +174,26 @@ func (d *DB) Close() error { return d.db.Close() }
 // ---- Completion / Failure event helpers ------------------------------------
 
 // CompletionEvent is the structured payload for MsgType_CompletionEvent.
-type CompletionEvent struct {
-	AgentID             string  `json:"agent_id"`
-	PromptSeq           uint64  `json:"prompt_seq"`
-	Model               string  `json:"model"`
-	InputTokens         int     `json:"input_tokens"`
-	OutputTokens        int     `json:"output_tokens"`
-	CostUSD             float64 `json:"cost_usd"`
-	ContextWindowUsedPct float64 `json:"context_window_used_pct"`
-	ToolCallsMade       int     `json:"tool_calls_made"`
-	Outcome             string  `json:"outcome"` // "success", "timeout", "cancelled"
-}
+type CompletionEvent = ctl.CompletionEventPayload
 
 // FailureEvent is the structured payload for MsgType_FailureEvent.
-type FailureEvent struct {
-	AgentID   string `json:"agent_id"`
-	PromptSeq uint64 `json:"prompt_seq"`
-	Kind      string `json:"kind"` // schema_mismatch|loop_detected|capability_denied|subprocess_crash|timeout|pipe_flood
-	Detail    string `json:"detail"`
-	CapName   string `json:"cap_name,omitempty"` // for capability_denied
+type FailureEvent = ctl.FailureEventPayload
+
+// MarshalEvent serialises an event into binary MUS format.
+func MarshalEvent(v ctl.MUSPayload) ([]byte, error) {
+	return v.MarshalMUS(), nil
 }
 
-// MarshalEvent JSON-encodes an event struct into bytes suitable for a MUS
-// frame payload.
-func MarshalEvent(v any) ([]byte, error) {
-	return json.Marshal(v)
-}
-
-// UnmarshalCompletion decodes a CompletionEvent from a frame payload.
+// UnmarshalCompletion decodes a CompletionEvent from a binary MUS frame payload.
 func UnmarshalCompletion(b []byte) (CompletionEvent, error) {
 	var ev CompletionEvent
-	err := json.Unmarshal(b, &ev)
+	err := ev.UnmarshalMUS(bytes.NewReader(b))
 	return ev, err
 }
 
-// UnmarshalFailure decodes a FailureEvent from a frame payload.
+// UnmarshalFailure decodes a FailureEvent from a binary MUS frame payload.
 func UnmarshalFailure(b []byte) (FailureEvent, error) {
 	var ev FailureEvent
-	err := json.Unmarshal(b, &ev)
+	err := ev.UnmarshalMUS(bytes.NewReader(b))
 	return ev, err
 }

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"vivary.dev/vivary/internal/ctl"
 	agentruntime "vivary.dev/vivary/internal/runtime"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 const daemonVersion = "0.1.0-dev"
@@ -264,7 +266,7 @@ func (d *daemon) handleCtlConn(ctx context.Context, conn net.Conn) {
 				Version: 0, Type: switchboard.MsgType_CtlSubscribe,
 				FromID: "keeper", ToID: ctl.CtlIdentity, SeqNo: seqOut.Next(),
 			}
-			_ = switchboard.WriteFrame(conn, ack, []byte(`{"ok":true}`))
+			_ = switchboard.WriteFrame(conn, ack, []byte{1}) // 1 = ok
 			continue
 		}
 
@@ -287,6 +289,7 @@ func (d *daemon) handleCtlConn(ctx context.Context, conn net.Conn) {
 // the response header + payload (zero-value header if no response is needed).
 func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, payload []byte) (switchboard.SwarmHeader, []byte) {
 	resp := switchboard.SwarmHeader{Version: 0}
+	r := bytes.NewReader(payload)
 
 	switch hdr.Type {
 	case switchboard.MsgType_CtlStatus:
@@ -298,20 +301,28 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 		return resp, d.buildAgentList()
 
 	case switchboard.MsgType_CtlAgentCreate:
+		var req ctl.AgentCreatePayload
+		if err := req.UnmarshalMUS(r); err != nil {
+			return resp, errorPayload(err)
+		}
 		err := d.agentCreate(ctx, payload)
 		resp.Type = switchboard.MsgType_CtlAgentCreate
 		if err != nil {
 			return resp, errorPayload(err)
 		}
-		return resp, []byte(`{"ok":true}`)
+		return resp, []byte{1}
 
 	case switchboard.MsgType_CtlAgentDestroy:
+		var req ctl.AgentDestroyPayload
+		if err := req.UnmarshalMUS(r); err != nil {
+			return resp, errorPayload(err)
+		}
 		err := d.agentDestroy(payload)
 		resp.Type = switchboard.MsgType_CtlAgentDestroy
 		if err != nil {
 			return resp, errorPayload(err)
 		}
-		return resp, []byte(`{"ok":true}`)
+		return resp, []byte{1}
 
 	case switchboard.MsgType_CtlPrompt:
 		err := d.dispatchPrompt(payload)
@@ -319,18 +330,15 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 		if err != nil {
 			return resp, errorPayload(err)
 		}
-		return resp, []byte(`{"ok":true}`)
+		return resp, []byte{1}
 
 	case switchboard.MsgType_Ping:
 		resp.Type = switchboard.MsgType_Pong
 		return resp, nil
 
 	case switchboard.MsgType_CtlApproval:
-		// Phase 2: human-in-the-loop capability approval gate.
-		// The CtlApproval frame is reserved for the operator to grant or deny
-		// a pending capability request.  Not yet implemented; return error.
 		resp.Type = switchboard.MsgType_CtlApproval
-		return resp, []byte(`{"ok":false,"error":"approval gate not yet implemented (Phase 2)"}`)
+		return resp, errorPayload(fmt.Errorf("approval gate not yet implemented (Phase 2)"))
 
 	default:
 		d.log.Warn("ctl: unhandled msg type", "type", hdr.Type)
@@ -342,7 +350,7 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 
 func (d *daemon) dispatchPrompt(payload []byte) error {
 	var req ctl.PromptPayload
-	if err := jsonUnmarshal(payload, &req); err != nil {
+	if err := req.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		return fmt.Errorf("invalid PromptPayload: %w", err)
 	}
 
@@ -357,7 +365,6 @@ func (d *daemon) dispatchPrompt(payload []byte) error {
 	}
 
 	// Forward the prompt to Ward as a CtlPrompt MUS frame.
-	// Ward.run() dispatches MsgType_CtlPrompt to handlePrompt().
 	hdr := switchboard.SwarmHeader{
 		Version: 0, Type: switchboard.MsgType_CtlPrompt,
 		FromID: "keeper", ToID: req.AgentID,
@@ -382,14 +389,15 @@ func (d *daemon) buildStatus() []byte {
 		Agents:        agents,
 		UptimeSeconds: int64(time.Since(d.startedAt).Seconds()),
 	}
-	return ctl.MarshalJSON(p)
+	return p.MarshalMUS()
 }
 
 func (d *daemon) buildAgentList() []byte {
 	d.mu.RLock()
 	agents := d.buildAgentStatusList()
 	d.mu.RUnlock()
-	return ctl.MarshalJSON(ctl.AgentListPayload{Agents: agents})
+	p := ctl.AgentListPayload{Agents: agents}
+	return p.MarshalMUS()
 }
 
 func (d *daemon) buildAgentStatusList() []ctl.AgentStatus {
@@ -410,7 +418,10 @@ func (d *daemon) buildAgentStatusList() []ctl.AgentStatus {
 // ---- Helpers ---------------------------------------------------------------
 
 func errorPayload(err error) []byte {
-	return fmt.Appendf(nil, `{"ok":false,"error":%q}`, err.Error())
+	var b []byte
+	b = append(b, 0) // 0 = not ok
+	b = mus.AppendString(b, err.Error())
+	return b
 }
 
 func newLogger(level string) *slog.Logger {

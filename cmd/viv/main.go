@@ -2,7 +2,7 @@
 package main
 
 import (
-	"encoding/json"
+	"bytes"
 	"flag"
 	"fmt"
 	"net"
@@ -13,6 +13,7 @@ import (
 
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 const cliVersion = "0.1.0-dev"
@@ -137,7 +138,7 @@ func (c *client) cmdStatus() {
 		fatal("recv: %v", err)
 	}
 	var status ctl.StatusPayload
-	if err := json.Unmarshal(payload, &status); err != nil {
+	if err := status.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		fatal("decode: %v", err)
 	}
 
@@ -163,7 +164,7 @@ func (c *client) cmdAgentList() {
 		fatal("recv: %v", err)
 	}
 	var list ctl.AgentListPayload
-	if err := json.Unmarshal(payload, &list); err != nil {
+	if err := list.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		fatal("decode: %v", err)
 	}
 	if len(list.Agents) == 0 {
@@ -190,15 +191,15 @@ func (c *client) cmdAgentCreate(args []string) {
 		os.Exit(1)
 	}
 
-	payload := ctl.MarshalJSON(ctl.AgentCreatePayload{ID: *id, Template: *template, Provider: *provider})
-	if err := c.send(switchboard.MsgType_CtlAgentCreate, payload); err != nil {
+	payload := ctl.AgentCreatePayload{ID: *id, Template: *template, Provider: *provider}
+	if err := c.send(switchboard.MsgType_CtlAgentCreate, payload.MarshalMUS()); err != nil {
 		fatal("send: %v", err)
 	}
 	_, respPayload, err := c.recv()
 	if err != nil {
 		fatal("recv: %v", err)
 	}
-	printOKOrError(respPayload)
+	expectOK(respPayload)
 }
 
 func (c *client) cmdAgentDestroy(args []string) {
@@ -209,15 +210,15 @@ func (c *client) cmdAgentDestroy(args []string) {
 		fmt.Fprintln(os.Stderr, "viv agent destroy --id <id>")
 		os.Exit(1)
 	}
-	payload := ctl.MarshalJSON(ctl.AgentDestroyPayload{ID: *id})
-	if err := c.send(switchboard.MsgType_CtlAgentDestroy, payload); err != nil {
+	payload := ctl.AgentDestroyPayload{ID: *id}
+	if err := c.send(switchboard.MsgType_CtlAgentDestroy, payload.MarshalMUS()); err != nil {
 		fatal("send: %v", err)
 	}
 	_, respPayload, err := c.recv()
 	if err != nil {
 		fatal("recv: %v", err)
 	}
-	printOKOrError(respPayload)
+	expectOK(respPayload)
 }
 
 func (c *client) cmdPrompt(args []string) {
@@ -235,15 +236,15 @@ func (c *client) cmdPrompt(args []string) {
 		*seq = uint64(time.Now().UnixMilli())
 	}
 
-	payload := ctl.MarshalJSON(ctl.PromptPayload{AgentID: *agentID, Seq: *seq, Text: text})
-	if err := c.send(switchboard.MsgType_CtlPrompt, payload); err != nil {
+	payload := ctl.PromptPayload{AgentID: *agentID, Seq: *seq, Text: text}
+	if err := c.send(switchboard.MsgType_CtlPrompt, payload.MarshalMUS()); err != nil {
 		fatal("send: %v", err)
 	}
 	_, respPayload, err := c.recv()
 	if err != nil {
 		fatal("recv: %v", err)
 	}
-	printOKOrError(respPayload)
+	expectOK(respPayload)
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -262,21 +263,20 @@ func mustDialClient(socketPath string) *client {
 	return &client{conn: conn}
 }
 
-func printOKOrError(payload []byte) {
-	var r struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error,omitempty"`
+func expectOK(payload []byte) {
+	if len(payload) == 0 {
+		fatal("empty response from keeperd")
 	}
-	if err := json.Unmarshal(payload, &r); err != nil {
-		fmt.Printf("response: %s\n", payload)
+	if payload[0] == 1 {
+		fmt.Println("ok")
 		return
 	}
-	if r.OK {
-		fmt.Println("ok")
-	} else {
-		fmt.Fprintf(os.Stderr, "error: %s\n", r.Error)
-		os.Exit(1)
+	r := bytes.NewReader(payload[1:])
+	errStr, err := mus.ReadString(r, 4096)
+	if err != nil {
+		fatal("failed to decode error: %v (raw: %q)", err, payload)
 	}
+	fatal("error: %s", errStr)
 }
 
 func fatal(format string, a ...any) {

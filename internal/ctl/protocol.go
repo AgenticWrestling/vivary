@@ -1,102 +1,310 @@
-// Package ctl defines the payload structures exchanged between the vivary
-// CLI/TUI and keeperd over the ctl socket (MUS frames with FromID="ctl").
-//
-// All payload structs are JSON-encoded in the MUS frame PayloadLen bytes.
-// JSON is used for ctl payloads (not raw MUS) because the ctl path is low-
-// frequency operator traffic and human-readability aids debugging.
 package ctl
 
-import "encoding/json"
+import (
+	"fmt"
+	"io"
+
+	"vivary.dev/vivary/pkg/mus"
+)
 
 // Reserved identity for the operator control socket.
 const CtlIdentity = "ctl"
 
+// ---- Payload Interfaces ----------------------------------------------------
+
+type MUSPayload interface {
+	MarshalMUS() []byte
+	UnmarshalMUS(r io.Reader) error
+}
+
 // ---- Request payloads (ctl → keeperd) --------------------------------------
 
-// SubscribePayload requests that keeperd push all future CompletionEvents and
-// FailureEvents to this ctl connection.
 type SubscribePayload struct{}
 
-// AgentCreatePayload requests provisioning of a new agent workspace.
+func (p *SubscribePayload) MarshalMUS() []byte           { return nil }
+func (p *SubscribePayload) UnmarshalMUS(r io.Reader) error { return nil }
+
 type AgentCreatePayload struct {
-	// ID is the unique agent identifier.  Must match [a-z0-9][a-z0-9\-]{0,62}.
-	ID string `json:"id"`
-
-	// Provider is the LLM provider name (from providers.kdl).
-	// Controls which network endpoint nftables egress rules permit.
-	// Example: "anthropic", "openai", "google".
-	Provider string `json:"provider,omitempty"`
-
-	// Template is the host path to the Btrfs subvolume template directory.
-	Template string `json:"template"`
-
-	// CPUShares is the relative CPU weight (default 1024).
-	CPUShares uint32 `json:"cpu_shares,omitempty"`
-
-	// MemoryMaxBytes is the cgroup memory.max limit (0 = unlimited).
-	MemoryMaxBytes uint64 `json:"memory_max_bytes,omitempty"`
+	ID             string
+	Provider       string
+	Template       string
+	CPUShares      uint32
+	MemoryMaxBytes uint64
 }
 
-// AgentDestroyPayload requests teardown of an agent workspace.
+func (p *AgentCreatePayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.ID)
+	b = mus.AppendString(b, p.Provider)
+	b = mus.AppendString(b, p.Template)
+	b = mus.AppendVarint(b, uint64(p.CPUShares))
+	b = mus.AppendVarint(b, p.MemoryMaxBytes)
+	return b
+}
+
+func (p *AgentCreatePayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.ID, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	if p.Provider, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	if p.Template, err = mus.ReadString(r, 1024); err != nil {
+		return err
+	}
+	v, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.CPUShares = uint32(v)
+	if p.MemoryMaxBytes, err = mus.ReadVarint(r); err != nil {
+		return err
+	}
+	return nil
+}
+
 type AgentDestroyPayload struct {
-	ID string `json:"id"`
+	ID string
 }
 
-// PromptPayload dispatches a prompt to a specific agent.
+func (p *AgentDestroyPayload) MarshalMUS() []byte {
+	return mus.AppendString(nil, p.ID)
+}
+
+func (p *AgentDestroyPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	p.ID, err = mus.ReadString(r, 64)
+	return err
+}
+
 type PromptPayload struct {
-	// AgentID is the target agent.
-	AgentID string `json:"agent_id"`
-
-	// Seq is the operator-assigned prompt sequence number (must be monotonic).
-	Seq uint64 `json:"seq"`
-
-	// Text is the raw prompt text sent to the Ward for forwarding to the LLM.
-	Text string `json:"text"`
+	AgentID string
+	Seq     uint64
+	Text    string
 }
 
-// ApprovalPayload grants or denies a pending capability request that was
-// held for operator approval.
+func (p *PromptPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.AgentID)
+	b = mus.AppendVarint(b, p.Seq)
+	b = mus.AppendString(b, p.Text)
+	return b
+}
+
+func (p *PromptPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.AgentID, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	if p.Seq, err = mus.ReadVarint(r); err != nil {
+		return err
+	}
+	p.Text, err = mus.ReadString(r, mus.MaxPayloadBytes)
+	return err
+}
+
 type ApprovalPayload struct {
-	// RequestID is the capability request's SeqNo.
-	RequestID uint64 `json:"request_id"`
+	RequestID uint64
+	Granted   bool
+	Reason    string
+}
 
-	// Granted is true to allow, false to deny.
-	Granted bool `json:"granted"`
+func (p *ApprovalPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, p.RequestID)
+	if p.Granted {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	b = mus.AppendString(b, p.Reason)
+	return b
+}
 
-	// Reason is an optional operator-provided note stored in the audit log.
-	Reason string `json:"reason,omitempty"`
+func (p *ApprovalPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.RequestID, err = mus.ReadVarint(r); err != nil {
+		return err
+	}
+	var fixed [1]byte
+	if _, err := io.ReadFull(r, fixed[:]); err != nil {
+		return err
+	}
+	p.Granted = fixed[0] != 0
+	p.Reason, err = mus.ReadString(r, 1024)
+	return err
 }
 
 // ---- Response/push payloads (keeperd → ctl) --------------------------------
 
-// StatusPayload is the response to a CtlStatus request.
 type StatusPayload struct {
-	DaemonVersion string        `json:"daemon_version"`
-	Agents        []AgentStatus `json:"agents"`
-	UptimeSeconds int64         `json:"uptime_seconds"`
+	DaemonVersion string
+	UptimeSeconds int64
+	Agents        []AgentStatus
 }
 
-// AgentStatus summarises the runtime state of a single agent.
-type AgentStatus struct {
-	ID           string `json:"id"`
-	State        string `json:"state"` // "running", "idle", "provisioning", "error"
-	LastPromptSeq uint64 `json:"last_prompt_seq"`
-	LastEventAt  string `json:"last_event_at"` // RFC3339
-}
-
-// AgentListPayload is the response to a CtlAgentList request.
-type AgentListPayload struct {
-	Agents []AgentStatus `json:"agents"`
-}
-
-// ---- Helper ----------------------------------------------------------------
-
-// MarshalJSON marshals v to a JSON byte slice; panics on error (only structs
-// in this package are valid inputs so marshalling should never fail).
-func MarshalJSON(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic("ctl: json marshal: " + err.Error())
+func (p *StatusPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.DaemonVersion)
+	b = mus.AppendVarint(b, uint64(p.UptimeSeconds))
+	b = mus.AppendVarint(b, uint64(len(p.Agents)))
+	for _, a := range p.Agents {
+		b = append(b, a.marshalMUS()...)
 	}
 	return b
+}
+
+func (p *StatusPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.DaemonVersion, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	upt, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.UptimeSeconds = int64(upt)
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.Agents = make([]AgentStatus, n)
+	for i := uint64(0); i < n; i++ {
+		if err := p.Agents[i].unmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type AgentStatus struct {
+	ID            string
+	State         string
+	LastPromptSeq uint64
+	LastEventAt   string
+}
+
+func (a *AgentStatus) marshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.ID)
+	b = mus.AppendString(b, a.State)
+	b = mus.AppendVarint(b, a.LastPromptSeq)
+	b = mus.AppendString(b, a.LastEventAt)
+	return b
+}
+
+func (a *AgentStatus) unmarshalMUS(r io.Reader) error {
+	var err error
+	if a.ID, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	if a.State, err = mus.ReadString(r, 32); err != nil {
+		return err
+	}
+	if a.LastPromptSeq, err = mus.ReadVarint(r); err != nil {
+		return err
+	}
+	a.LastEventAt, err = mus.ReadString(r, 64)
+	return err
+}
+
+type AgentListPayload struct {
+	Agents []AgentStatus
+}
+
+func (p *AgentListPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(p.Agents)))
+	for _, a := range p.Agents {
+		b = append(b, a.marshalMUS()...)
+	}
+	return b
+}
+
+func (p *AgentListPayload) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.Agents = make([]AgentStatus, n)
+	for i := uint64(0); i < n; i++ {
+		if err := p.Agents[i].unmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Telemetry/Audit events (same as defined in internal/audit but mirrored here
+// for ctl protocol consistency if needed, or we just use audit types).
+// For now, keep it simple and use JSON for the event push payloads to ctl,
+// or also migrate them to MUS. Let's migrate them to MUS too.
+
+type CompletionEventPayload struct {
+	AgentID       string
+	PromptSeq     uint64
+	Model         string
+	InputTokens   uint32
+	OutputTokens  uint32
+	CostUSD       float64
+	Outcome       string
+	ToolCalls     uint32
+}
+
+func (p *CompletionEventPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.AgentID)
+	b = mus.AppendVarint(b, p.PromptSeq)
+	b = mus.AppendString(b, p.Model)
+	b = mus.AppendVarint(b, uint64(p.InputTokens))
+	b = mus.AppendVarint(b, uint64(p.OutputTokens))
+	// float64 via bits
+	// b = mus.AppendVarint(b, math.Float64bits(p.CostUSD)) 
+	// To keep codec simple, maybe just encode as micro-cents or string?
+	// Let's use string for now to avoid math import in switchboard if not needed.
+	// Actually switchboard doesn't have math.
+	b = mus.AppendString(b, fmt.Sprintf("%f", p.CostUSD))
+	b = mus.AppendString(b, p.Outcome)
+	b = mus.AppendVarint(b, uint64(p.ToolCalls))
+	return b
+}
+
+func (p *CompletionEventPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.AgentID, err = mus.ReadString(r, 64); err != nil { return err }
+	if p.PromptSeq, err = mus.ReadVarint(r); err != nil { return err }
+	if p.Model, err = mus.ReadString(r, 64); err != nil { return err }
+	v, err := mus.ReadVarint(r); if err != nil { return err }; p.InputTokens = uint32(v)
+	v, err = mus.ReadVarint(r); if err != nil { return err }; p.OutputTokens = uint32(v)
+	costStr, err := mus.ReadString(r, 64); if err != nil { return err }
+	fmt.Sscanf(costStr, "%f", &p.CostUSD)
+	if p.Outcome, err = mus.ReadString(r, 32); err != nil { return err }
+	v, err = mus.ReadVarint(r); if err != nil { return err }; p.ToolCalls = uint32(v)
+	return nil
+}
+
+type FailureEventPayload struct {
+	AgentID   string
+	PromptSeq uint64
+	Kind      string
+	Detail    string
+}
+
+func (p *FailureEventPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.AgentID)
+	b = mus.AppendVarint(b, p.PromptSeq)
+	b = mus.AppendString(b, p.Kind)
+	b = mus.AppendString(b, p.Detail)
+	return b
+}
+
+func (p *FailureEventPayload) UnmarshalMUS(r io.Reader) error {
+	var err error
+	if p.AgentID, err = mus.ReadString(r, 64); err != nil { return err }
+	if p.PromptSeq, err = mus.ReadVarint(r); err != nil { return err }
+	if p.Kind, err = mus.ReadString(r, 32); err != nil { return err }
+	p.Detail, err = mus.ReadString(r, 4096)
+	return err
 }

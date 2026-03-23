@@ -11,6 +11,7 @@ package main
 //       → if Ping: Pong
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,64 +66,66 @@ func (d *daemon) handleFrame(f switchboard.Frame) {
 // handleCapabilityRequest dispatches a CapabilityRequest from a Ward and writes
 // the CapabilityResponse back to the same agent pipe.
 func (d *daemon) handleCapabilityRequest(f switchboard.Frame) {
-	type capReqPayload struct {
-		Name    string          `json:"name"`
-		AgentID string          `json:"agent_id"`
-		Args    json.RawMessage `json:"args"`
-	}
-	var req capReqPayload
-	if err := json.Unmarshal(f.Payload, &req); err != nil {
+	var payload capabilities.CapabilityRequestPayload
+	if err := payload.UnmarshalMUS(bytes.NewReader(f.Payload)); err != nil {
 		d.sendCapabilityDenied(f, "malformed request: "+err.Error())
 		return
-	}
-	if req.AgentID != f.Header.FromID {
-		// Identity mismatch: the router already overwrote FromID so this should
-		// not happen, but defence-in-depth.
-		d.log.Warn("capability request agent_id != FromID", "from", f.Header.FromID, "claimed", req.AgentID)
-		req.AgentID = f.Header.FromID
 	}
 
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
+	// bridge legacy JSON Args until all capabilities are fully MUS
+	var jsonArgs json.RawMessage
+	_ = json.Unmarshal(payload.Args, &jsonArgs)
+
 	resp, err := d.dispatcher.Dispatch(ctx, capabilities.Request{
-		Name:    req.Name,
-		AgentID: req.AgentID,
+		Name:    payload.Capability,
+		AgentID: f.Header.FromID,
 		SeqNo:   f.Header.SeqNo,
-		Args:    req.Args,
+		Args:    jsonArgs,
 	})
 	if err != nil {
-		d.log.Error("capability execution error", "cap", req.Name, "agent", req.AgentID, "err", err)
+		d.log.Error("capability execution error", "cap", payload.Capability, "agent", f.Header.FromID, "err", err)
 		resp = capabilities.DeniedResponse(fmt.Sprintf("internal error: %v", err))
 	}
 
 	// Audit capability denials as security events.
 	if !resp.OK && resp.ErrorCode == "capability_denied" {
 		_ = d.auditDB.WriteSecurityEvent(
-			time.Now(), req.AgentID, "capability_denied",
-			fmt.Sprintf("cap=%s detail=%s", req.Name, resp.ErrorDetail),
+			time.Now(), f.Header.FromID, "capability_denied",
+			fmt.Sprintf("cap=%s detail=%s", payload.Capability, resp.ErrorDetail),
 		)
 	}
 
-	respPayload, _ := json.Marshal(resp)
+	respPayload := capabilities.CapabilityResponsePayload{
+		OK:          resp.OK,
+		Data:        resp.Data, // bridge JSON Data for now
+		ErrorCode:   resp.ErrorCode,
+		ErrorDetail: resp.ErrorDetail,
+	}
 	respHdr := switchboard.SwarmHeader{
 		Version: 0, Type: switchboard.MsgType_CapabilityResponse,
 		FromID: "keeper", ToID: f.Header.FromID,
 		SeqNo: f.Header.SeqNo, // echo SeqNo so Ward can correlate
 	}
-	if err := d.router.Send(f.Header.FromID, respHdr, respPayload); err != nil {
+	if err := d.router.Send(f.Header.FromID, respHdr, respPayload.MarshalMUS()); err != nil {
 		d.log.Error("failed to send capability response", "agent", f.Header.FromID, "err", err)
 	}
 }
 
 func (d *daemon) sendCapabilityDenied(f switchboard.Frame, detail string) {
 	resp := capabilities.DeniedResponse(detail)
-	payload, _ := json.Marshal(resp)
+	respPayload := capabilities.CapabilityResponsePayload{
+		OK:          resp.OK,
+		ErrorCode:   resp.ErrorCode,
+		ErrorDetail: resp.ErrorDetail,
+	}
 	_ = d.router.Send(f.Header.FromID, switchboard.SwarmHeader{
 		Version: 0, Type: switchboard.MsgType_CapabilityResponse,
 		FromID: "keeper", ToID: f.Header.FromID,
 		SeqNo: f.Header.SeqNo,
-	}, payload)
+	}, respPayload.MarshalMUS())
 }
 
 // handleCompletionEvent records the event and pushes it to ctl subscribers.

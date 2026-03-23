@@ -28,6 +28,7 @@ package main
 //   ← {"ok":false,"error_code":"capability_denied","error_detail":"..."}
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,6 +37,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"vivary.dev/vivary/internal/capabilities"
 )
 
 const defaultToolSockPath = "/run/ward-tool.sock"
@@ -162,14 +165,10 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	}
 
 	// Build the CapabilityRequest payload.
-	type capReqPayload struct {
-		Name    string          `json:"name"`
-		AgentID string          `json:"agent_id"`
-		Args    json.RawMessage `json:"args"`
+	reqPayload := capabilities.CapabilityRequestPayload{
+		Capability: req.Capability,
+		Args:       req.Args, // bridge JSON Args
 	}
-	reqPayload, _ := json.Marshal(capReqPayload{
-		Name: req.Capability, AgentID: w.agentID, Args: req.Args,
-	})
 
 	// Allocate sequence number and register pending slot.
 	seqNo := w.pipe.seq.Next()
@@ -177,7 +176,7 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	defer w.removePending(seqNo)
 
 	// Send to keeperd.
-	if err := w.pipe.sendWithSeq(seqNo, reqPayload); err != nil {
+	if err := w.pipe.sendWithSeq(seqNo, reqPayload.MarshalMUS()); err != nil {
 		return ToolResponse{OK: false, ErrorCode: "pipe_error", ErrorDetail: err.Error()}
 	}
 
@@ -188,17 +187,17 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	case <-time.After(60 * time.Second):
 		return ToolResponse{OK: false, ErrorCode: "timeout", ErrorDetail: "keeperd response timeout"}
 	case cr := <-respCh:
-		var capResp struct {
-			OK          bool            `json:"ok"`
-			Data        json.RawMessage `json:"data,omitempty"`
-			ErrorCode   string          `json:"error_code,omitempty"`
-			ErrorDetail string          `json:"error_detail,omitempty"`
-		}
-		if err := json.Unmarshal(cr.payload, &capResp); err != nil {
+		var capResp capabilities.CapabilityResponsePayload
+		if err := capResp.UnmarshalMUS(bytes.NewReader(cr.payload)); err != nil {
 			return ToolResponse{OK: false, ErrorCode: "decode_error", ErrorDetail: err.Error()}
 		}
+
+		// bridge JSON Data for now
+		var jsonData json.RawMessage
+		_ = json.Unmarshal(capResp.Data, &jsonData)
+
 		return ToolResponse{
-			OK: capResp.OK, Data: capResp.Data,
+			OK: capResp.OK, Data: jsonData,
 			ErrorCode: capResp.ErrorCode, ErrorDetail: capResp.ErrorDetail,
 		}
 	}

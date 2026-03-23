@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"testing"
+
+	"vivary.dev/vivary/pkg/mus"
 )
 
 // TestMUSCodecRoundTrip verifies marshal → unmarshal identity for all MsgTypes.
@@ -14,7 +16,7 @@ func TestMUSCodecRoundTrip(t *testing.T) {
 		{Version: 0, Type: MsgType_CompletionEvent, FromID: "agent-1", ToID: "keeper", SeqNo: 1<<32 - 1, PayloadLen: 0},
 		{Version: 0, Type: MsgType_Ping, FromID: "", ToID: "", SeqNo: 0, PayloadLen: 0},
 		// Long IDs near the limit
-		{Version: 0, Type: MsgType_CtlStatus, FromID: "a", ToID: "b", SeqNo: ^uint64(0), PayloadLen: MaxPayloadBytes},
+		{Version: 0, Type: MsgType_CtlStatus, FromID: "a", ToID: "b", SeqNo: ^uint64(0), PayloadLen: mus.MaxPayloadBytes},
 	}
 
 	for _, want := range cases {
@@ -72,7 +74,7 @@ func TestUnmarshalMUS_PayloadTooLarge(t *testing.T) {
 	hdr := SwarmHeader{
 		Version: 0, Type: MsgType_CapabilityRequest,
 		FromID: "a", ToID: "b", SeqNo: 1,
-		PayloadLen: MaxPayloadBytes + 1,
+		PayloadLen: mus.MaxPayloadBytes + 1,
 	}
 	b := hdr.MarshalMUS()
 	_, err := UnmarshalMUS(bytes.NewReader(b))

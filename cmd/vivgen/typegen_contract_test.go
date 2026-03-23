@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,7 +127,8 @@ func TestVivgenCommand_GeneratedPackageCompilesAndIsUsable(t *testing.T) {
 		t.Fatalf("vivgen command failed: %v\n%s", err, output)
 	}
 
-	if err := os.WriteFile(filepath.Join(workdir, "go.mod"), []byte("module example.com/generated\n\ngo 1.24.2\n"), 0o644); err != nil {
+	goMod := fmt.Sprintf("module example.com/generated\n\ngo 1.23\n\nrequire vivary.dev/vivary v0.0.0\n\nreplace vivary.dev/vivary => %s\n", root)
+	if err := os.WriteFile(filepath.Join(workdir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(workdir, "consumer_test.go"), []byte(`package capabilities
@@ -143,6 +145,12 @@ func TestGeneratedRegistryAndTypes(t *testing.T) {
 }
 `), 0o644); err != nil {
 		t.Fatalf("write consumer test: %v", err)
+	}
+
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = workdir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy failed: %v\n%s", err, out)
 	}
 
 	verify := exec.Command("go", "test", ".")

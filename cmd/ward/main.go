@@ -15,6 +15,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -228,7 +229,7 @@ func (w *ward) deliverCapabilityResponse(hdr switchboard.SwarmHeader, payload []
 // handlePrompt runs in its own goroutine for each incoming CtlPrompt frame.
 func (w *ward) handlePrompt(ctx context.Context, payload []byte) {
 	var msg ctl.PromptPayload
-	if err := json.Unmarshal(payload, &msg); err != nil {
+	if err := msg.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		w.log.Error("ward: malformed prompt payload", "err", err)
 		return
 	}
@@ -243,23 +244,22 @@ func (w *ward) handlePrompt(ctx context.Context, payload []byte) {
 			AgentID: w.agentID, PromptSeq: msg.Seq,
 			Kind:   ev, Detail: ferr.Error(),
 		}
-		b, _ := audit.MarshalEvent(fev)
+		b, _ := audit.MarshalEvent(&fev)
 		_ = w.pipe.send(switchboard.MsgType_FailureEvent, "keeper", b)
 		return
 	}
 
 	cev := audit.CompletionEvent{
-		AgentID:              w.agentID,
-		PromptSeq:            msg.Seq,
-		Model:                outcome.model,
-		InputTokens:          outcome.inputTokens,
-		OutputTokens:         outcome.outputTokens,
-		CostUSD:              outcome.costUSD,
-		ContextWindowUsedPct: outcome.ctxPct,
-		ToolCallsMade:        outcome.toolCalls,
-		Outcome:              "success",
+		AgentID:      w.agentID,
+		PromptSeq:    msg.Seq,
+		Model:        outcome.model,
+		InputTokens:  uint32(outcome.inputTokens),
+		OutputTokens: uint32(outcome.outputTokens),
+		CostUSD:      outcome.costUSD,
+		Outcome:      "success",
+		ToolCalls:    uint32(outcome.toolCalls),
 	}
-	b, _ := audit.MarshalEvent(cev)
+	b, _ := audit.MarshalEvent(&cev)
 	_ = w.pipe.send(switchboard.MsgType_CompletionEvent, "keeper", b)
 }
 

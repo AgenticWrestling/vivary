@@ -10,33 +10,54 @@ import (
 	"time"
 )
 
-// ---- urlInScope ------------------------------------------------------------
+// ---- WhitelistPolicy -------------------------------------------------------
 
-func TestURLInScope_EmptyScope(t *testing.T) {
-	// Empty scope → caller already enforced; proxy accepts everything.
-	if !urlInScope("https://example.com/page", "") {
-		t.Error("empty scope should allow all URLs (defence-in-depth stub)")
+func TestWhitelistPolicy_EmptyPolicyDenies(t *testing.T) {
+	if (WhitelistPolicy{}).Allows("https://example.com/page") {
+		t.Error("empty proxy policy should deny URLs")
 	}
 }
 
-func TestURLInScope_MatchingPrefix(t *testing.T) {
+func TestWhitelistPolicy_MatchingPrefix(t *testing.T) {
 	cases := []struct {
-		url   string
-		scope string
-		want  bool
+		url    string
+		policy WhitelistPolicy
+		want   bool
 	}{
-		{"https://example.com/page", "https://example.com", true},
-		{"https://example.com/page", "https://other.com", false},
-		{"https://example.com/page", "https://other.com,https://example.com", true},
-		{"https://example.com/page", "https://example.com,https://other.com", true},
-		{"https://sub.example.com/", "https://example.com", false}, // prefix mismatch
-		{"http://example.com/page", "https://example.com", false},  // scheme mismatch
-		{"", "https://example.com", false},
+		{"https://example.com/page", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, true},
+		{"https://example.com/page", WhitelistPolicy{Prefixes: []string{"https://other.com"}}, false},
+		{"https://sub.example.com/", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, false},
+		{"http://example.com/page", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, false},
+		{"", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, false},
 	}
 	for _, tc := range cases {
-		got := urlInScope(tc.url, tc.scope)
+		got := tc.policy.Allows(tc.url)
 		if got != tc.want {
-			t.Errorf("urlInScope(%q, %q) = %v, want %v", tc.url, tc.scope, got, tc.want)
+			t.Errorf("policy.Allows(%q) = %v, want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
+func TestWhitelistPolicy_TypedConstraints(t *testing.T) {
+	policy := WhitelistPolicy{
+		Domains:        []string{"example.com:8443"},
+		DomainSuffixes: []string{"wikipedia.org"},
+		PathPrefixes:   []string{"/allowed"},
+	}
+	cases := []struct {
+		url  string
+		want bool
+	}{
+		{"https://example.com:8443/page", true},
+		{"https://en.wikipedia.org/wiki/VIVARY", true},
+		{"https://random.test/allowed/page", true},
+		{"https://example.com/page", false},
+		{"https://evil.com/page", false},
+	}
+	for _, tc := range cases {
+		got := policy.Allows(tc.url)
+		if got != tc.want {
+			t.Errorf("policy.Allows(%q) = %v, want %v", tc.url, got, tc.want)
 		}
 	}
 }
@@ -51,9 +72,23 @@ func TestReadPage_ChromeUnavailable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", "networkidle", 1024)
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, "networkidle", 1024)
 	if err == nil {
 		t.Error("expected error when Chrome is unavailable, got nil")
+	}
+}
+
+func TestReadPage_DeniedBeforeChromeDial(t *testing.T) {
+	p := New("127.0.0.1:19222")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", WhitelistPolicy{Prefixes: []string{"https://other.com"}}, "networkidle", 1024)
+	if err == nil {
+		t.Fatal("expected deny error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not permitted") {
+		t.Fatalf("expected deny error, got %v", err)
 	}
 }
 
@@ -74,8 +109,8 @@ func newMockCDPServer(t *testing.T) *mockCDPServer {
 	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]string{
-			"id":                "fake-target-id",
-			"type":              "page",
+			"id":                   "fake-target-id",
+			"type":                 "page",
 			"webSocketDebuggerUrl": "ws://placeholder/devtools/page/fake-target-id",
 		}
 		_ = json.NewEncoder(w).Encode(resp)
@@ -107,7 +142,7 @@ func TestReadPage_MockServer_ConnectionError(t *testing.T) {
 
 	// The proxy will contact /json/new, get a target, then try to upgrade to
 	// WebSocket — which will fail because our mock doesn't implement CDP.
-	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", "networkidle", 1024)
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, "networkidle", 1024)
 	if err == nil {
 		t.Error("expected error (WebSocket upgrade fails on mock server), got nil")
 	}
@@ -120,7 +155,7 @@ func TestReadPage_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", "networkidle", 1024)
+	_, err := p.ReadPage(ctx, "test-agent", "https://example.com", WhitelistPolicy{Prefixes: []string{"https://example.com"}}, "networkidle", 1024)
 	if err == nil {
 		t.Error("expected error for cancelled context, got nil")
 	}

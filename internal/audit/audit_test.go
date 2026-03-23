@@ -117,9 +117,9 @@ func TestCompletionEventRoundTrip(t *testing.T) {
 	ev := CompletionEvent{
 		AgentID: "a", PromptSeq: 7, Model: "claude-3-5-sonnet",
 		InputTokens: 100, OutputTokens: 200, CostUSD: 0.003,
-		ContextWindowUsedPct: 12.5, ToolCallsMade: 3, Outcome: "success",
+		Outcome: "success", ToolCalls: 3,
 	}
-	b, err := MarshalEvent(ev)
+	b, err := MarshalEvent(&ev)
 	if err != nil {
 		t.Fatal(err)
 	}

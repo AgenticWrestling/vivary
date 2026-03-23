@@ -118,7 +118,7 @@ func TestTUIFailureUpdatesSummary(t *testing.T) {
 }
 
 func TestDecodeTUIFrame(t *testing.T) {
-	payload, err := audit.MarshalEvent(audit.CompletionEvent{AgentID: "agent-1", PromptSeq: 3, Outcome: "success"})
+	payload, err := audit.MarshalEvent(&audit.CompletionEvent{AgentID: "agent-1", PromptSeq: 3, Outcome: "success"})
 	if err != nil {
 		t.Fatalf("marshal event: %v", err)
 	}
