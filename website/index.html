@@ -50,7 +50,7 @@
                             </div>
                             <div>
                                 <dt>Audit</dt>
-                                <dd>MUS frames → SQLite WAL → <code>vivlog</code></dd>
+                                <dd>MUS frames → SQLite → <code>vivlog</code></dd>
                             </div>
                         </dl>
                     </div>
@@ -82,7 +82,7 @@
                         <article class="principle-card">
                             <span class="card-index">IV</span>
                             <h3>Every action is auditable</h3>
-                            <p>MUS-framed traffic and structured events are recorded to a SQLite WAL. <code>vivlog</code> gives operators a plain CLI to decode frames, trace denials, and reconstruct what the runtime actually did.</p>
+                            <p>MUS-framed traffic and structured events are recorded to SQLite. <code>vivlog</code> gives operators a plain CLI to decode frames, trace denials, and reconstruct what the runtime actually did.</p>
                         </article>
                     </div>
                 </div>
@@ -177,7 +177,7 @@
 
                             <rect x="644" y="308" width="272" height="126" rx="10" class="diagram-box audit-box"/>
                             <text x="670" y="344" class="diagram-box-title">MUS Audit Log</text>
-                            <text x="670" y="368" class="diagram-box-text">SQLite WAL</text>
+                            <text x="670" y="368" class="diagram-box-text">SQLite</text>
                             <text x="670" y="390" class="diagram-box-text">decoded by vivlog</text>
                             <text x="670" y="412" class="diagram-box-text">frames, events, denials</text>
 
@@ -298,13 +298,11 @@
                 // Logo: 5rem → 1.9rem over first 160px of scroll
                 var t = Math.min(1, y / 160);
                 var logoSize = (5 - (5 - 1.9) * t).toFixed(3);
-                var navHeight = Math.round(160 - (160 - 72) * t);
                 // Acronym fades out faster — gone by 80px
                 var ta = Math.min(1, y / 80);
                 var acronymOpacity = (1 - ta).toFixed(3);
 
                 root.style.setProperty('--logo-size', logoSize + 'rem');
-                root.style.setProperty('--nav-height', navHeight + 'px');
                 root.style.setProperty('--acronym-opacity', acronymOpacity);
                 raf = false;
             }
