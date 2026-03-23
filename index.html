@@ -16,6 +16,7 @@
             <nav class="container nav-bar">
                 <div class="masthead-mark">
                     <span class="mark-name">VIVARY</span>
+                    <span class="mark-acronym">Virtualized Isolated Verifiable Agent Runtime Yard</span>
                 </div>
                 <ul class="nav-links">
                     <li><a href="#what">What</a></li>
@@ -288,10 +289,33 @@
         </footer>
     </div>
     <script>
-        const hdr = document.querySelector('.site-header');
-        window.addEventListener('scroll', function () {
-            hdr.classList.toggle('scrolled', window.scrollY > 80);
-        }, { passive: true });
+        (function () {
+            var root = document.documentElement;
+            var raf = false;
+
+            function update() {
+                var y = window.scrollY;
+                // Logo: 5rem → 1.9rem over first 160px of scroll
+                var t = Math.min(1, y / 160);
+                var logoSize = (5 - (5 - 1.9) * t).toFixed(3);
+                var navHeight = Math.round(160 - (160 - 72) * t);
+                // Acronym fades out faster — gone by 80px
+                var ta = Math.min(1, y / 80);
+                var acronymOpacity = (1 - ta).toFixed(3);
+
+                root.style.setProperty('--logo-size', logoSize + 'rem');
+                root.style.setProperty('--nav-height', navHeight + 'px');
+                root.style.setProperty('--acronym-opacity', acronymOpacity);
+                raf = false;
+            }
+
+            window.addEventListener('scroll', function () {
+                if (!raf) {
+                    raf = true;
+                    requestAnimationFrame(update);
+                }
+            }, { passive: true });
+        })();
     </script>
 </body>
 </html>
