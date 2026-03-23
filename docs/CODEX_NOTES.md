@@ -1,305 +1,204 @@
 # VIVARY Codebase Notes
 
-These notes compare the current repository state to `docs/PLAN.md` and `docs/DESIGN.md`, with an emphasis on making the system robust, understandable, and not over-engineered for the MVP.
+These notes compare the current codebase to `docs/DESIGN.md` and `docs/PLAN.md` and focus on what is actually implemented now.
 
 ## Overall Read
 
-The repo already has a credible runtime core:
+The repository has a real MVP-shaped runtime core in place:
 
-- MUS framing and routing exist
-- `keeperd`, `ward`, `viv`, and `vivlog` all exist
-- the TUI/CLI loop is present
-- audit logging is real and tested
-- the Nix/LXD base and runtime image work has started
+- `keeperd`, `viv`, `vivlog`, `ward`, and `vivgen` all exist
+- the ctl socket, MUS framing, router, audit DB, and basic CLI/TUI loop are implemented
+- the two main MVP capabilities exist in code: `Browser_Page_Read` and `Filesystem_File_Write`
+- tests cover the codec/router, audit DB, TUI decoding, ctl socket basics, `vivgen`, Ward loop detection, browser plumbing, and filesystem guards
 
-The strongest parts are the small switchboard/audit core and the clear `keeperd` vs `ward` split.
+The biggest gaps are not missing binaries; they are incomplete enforcement and incomplete end-to-end behavior in a few key places:
 
-The weakest parts are provisioning correctness, configuration parsing, schema/policy consistency, and the number of places where the docs describe a fuller design than the code actually implements.
-
-The main recommendation is to finish the single-agent runtime cleanly before adding more abstraction. The code should read like a straightforward Go service with a few well-defined subsystems, not like a speculative platform.
+- approval flow is still a stub
+- `keeperd` runtime status is thinner than the docs describe
+- provisioning is abstracted better now, but policy/config are still much simpler than the docs
+- browser whitelist enforcement is strong in the capability layer but not yet real in the proxy layer
+- audit payload policy is still stubbed on the `keeperd` side
+- Ward still has a partially-complete prompt/tool execution path
 
 ## Current Status Against `docs/PLAN.md`
 
-### Clearly implemented
+### MVP deliverables
 
-- `keeperd` exists and speaks MUS-framed traffic over `keeper.sock`
-- `viv` exists as CLI and BubbleTea TUI
-- `ward` exists and can receive prompts, spawn a Claude subprocess, emit capability requests, and send completion/failure events
-- `vivlog` exists and can inspect the SQLite audit DB
-- MUS codec, router, SeqNo enforcement, identity stamping, and byte-rate limiting exist with decent test coverage
-- `Filesystem_File_Write` is implemented
-- browser/CDP plumbing exists in some form
-- Nix flake, base image, runtime image, and distro helper scripts exist
+#### Implemented
 
-### Partially implemented
+- `keeperd` exists and exposes a MUS-framed Unix socket control plane via `keeper.sock`; see `cmd/keeperd/main.go` and `internal/switchboard/codec.go`
+- `viv` exists as a separate CLI/TUI binary and speaks the ctl protocol; see `cmd/viv/main.go` and `cmd/viv/tui.go`
+- `vivlog` exists and reads the SQLite audit DB; see `cmd/vivlog/main.go`
+- `ward` exists as a separate binary and emits capability/completion/failure frames; see `cmd/ward/main.go`
+- the Nix flake and runtime/base image packaging exist; see `flake.nix`, `nix/modules/distro-base.nix`, and `nix/modules/distro-runtime.nix`
+- `Filesystem_File_Write` is implemented with traversal, absolute-path, and symlink-escape protection; see `internal/capabilities/filesystem.go` and `internal/capabilities/capability_test.go`
+- SQLite-backed audit logging is implemented; see `internal/audit/audit.go`
 
-- config loading exists, but it is still a hand-rolled KDL subset parser rather than the planned strict library-backed parser
-- agent provisioning exists, but it is not yet safely abstracted or robustly recoverable
-- TUI live updates exist, but agent runtime state shown in the UI is still fairly thin
-- Ward has the shape of the planned adapter, but its subprocess/backend abstraction is still incomplete
-- `vivgen` exists, but schema synchronization with Ward and keeperd is not fully finished
-- browser capability exists in code, but the default end-to-end story still looks incomplete
+#### Partially implemented
 
-### Missing or still stub-like
+- single-agent provisioning exists and now uses a `ContainerRuntime` abstraction plus cleanup stack, but the full documented nspawn/bind-mount/network lifecycle is still simplified; see `cmd/keeperd/provisioning.go` and `internal/runtime/runtime.go`
+- `Browser_Page_Read` exists end-to-end in code shape, including Chrome launch and CDP access, but the enforcement story is not yet as tight as the plan claims; see `internal/capabilities/browser.go`, `internal/chromproxy/proxy.go`, and `cmd/keeperd/chrome.go`
+- `vivgen` exists and generates schemas/types/registry from `capabilities/*.kdl`, but `keeperd` still manually registers only the two built-in capability implementations; see `cmd/vivgen/main.go` and `cmd/keeperd/main.go`
+- config loading has been moved into `internal/config` and now uses `kdl-go`, but it still only models a reduced config surface and minimal validation; see `internal/config/config.go`
 
-- approval flow is mostly unimplemented
-- typed ECS scope enforcement is not implemented; scope is still mostly a string path/prefix model
-- ctl traffic is not yet handled by the same router path as Ward traffic
-- audit payload policy is not fully implemented
-- retention/pruning and other operator maintenance flows are not implemented
-- end-to-end testing coverage is well behind the plan
+#### Not implemented yet
+
+- approval handling is still explicitly stubbed in `keeperd`; see `cmd/keeperd/main.go:328`
+- vault flows are not present
+- robust end-to-end exit-test coverage from the plan is not present
+
+### Phase 1: Foundation
+
+#### 1.1 `distrobuild`
+
+- Implemented in flake form rather than as a standalone script: the flake builds base and runtime LXD image artifacts; see `flake.nix`
+- The runtime image includes `keeperd`, `viv`, `vivlog`, `ward`, and `cap-cli`
+- Chrome is kept out of the guest image, matching the docs
+- Cross-platform validation and the broader operational story described in the plan are not evident in the codebase itself
+
+#### 1.2 `keeperd`
+
+- Implemented: daemon startup, ctl socket listener, audit DB, router, dispatcher, Chrome sidecar launch, and agent map; see `cmd/keeperd/main.go`
+- Implemented: config loading moved behind `internal/config`
+- Implemented: `kdl-go` is now in use for orchestrator and agent config parsing
+- Partial: provider parsing still walks the parsed KDL tree manually instead of using a fully-typed validation layer; see `internal/config/config.go:82`
+- Partial: runtime state is still small, but smaller than planned; `agentState` only stores ID, subvolume path, config, and pipe, not last prompt/event/cost state
+
+#### 1.3 `viv`
+
+- Implemented: separate binary, status/list/prompt/ping/agent lifecycle CLI surface; see `cmd/viv/main.go`
+- Implemented: TUI subscribe/status flow and local display of completion/failure data; see `cmd/viv/tui.go`
+- Partial: the TUI can show last completion/failure once events arrive, but `keeperd` status snapshots do not yet carry authoritative last prompt/event/cost fields
+
+#### 1.4 Agent workspace provisioning
+
+- Implemented: `ContainerRuntime` abstraction with Linux and stub runtimes; see `internal/runtime/runtime.go`
+- Implemented: cleanup stack for create failures; see `cmd/keeperd/provisioning.go:57`
+- Implemented: non-Linux stub runtime fallback
+- Partial: ACL installation during create is still hard-coded to the two MVP capabilities and default scopes rather than driven by `agent.kdl`; see `cmd/keeperd/provisioning.go:103`
+- Partial: nftables rules are applied, but failure is only logged as non-fatal; see `cmd/keeperd/provisioning.go:188`
+- Partial: UID/subuid allocation, explicit host-level range tracking, and full documented bind-mount/provisioning rigor are not implemented
+
+### Phase 2: Runtime control plane
+
+#### 2.1 MUS codec
+
+- Implemented: shared MUS-like framing, varint/string encoding, frame read/write helpers, payload limits, and codec tests; see `internal/switchboard/codec.go` and `internal/switchboard/codec_test.go`
+- Implemented: the code is explicit that payloads are usually JSON carried inside the frame
+- Not implemented: the richer header from `DESIGN.md` (`ParentID`, `Depth`) does not exist
+- Not evident: fuzzing/benchmarking from the plan is not present in the current test suite
+
+#### 2.2 Pipe router
+
+- Implemented: one-router model for Ward pipes with identity stamping, SeqNo monotonicity, and byte-rate limiting; see `internal/switchboard/router.go`
+- Implemented: router tests cover identity overwrite, `pipe_flood`, and seq rewind; see `internal/switchboard/router_test.go`
+- Partial: ctl traffic uses the same frame codec and message model, but not the same router path; ctl is handled separately in `cmd/keeperd/main.go`
+
+#### 2.3 Ward binary
+
+- Implemented: separate Ward binary, per-prompt subprocess model, completion/failure events, loop detection, and capability request/response plumbing; see `cmd/ward/main.go`
+- Implemented: generated capability schemas are loaded via `capabilities.GeneratedRegistry()`
+- Implemented: a Unix-socket tool server exists for capability CLI binaries; see `cmd/ward/toolserver.go`
+- Partial: the backend path is still hard-coded to Claude in `runLLMSubprocess`; the planned `AgentCLI` abstraction is not present
+- Partial: Ward parses Claude `stream-json` events directly and still contains an explicit TODO about injecting tool results back into the subprocess; see `cmd/ward/main.go:333`
+- Partial: Ward schema use is real for schema lookup/help, but the overall prompt -> tool -> tool-result loop is not yet as crisp as the design describes
+
+#### 2.4 Debug tooling
+
+- Implemented: `vivlog tail`, `show`, `grep`, and `decode`; see `cmd/vivlog/main.go`
+- Implemented: audit DB query helpers and decode helpers; see `internal/audit/audit.go`
+
+### Phase 3: Minimal capability surface
+
+#### 3.1 `vivgen`
+
+- Implemented: KDL load, schema generation, Go type generation, registry generation, and backward-compat tests; see `cmd/vivgen/main.go`, `cmd/vivgen/kdl_test.go`, `cmd/vivgen/typegen_contract_test.go`, and `cmd/vivgen/backward_compat_test.go`
+- Partial: `vivgen` is clearly real now, but not all of the planned linting/consistency rules are visible yet
+- Partial: generated artifacts are used by Ward, but `keeperd` capability registration is still manual
+
+#### 3.2 Chrome sidecar and whitelist proxy
+
+- Implemented: Chrome sidecar launch exists and is non-fatal if unavailable; see `cmd/keeperd/chrome.go`
+- Implemented: CDP navigation, network-idle wait, and accessibility-tree/innerText extraction exist; see `internal/chromproxy/proxy.go`
+- Partial: the code comments claim per-agent isolation, but the startup path launches Chrome with one default user-data-dir and the proxy reuses one target per agent in-process; the full per-agent profile story described in the docs is not actually implemented
+- Important gap: proxy-layer whitelist enforcement is effectively stubbed because `scope(agentID)` returns `""` and `urlInScope(..., "")` allows all URLs; the real deny check currently happens in the capability layer, not the proxy layer; see `internal/chromproxy/proxy.go:57` and `internal/chromproxy/proxy.go:366`
+
+#### 3.3 Filesystem output capability
+
+- Implemented well for MVP: scoped writes, deny traversal, deny absolute paths, deny symlink escapes, append mode, and tests; see `internal/capabilities/filesystem.go` and `internal/capabilities/capability_test.go`
+- Partial: audit records exist for frame flow and security events, but there is no separate capability-specific write-attempt audit record beyond the normal frame/security logging
+
+#### 3.4 Logging infrastructure
+
+- Implemented: SQLite frames table and security events table; see `internal/audit/audit.go`
+- Implemented: completion and failure event payload types and round-trip helpers
+- Implemented: `vivlog` inspection surface
+- Not implemented: `shouldAuditPayload` in `keeperd` still always returns `true`, so the documented per-capability payload suppression is not active; see `cmd/keeperd/dispatch.go:157`
+- Not implemented: high-sensitivity category defaults are not enforced even though `Capability` already exposes `AuditPayload()`
+
+#### 3.5 ECS scope model
+
+- Partially implemented: `ACLEntry` now has both legacy `Scope string` and structured `Constraints []ScopeConstraint`; see `internal/capabilities/capability.go`
+- Partially implemented: browser and filesystem capability code can read ECS-style constraints as a compatibility path
+- Not implemented: config parsing, policy loading, schedules, rates, approvals, and most of the full ECS resource model described in the docs are not yet wired through
+
+#### 3.6 MVP consolidation
+
+- Partially achieved: config loading and provisioning abstraction are noticeably further along than older notes would suggest
+- Still incomplete: browser mediation correctness, audit payload policy, authoritative runtime state, and Ward simplification remain open MVP consolidation items
 
 ## Current Status Against `docs/DESIGN.md`
 
-### Where the code matches the design well
+### Strong matches
 
-- `keeperd` is the semantic authority and `ward` is the syntax/protocol adapter
-- the MVP is effectively single-agent first
-- MUS framing is the shared transport idea across ctl and Ward traffic
-- `keeperd` stamps agent identity on inbound Ward frames
+- `keeperd` is the semantic authority and `ward` is kept as the boundary adapter; see `cmd/keeperd/main.go` and `cmd/ward/main.go`
+- the codebase is still clearly MVP-first and single-agent-first
+- ctl and Ward share the same frame format and message model
+- `keeperd` stamps identity on inbound Ward frames and enforces SeqNo monotonicity
 - completion and failure events are first-class runtime concepts
-- browser access is mediated by `keeperd`, not by the agent directly
-- the audit/debug story is CLI-first, not TUI-only
+- CLI-first debug tooling is real
 
-### Where the code is meaningfully simpler than the design
+### Implemented in a simpler MVP form
 
-- config and policy are much flatter than the design's full `agent.kdl` / ECS / schedule / rate / approval model
-- the wire header is smaller than the design header; `ParentID` and `Depth` do not exist yet
-- ctl messages are simpler and the approval message family is not there yet
-- payloads are mostly `MUS header + JSON payload`, not a fuller typed MUS payload ecosystem
-- the ctl socket uses the same codec as Ward traffic, but not the same router implementation
+- the wire header is smaller than the design header: `Version`, `Type`, `FromID`, `ToID`, `SeqNo`, `PayloadLen`; no `ParentID` or `Depth`
+- payloads are `MUS header + JSON payload`, not a fully typed MUS payload system
+- config and policy are much flatter than the design's full ECS/schedule/rate/approval model
+- ctl message coverage is smaller than the design table: subscribe/status/agent create/destroy/list/prompt/ping exist; vault and approval push flows do not
 
-### Where the code diverges in risky ways
+### Important divergences
 
-- provisioning/spawn logic appears more fragile than the design suggests
-- browser isolation and whitelist enforcement do not yet look as tight as the design claims
-- hard-coded Ward schema constants and hard-coded Claude invocation are still present despite the documented `vivgen` and `AgentCLI` direction
-- the design assumes clearer per-agent runtime state and approval workflows than the implementation currently provides
+- the approval flow described in the design is not implemented; the ctl approval message exists but returns a stub error
+- `keeperd` status snapshots do not yet reflect the richer runtime state the design describes; `LastPromptSeq` and `LastEventAt` exist in payload structs but are not populated from daemon state
+- browser whitelist enforcement is not yet duplicated correctly at the proxy layer, despite the design calling for a whitelisting proxy as an enforcement boundary
+- the Chrome isolation story in code is looser than the design text; one shared Chrome process is launched with one default user-data-dir
+- the design describes capability CLIs as the normal LLM-facing path, but Ward still also contains a direct Claude `tool_use` stream path with an unfinished tool-result TODO
+- the design's approval, rate, schedule, vault, and audit-payload policy layers are still mostly future-facing relative to the code
 
-## Main Suggestions
+## Testing Read
 
-## 1. Finish the MVP with fewer moving parts
+The repo has meaningful unit coverage for the pieces that already exist:
 
-The codebase should optimize for one polished vertical slice:
+- router/codec tests cover core protocol invariants
+- capability tests cover filesystem security checks and browser scope matching
+- `vivgen` has real parser/generator/backward-compat tests
+- ctl socket tests cover ping, status, subscribe, list, and identity rejection
+- TUI tests cover status/completion/failure rendering and prompt dispatch
+- audit tests cover write/query/decode basics
 
-- one local `keeperd`
-- one local `ward`
-- one real prompt flow
-- two capabilities: browser read and scoped file write
-- one solid audit/debug path
+What is still notably behind the docs:
 
-Anything beyond that should be treated as future work, even if the docs already sketch it.
-
-That means being willing to simplify or postpone:
-
-- approval plumbing
-- ECS scope generalization
-- multi-agent header fields
-- provider-generalized Ward behavior
-- richer vault/gateway family design
-
-## 2. Replace the config parser early
-
-`cmd/keeperd/config.go` is currently too much hand-rolled parser for a system that wants to be trustworthy.
-
-Why this matters:
-
-- configuration is part of the security boundary
-- a partial parser is harder to reason about than a real library + validation layer
-- the current parser shape pulls policy bugs toward runtime instead of parse time
-
-Suggested direction:
-
-- introduce a dedicated `internal/config` package
-- use a real KDL library
-- define explicit structs for orchestrator, agent, and provider config
-- validate required fields, uniqueness, enum values, and naming constraints at load time
-- keep runtime code working with already-validated config objects only
-
-This is one of the highest-leverage simplifications in the repo.
-
-## 3. Extract provisioning behind a small runtime interface
-
-`cmd/keeperd/provisioning.go` currently mixes:
-
-- Btrfs operations
-- file writes
-- nspawn spawning
-- nftables setup
-- fallback behavior for non-Linux
-- agent state registration
-
-That is too much policy and too much OS detail in one place.
-
-Suggested direction:
-
-- create `internal/runtime` or `internal/provisioning`
-- define a small `ContainerRuntime` interface
-- keep Linux implementation concrete and boring
-- add a fake/test implementation for non-Linux and unit tests
-- make `keeperd` orchestration code call into a small runtime API rather than shelling directly everywhere
-
-Also add a deferred cleanup stack so partial failures unwind cleanly.
-
-This makes the code easier for a Go developer to read because it separates business logic from host integration.
-
-## 4. Decide on one Ward tool path and make it crisp
-
-Ward currently feels like it is between two models:
-
-- direct parsing of backend JSON stream events
-- separate capability CLI/tool server flow
-
-For the MVP, it should be very obvious how a prompt becomes a tool call and how that becomes a MUS request.
-
-Suggested direction:
-
-- pick the single Claude path you actually want to support now
-- keep one normalized internal event shape for Ward
-- move all backend-specific parsing behind one tiny interface
-- remove duplicate or overlapping mechanisms until they are really needed
-
-Ward should read as:
-
-- receive prompt
-- spawn backend
-- parse backend tool event
-- validate structure
-- send MUS capability request
-- receive response
-- emit completion/failure
-
-No more, no less.
-
-## 5. Centralize capability policy and stop leaking scope through ad hoc strings
-
-Right now the code and docs are between two worlds:
-
-- simple string scope checks
-- the fuller ECS scope model in `docs/CAPABILITIES.md`
-
-For the MVP, a middle path is probably best.
-
-Suggested direction:
-
-- avoid jumping straight to the full ECS model everywhere
-- replace the raw `Scope string` with a small typed scope structure for the two built-in capabilities only
-- keep validation explicit and local
-- introduce the full ECS model only once there are enough capabilities to justify it
-
-For example:
-
-- browser scope: domain suffix whitelist
-- filesystem scope: path prefix whitelist
-
-This is much easier to understand than free-form strings, but much less heavy than the whole ECS machinery being fully realized at once.
-
-## 6. Unify protocol handling only when it helps readability
-
-The design wants ctl and Ward traffic handled by the same router path. That is elegant, but not worth forcing if it makes the code harder to follow in the MVP.
-
-Suggested direction:
-
-- keep the shared codec and shared message types
-- extract a small common frame-handling layer
-- unify ctl and Ward routing paths only if the result is actually simpler
-
-The important thing is protocol consistency, not architectural symmetry for its own sake.
-
-## 7. Make runtime state explicit in `keeperd`
-
-The UI/TUI will stay easier to reason about if `keeperd` owns a simple in-memory model of:
-
-- current agent state
-- last prompt seq
-- last completion event
-- last failure event
-- current subscribers
-
-Right now some of that exists only indirectly.
-
-Suggested direction:
-
-- introduce a small `agentRuntimeState` struct in `keeperd`
-- update it from prompt dispatch and event receipt
-- build ctl status responses from that state directly
-
-This makes the TUI more truthful and reduces scattered bookkeeping.
-
-## 8. Tighten browser mediation before expanding capability count
-
-The browser path is one of the main reasons VIVARY is interesting, so it needs to be obviously correct.
-
-Suggested direction:
-
-- make whitelist enforcement real and testable at the proxy layer
-- ensure per-agent browser profile behavior matches the docs or simplify the docs
-- keep the browser surface very small in MVP: `Browser_Page_Read` only
-- add explicit allow/deny integration tests before expanding browser features
-
-If browser isolation is not solid, a lot of the product story weakens.
-
-## 9. Keep audit policy simple but real
-
-`shouldAuditPayload` and payload retention are exactly the kinds of things that become tech debt if left half-implemented.
-
-Suggested direction:
-
-- implement `Capability.AuditPayload()` for the built-in capabilities now
-- make the audit DB rules explicit and small
-- postpone more advanced retention/encryption work until after MVP unless required for real use
-
-This keeps the audit story honest without dragging the code into a larger storage project.
-
-## 10. Use package boundaries to make the repo legible
-
-A Go developer should be able to scan the repo and quickly understand where things live.
-
-Suggested target shape:
-
-- `cmd/keeperd` — thin startup/wiring only
-- `cmd/ward` — thin startup/wiring only
-- `cmd/viv` — CLI/TUI only
-- `internal/config` — KDL loading + validation
-- `internal/switchboard` — MUS frame codec + router
-- `internal/runtime` — provisioning/nspawn/nftables/Btrfs integration
-- `internal/capabilities` — dispatcher + built-in capabilities
-- `internal/chromproxy` — browser mediation only
-- `internal/audit` — audit DB + decode helpers
-- `internal/ctl` — ctl message payloads and helpers
-
-The repo is already close to this shape, but `cmd/keeperd` still contains too much domain logic.
-
-## Concrete Refactoring Priorities
-
-If the goal is robust but not over-engineered, these feel like the right order:
-
-1. Replace the hand-rolled config parser with strict config loading/validation
-2. Fix and isolate provisioning/runtime integration behind a small interface
-3. Simplify Ward to one clear backend path and remove hard-coded schema duplication
-4. Make browser mediation/whitelist behavior explicitly correct and tested
-5. Improve `keeperd` runtime state bookkeeping for truthful ctl/TUI output
-6. Implement real audit payload policy for built-in capabilities
-7. Only then decide how much of the ECS scope model should land in MVP
-
-## Things To Avoid Right Now
-
-- implementing the full multi-agent wire/header model before MVP is stable
-- building a generalized plugin system for capabilities or model backends
-- forcing total ctl/router unification if it makes MVP code harder to follow
-- fully realizing the whole ECS design before the two built-in capabilities are clean
-- adding more gateway families before browser + filesystem are solid
+- there is little evidence of full end-to-end runtime tests for prompt execution through a real LLM subprocess
+- browser allow/deny integration coverage is still weaker than the docs call for
+- environment parity and isolation exit tests are not present in the current tree
 
 ## Bottom Line
 
-The codebase is already on a promising path, but the next step is not more architecture. It is consolidation.
+The codebase now implements most of the MVP skeleton described in `docs/PLAN.md`: the binaries exist, the transport exists, the audit path exists, the filesystem capability is solid, and the browser path exists in substantial form.
 
-VIVARY will be stronger if the MVP becomes:
+The remaining gap is mostly about tightening behavior, not inventing new architecture:
 
-- smaller
-- more explicit
-- easier to test
-- easier to inspect
-- easier for a Go developer to read in one pass
-
-The core idea is good. The code should now be bent toward finishing that core cleanly rather than catching up to every future-facing detail already present in the design docs.
+- make Ward's prompt/tool path fully complete
+- make proxy-layer browser enforcement real
+- make audit payload policy real
+- make `keeperd` runtime state/status authoritative
+- finish approval/policy features only if they are required for the MVP slice being exercised now

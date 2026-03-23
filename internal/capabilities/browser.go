@@ -14,63 +14,22 @@ import (
 // The Ward invokes this as: Browser_Page_Read --url <url>
 // keeperd's whitelisting proxy enforces the agent's browser.whitelist before
 // forwarding any CDP verb to the Chrome remote debugging port.
-//
-// Scope: the ACL scope string for this capability is a comma-separated list of
-// allowed URL prefixes.  An empty scope means no URLs are permitted.
 
 const BrowserPageReadName = "Browser_Page_Read"
 
-const browserPageReadSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Browser_Page_Read",
-  "description": "Navigate to a URL and return the readable text of the page via the accessibility tree.",
-  "type": "object",
-  "required": ["url"],
-  "properties": {
-    "url": {
-      "type": "string",
-      "description": "The fully-qualified HTTPS URL to load.",
-      "examples": ["https://example.com/docs"]
-    },
-    "wait_for": {
-      "type": "string",
-      "description": "Wait strategy before extracting text.",
-      "enum": ["networkidle", "domcontentloaded", "load"],
-      "default": "networkidle"
-    },
-    "max_chars": {
-      "type": "integer",
-      "description": "Truncate extracted text to this many characters (default 32768).",
-      "default": 32768,
-      "minimum": 1,
-      "maximum": 262144
-    }
-  },
-  "additionalProperties": false
-}`
-
-// BrowserPageReadArgs is the decoded argument struct for Browser_Page_Read.
-type BrowserPageReadArgs struct {
-	URL      string `json:"url"`
-	WaitFor  string `json:"wait_for,omitempty"`
-	MaxChars int    `json:"max_chars,omitempty"`
-}
-
 // BrowserPageRead implements Capability for Browser_Page_Read.
-// The ChromeProxy field must be set to a real proxy before use; in tests it can
-// be replaced with a stub.
 type BrowserPageRead struct {
 	// ChromeProxy dispatches CDP read requests after scope validation.
 	// Signature: func(ctx context.Context, agentID, targetURL, waitFor string, maxChars int) (string, error)
 	ChromeProxy func(ctx context.Context, agentID, targetURL, waitFor string, maxChars int) (string, error)
 }
 
-func (b *BrowserPageRead) Name() string        { return BrowserPageReadName }
-func (b *BrowserPageRead) Explain() string      { return browserPageReadSchema }
+func (b *BrowserPageRead) Name() string         { return BrowserPageReadName }
+func (b *BrowserPageRead) Explain() string      { return Browser_Page_ReadSchema }
 func (b *BrowserPageRead) AuditPayload() bool   { return true }
 
 func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, error) {
-	var args BrowserPageReadArgs
+	var args Browser_Page_Read
 	if err := json.Unmarshal(req.Args, &args); err != nil {
 		return DeniedResponse("args schema mismatch: " + err.Error()), nil
 	}
@@ -80,21 +39,27 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 	if args.WaitFor == "" {
 		args.WaitFor = "networkidle"
 	}
-	if args.MaxChars == 0 {
-		args.MaxChars = 32768
+	if args.Timeout == 0 {
+		args.Timeout = 30
 	}
 
 	// Scope check: URL must match one of the whitelist prefixes from the ACL.
+	// Legacy string scope check.
 	scope := ScopeFromContext(ctx)
 	if !urlMatchesScope(args.URL, scope) {
-		return DeniedResponse(fmt.Sprintf("URL %q not in browser whitelist", args.URL)), nil
+		// Also check ECS-style constraints.
+		constraints := ConstraintsFromContext(ctx)
+		if !urlMatchesConstraints(args.URL, constraints) {
+			return DeniedResponse(fmt.Sprintf("URL %q not in browser whitelist", args.URL)), nil
+		}
 	}
 
 	if b.ChromeProxy == nil {
 		return Response{OK: false, ErrorCode: "unavailable", ErrorDetail: "chrome proxy not initialised"}, nil
 	}
 
-	text, err := b.ChromeProxy(ctx, req.AgentID, args.URL, args.WaitFor, args.MaxChars)
+	// TODO: use args.Timeout
+	text, err := b.ChromeProxy(ctx, req.AgentID, args.URL, args.WaitFor, 32768)
 	if err != nil {
 		return Response{OK: false, ErrorCode: "chrome_error", ErrorDetail: err.Error()}, nil
 	}
@@ -129,6 +94,52 @@ func urlMatchesScope(rawURL, scope string) bool {
 		if rest == "" || rest[0] == '/' || rest[0] == '?' || rest[0] == '#' ||
 			lastOfP == '/' || lastOfP == '?' || lastOfP == '#' {
 			return true
+		}
+	}
+	return false
+}
+
+// urlMatchesConstraints returns true if rawURL matches any of the ECS-style
+// scope constraints.
+func urlMatchesConstraints(rawURL string, constraints []ScopeConstraint) bool {
+	if len(constraints) == 0 {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	domain := strings.ToLower(u.Host)
+	path := u.Path
+
+	for _, sc := range constraints {
+		if sc.Entity != "Link" {
+			continue
+		}
+		// Check 'domain' constraint.
+		if ds, ok := sc.Constraints["domain"]; ok {
+			for _, d := range ds {
+				if domain == strings.ToLower(d) {
+					return true
+				}
+			}
+		}
+		// Check 'domain-suffix' constraint.
+		if ds, ok := sc.Constraints["domain-suffix"]; ok {
+			for _, s := range ds {
+				suffix := strings.ToLower(s)
+				if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
+					return true
+				}
+			}
+		}
+		// Check 'path-prefix' constraint.
+		if ps, ok := sc.Constraints["path-prefix"]; ok {
+			for _, p := range ps {
+				if strings.HasPrefix(path, p) {
+					return true
+				}
+			}
 		}
 	}
 	return false

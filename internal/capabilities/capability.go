@@ -110,6 +110,20 @@ func (reg *Registry) Names() []string {
 	return out
 }
 
+// ConstraintSet maps scope-constraint keys (e.g. "path-prefix", "domain-suffix")
+// to one or more allowed values.
+type ConstraintSet map[string][]string
+
+// ScopeConstraint defines the resource-level policy for a capability grant.
+// It maps an entity name to a set of constraints on its component fields.
+type ScopeConstraint struct {
+	// Entity is the ECS resource type, e.g. "File", "Link", "EmailMessage".
+	Entity string `json:"entity"`
+
+	// Constraints are the typed key-value pairs from agent.kdl.
+	Constraints ConstraintSet `json:"constraints"`
+}
+
 // ---- ACL -------------------------------------------------------------------
 
 // ACLEntry is a single row in an agent's capability allow-list.
@@ -117,10 +131,12 @@ type ACLEntry struct {
 	// CapabilityName is the allowed capability, e.g. "Browser_Page_Read".
 	CapabilityName string
 
-	// Scope is an optional capability-specific scope string.
-	// For Browser_Page_Read it is a URL whitelist entry.
-	// For Filesystem_File_Write it is the allowed path prefix.
+	// Scope is the legacy capability-specific scope string (deprecated).
 	Scope string
+
+	// Constraints is the ECS-style scope model.  If present, it takes
+	// precedence over the Scope string.
+	Constraints []ScopeConstraint
 }
 
 // ACL holds the full capability policy for one agent.
@@ -129,15 +145,15 @@ type ACL struct {
 	Entries []ACLEntry
 }
 
-// Allowed returns true if the agent's ACL permits name, and the matching scope
-// string (empty if the capability has no scope constraint).
-func (a *ACL) Allowed(name string) (allowed bool, scope string) {
+// Allowed returns true if the agent's ACL permits name.  It returns both the
+// legacy scope string and the new ECS constraints if available.
+func (a *ACL) Allowed(name string) (allowed bool, scope string, constraints []ScopeConstraint) {
 	for _, e := range a.Entries {
 		if e.CapabilityName == name {
-			return true, e.Scope
+			return true, e.Scope, e.Constraints
 		}
 	}
-	return false, ""
+	return false, "", nil
 }
 
 // ---- Dispatcher ------------------------------------------------------------
@@ -181,7 +197,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req Request) (Response, error
 	if acl == nil {
 		return DeniedResponse(fmt.Sprintf("no ACL registered for agent %q", req.AgentID)), nil
 	}
-	allowed, scope := acl.Allowed(req.Name)
+	allowed, scope, constraints := acl.Allowed(req.Name)
 	if !allowed {
 		return DeniedResponse(fmt.Sprintf("capability %q not in agent ACL", req.Name)), nil
 	}
@@ -194,6 +210,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req Request) (Response, error
 
 	// --- Inject scope into context so the capability impl can enforce it ---
 	ctx = contextWithScope(ctx, scope)
+	ctx = contextWithConstraints(ctx, constraints)
 
 	return cap.Execute(ctx, req)
 }
@@ -202,16 +219,30 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req Request) (Response, error
 
 type contextKey int
 
-const scopeKey contextKey = 1
+const (
+	scopeKey       contextKey = 1
+	constraintsKey contextKey = 2
+)
 
 func contextWithScope(ctx context.Context, scope string) context.Context {
 	return context.WithValue(ctx, scopeKey, scope)
 }
 
-// ScopeFromContext returns the operator-configured scope for the executing
-// capability.  Capability implementations should use this to enforce path or
-// URL prefix constraints.
+func contextWithConstraints(ctx context.Context, c []ScopeConstraint) context.Context {
+	return context.WithValue(ctx, constraintsKey, c)
+}
+
+// ScopeFromContext returns the operator-configured legacy scope for the
+// executing capability.  Capability implementations should use this to
+// enforce path or URL prefix constraints for backward compatibility.
 func ScopeFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(scopeKey).(string)
+	return v
+}
+
+// ConstraintsFromContext returns the ECS-style scope constraints for the
+// executing capability.
+func ConstraintsFromContext(ctx context.Context) []ScopeConstraint {
+	v, _ := ctx.Value(constraintsKey).([]ScopeConstraint)
 	return v
 }

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"vivary.dev/vivary/internal/capabilities"
 )
 
 // ---- Helpers ---------------------------------------------------------------
@@ -25,6 +27,9 @@ func newTestWardForServer(t *testing.T) *ward {
 // its path.  The server is shut down when the test ends.
 func startTestToolServer(t *testing.T, w *ward) string {
 	t.Helper()
+	// Initialize the capability registry for tests.
+	capRegistry = capabilities.GeneratedRegistry()
+
 	sockPath := filepath.Join(t.TempDir(), "tool.sock")
 	ts := &toolServer{sockPath: sockPath, w: w}
 	ctx, cancel := context.WithCancel(context.Background())

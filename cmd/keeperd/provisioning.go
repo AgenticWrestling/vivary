@@ -22,25 +22,14 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 
 	"vivary.dev/vivary/internal/capabilities"
 	"vivary.dev/vivary/internal/ctl"
+	"vivary.dev/vivary/internal/runtime"
+	"vivary.dev/vivary/internal/switchboard"
 )
-
-// wardBinaryPath is the path on the host where the Ward binary lives.
-// This is bind-mounted read-only into each nspawn container.
-const wardBinaryPath = "/usr/lib/vivary/ward"
-
-// nspawnRootBase is the directory under which agent subvolumes are created.
-const nspawnRootBase = "/var/lib/vivary/agents"
-
-// ifnamesiz is the Linux IFNAMSIZ - 1 limit for interface names.
-const ifnamesiz = 15
 
 // agentCreate is called from dispatchCtl when a CtlAgentCreate frame arrives.
 // It replaces the stub in main.go.
@@ -52,8 +41,8 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 	if req.ID == "" {
 		return fmt.Errorf("agent ID is required")
 	}
-	if !validAgentID(req.ID) {
-		return fmt.Errorf("agent ID must match [a-z0-9][a-z0-9-]{0,62}")
+	if err := ValidateAgentID(req.ID); err != nil {
+		return err
 	}
 
 	d.mu.Lock()
@@ -65,6 +54,27 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 	d.agents[req.ID] = &agentState{id: req.ID}
 	d.mu.Unlock()
 
+	// Cleanup stack for error recovery.
+	var cleanup []func()
+	defer func() {
+		if req.ID != "" && d.agents[req.ID] != nil && d.agents[req.ID].subvolPath == "" {
+			// If we still have a reserved slot but no subvolPath, we failed before
+			// completion.
+			d.mu.Lock()
+			delete(d.agents, req.ID)
+			d.mu.Unlock()
+		}
+	}()
+
+	runCleanup := func() {
+		for i := len(cleanup) - 1; i >= 0; i-- {
+			cleanup[i]()
+		}
+		d.mu.Lock()
+		delete(d.agents, req.ID)
+		d.mu.Unlock()
+	}
+
 	agentCfg := AgentConfig{
 		ID:             req.ID,
 		Provider:       req.Provider,
@@ -75,16 +85,18 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 		agentCfg.CPUShares = 1024
 	}
 
-	subvolPath, err := d.provisionSubvolume(req.ID, req.Template)
+	subvolPath, err := d.runtime.ProvisionSubvolume(req.ID, req.Template)
 	if err != nil {
-		d.mu.Lock()
-		delete(d.agents, req.ID)
-		d.mu.Unlock()
+		runCleanup()
 		return fmt.Errorf("provision subvolume: %w", err)
 	}
+	cleanup = append(cleanup, func() {
+		_ = d.runtime.DestroySubvolume(req.ID, subvolPath)
+	})
 
 	// Write agent.kdl into the subvolume.
 	if err := writeAgentKDL(subvolPath, agentCfg); err != nil {
+		runCleanup()
 		return fmt.Errorf("write agent.kdl: %w", err)
 	}
 
@@ -93,10 +105,19 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 	// TODO: read capability list from agent.kdl / AgentCreatePayload extension.
 	// For the MVP: grant both MVP capabilities with default scopes.
 	acl.Entries = []capabilities.ACLEntry{
-		{CapabilityName: capabilities.FilesystemFileWriteName,
-			Scope: filepath.Join(subvolPath, "output")},
+		{
+			CapabilityName: capabilities.FilesystemFileWriteName,
+			Scope:          filepath.Join(subvolPath, "output"),
+		},
+		{
+			CapabilityName: capabilities.BrowserPageReadName,
+			Scope:          "https://en.wikipedia.org,https://github.com",
+		},
 	}
 	d.dispatcher.SetACL(acl)
+	cleanup = append(cleanup, func() {
+		d.dispatcher.RemoveACL(req.ID)
+	})
 
 	d.mu.Lock()
 	d.agents[req.ID] = &agentState{
@@ -106,8 +127,9 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 	}
 	d.mu.Unlock()
 
-	// Spawn the Ward process (nspawn on Linux, direct subprocess in dev mode).
+	// Spawn the Ward process.
 	if err := d.spawnAgent(ctx, req.ID, subvolPath, agentCfg); err != nil {
+		runCleanup()
 		return fmt.Errorf("spawn agent: %w", err)
 	}
 
@@ -115,92 +137,53 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// provisionSubvolume creates the agent's root filesystem.
-// On Linux with Btrfs it creates a subvolume snapshot of the template.
-// Otherwise it falls back to a plain directory copy.
-func (d *daemon) provisionSubvolume(agentID, templatePath string) (string, error) {
-	target := filepath.Join(nspawnRootBase, agentID)
-	if err := os.MkdirAll(nspawnRootBase, 0o750); err != nil {
-		return "", err
-	}
-
-	if templatePath == "" {
-		// No template: create a minimal skeleton.
-		if err := os.MkdirAll(filepath.Join(target, "output"), 0o750); err != nil {
-			return "", err
-		}
-		return target, nil
-	}
-
-	// Try Btrfs snapshot first.
-	if runtime.GOOS == "linux" {
-		out, err := exec.Command("btrfs", "subvolume", "snapshot", templatePath, target).CombinedOutput()
-		if err == nil {
-			return target, nil
-		}
-		d.log.Debug("btrfs snapshot failed, falling back to cp", "err", string(out))
-	}
-
-	// Fallback: recursive copy.
-	if out, err := exec.Command("cp", "-a", templatePath+"/.", target).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("cp template: %s: %w", out, err)
-	}
-	return target, nil
-}
-
 // spawnAgent starts the Ward process for agentID.
-// On Linux it uses systemd-nspawn; otherwise a plain subprocess.
 func (d *daemon) spawnAgent(ctx context.Context, agentID, subvolPath string, cfg AgentConfig) error {
-	if runtime.GOOS == "linux" {
-		return d.spawnNspawn(ctx, agentID, subvolPath, cfg)
-	}
-	return d.spawnWardPipe(ctx, agentID, "ward", []string{"--log-level", "info"})
-}
-
-// spawnNspawn spawns an nspawn container with Ward as the init process and
-// opens its stdio as the agent's MUS pipe.
-func (d *daemon) spawnNspawn(ctx context.Context, agentID, subvolPath string, cfg AgentConfig) error {
-	// Ensure the Ward binary exists on the host.
-	if _, err := os.Stat(wardBinaryPath); err != nil {
-		// Dev fallback: use the ward binary from PATH.
-		wardBin, err2 := exec.LookPath("ward")
-		if err2 != nil {
-			return fmt.Errorf("ward binary not found at %s and not in PATH: %w", wardBinaryPath, err)
-		}
-		return d.spawnWardPipe(ctx, agentID, wardBin, []string{
-			"--agent-id", agentID,
-			"--log-level", "info",
-		})
-	}
-
-	// Apply cgroup v2 limits via systemd-run wrapper around nspawn.
-	// cpu.weight maps from cpu-shares: weight = shares / 1024 * 100 (clamped 1–10000).
-	cpuWeight := max(1, min(10000, cfg.CPUShares/1024*100))
-
-	nspawnArgs := []string{
-		"--directory=" + subvolPath,
-		"--bind-ro=" + wardBinaryPath + ":/usr/bin/ward",
-		"--private-network",
-		"--network-veth",
-		"--machine=" + agentID,
-		"-U", // user namespacing
-		"--",
-		"/usr/bin/ward",
-		"--agent-id", agentID,
-	}
-	if cfg.MemoryMaxBytes > 0 {
-		nspawnArgs = append([]string{
-			"--property=MemoryMax=" + strconv.FormatUint(cfg.MemoryMaxBytes, 10),
-			"--property=CPUWeight=" + strconv.FormatUint(uint64(cpuWeight), 10),
-		}, nspawnArgs...)
-		// Prepend systemd-run to apply unit properties.
-		nspawnArgs = append([]string{"systemd-nspawn"}, nspawnArgs...)
-		return d.spawnWardPipe(ctx, agentID, "systemd-run", nspawnArgs)
-	}
-
-	if err := d.spawnWardPipe(ctx, agentID, "systemd-nspawn", nspawnArgs); err != nil {
+	cmd, err := d.runtime.SpawnWard(ctx, agentID, subvolPath, runtime.WardConfig{
+		CPUShares:      cfg.CPUShares,
+		MemoryMaxBytes: cfg.MemoryMaxBytes,
+		Provider:       cfg.Provider,
+		LogLevel:       d.cfg.LogLevel,
+	})
+	if err != nil {
 		return err
 	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("ward stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("ward stdout pipe: %w", err)
+	}
+	cmd.Stderr = writerSink{log: d.log, agentID: agentID}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ward start: %w", err)
+	}
+
+	pipe := &switchboard.Pipe{
+		AgentID: agentID,
+		Reader:  stdout,
+		Writer:  stdin,
+		Limiter: switchboard.NewByteRateLimiter(d.cfg.MaxAgentPipeBytesPerSec),
+	}
+
+	d.router.AddPipe(ctx, pipe)
+
+	d.mu.Lock()
+	if a, ok := d.agents[agentID]; ok {
+		a.pipe = pipe
+	}
+	d.mu.Unlock()
+
+	// Reap the subprocess when it exits and remove the pipe.
+	go func() {
+		_ = cmd.Wait()
+		d.router.RemovePipe(agentID)
+		d.log.Info("ward subprocess exited", "agent", agentID)
+	}()
 
 	// Apply per-agent nftables egress rules, restricted to the provider IPs.
 	allowedIPs, err := resolveProviderIPs(d.cfg.ProvidersFile, cfg.Provider, d.log)
@@ -208,9 +191,10 @@ func (d *daemon) spawnNspawn(ctx context.Context, agentID, subvolPath string, cf
 		d.log.Warn("provider IP resolution failed; using port-443-only fallback",
 			"agent", agentID, "provider", cfg.Provider, "err", err)
 	}
-	if err := applyVethEgressRules(agentID, allowedIPs); err != nil {
+	if err := d.runtime.ApplyNetworkRules(agentID, allowedIPs); err != nil {
 		d.log.Warn("nftables egress rules failed (non-fatal)", "agent", agentID, "err", err)
 	}
+
 	return nil
 }
 
@@ -240,46 +224,37 @@ func writeAgentKDL(subvolPath string, cfg AgentConfig) error {
 	return os.WriteFile(filepath.Join(subvolPath, "agent.kdl"), []byte(sb.String()), 0o640)
 }
 
-// ---- nftables veth egress rules --------------------------------------------
-
-// applyVethEgressRules installs per-agent nftables forwarding rules on the
-// host-side veth interface created by systemd-nspawn --network-veth.
-//
-// allowedIPs, if non-empty, restricts HTTPS egress to only those destination
-// IPs (resolved from the configured LLM provider's API URL at spawn time).
-// When allowedIPs is empty the rules fall back to allowing all TCP-443 egress.
-//
-// Rules always allow: established/related, DNS (UDP+TCP 53), loopback.
-// Everything else from the agent veth is dropped.
-func applyVethEgressRules(agentID string, allowedIPs []string) error {
-	vethName := vethIfName(agentID)
-	tableName := "vivary-" + agentID
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "table ip %s {\n", tableName)
-	sb.WriteString("  chain forward {\n")
-	sb.WriteString("    type filter hook forward priority 0; policy accept;\n")
-	fmt.Fprintf(&sb, "    iifname %q ct state established,related accept\n", vethName)
-	// DNS egress (needed for the container to resolve names).
-	fmt.Fprintf(&sb, "    iifname %q udp dport 53 accept\n", vethName)
-	fmt.Fprintf(&sb, "    iifname %q tcp dport 53 accept\n", vethName)
-	// HTTPS egress — restricted to provider IPs when known, otherwise open.
-	if len(allowedIPs) > 0 {
-		ipSet := strings.Join(allowedIPs, ", ")
-		fmt.Fprintf(&sb, "    iifname %q ip daddr { %s } tcp dport 443 accept\n", vethName, ipSet)
-	} else {
-		fmt.Fprintf(&sb, "    iifname %q tcp dport 443 accept\n", vethName)
+// agentDestroy is fully implemented — tears down nspawn, removes the subvolume.
+func (d *daemon) agentDestroy(payload []byte) error {
+	var req ctl.AgentDestroyPayload
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return fmt.Errorf("invalid AgentDestroyPayload: %w", err)
 	}
-	// Drop everything else from this agent's veth.
-	fmt.Fprintf(&sb, "    iifname %q drop\n", vethName)
-	sb.WriteString("  }\n")
-	sb.WriteString("}\n")
 
-	cmd := exec.Command("nft", "-f", "-")
-	cmd.Stdin = strings.NewReader(sb.String())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nft apply for agent %s: %s: %w", agentID, out, err)
+	d.mu.Lock()
+	agent, exists := d.agents[req.ID]
+	if !exists {
+		d.mu.Unlock()
+		return fmt.Errorf("agent %q not found", req.ID)
 	}
+	delete(d.agents, req.ID)
+	d.mu.Unlock()
+
+	d.router.RemovePipe(req.ID)
+	d.dispatcher.RemoveACL(req.ID)
+
+	// Tear down agent isolation.
+	_ = d.runtime.RemoveNetworkRules(req.ID)
+	if rt, ok := d.runtime.(interface{ Terminate(string) error }); ok {
+		_ = rt.Terminate(req.ID)
+	}
+
+	// Remove the subvolume.
+	if agent.subvolPath != "" {
+		_ = d.runtime.DestroySubvolume(req.ID, agent.subvolPath)
+	}
+
+	d.log.Info("agent destroyed", "id", req.ID)
 	return nil
 }
 
@@ -325,77 +300,4 @@ func resolveProviderIPs(providersFile, providerName string, log interface {
 		return nil, nil
 	}
 	return ipv4, nil
-}
-
-// removeVethEgressRules deletes the per-agent nftables table.
-func removeVethEgressRules(agentID string) {
-	_ = exec.Command("nft", "delete", "table", "ip", "vivary-"+agentID).Run()
-}
-
-// vethIfName returns the host-side veth interface name for an nspawn machine.
-// systemd-nspawn names it "ve-<machine>" truncated to IFNAMSIZ-1 (15) chars.
-func vethIfName(machine string) string {
-	name := "ve-" + machine
-	if len(name) > ifnamesiz {
-		name = name[:ifnamesiz]
-	}
-	return name
-}
-
-// agentDestroy is fully implemented — tears down nspawn, removes the subvolume.
-func (d *daemon) agentDestroy(payload []byte) error {
-	var req ctl.AgentDestroyPayload
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return fmt.Errorf("invalid AgentDestroyPayload: %w", err)
-	}
-
-	d.mu.Lock()
-	agent, exists := d.agents[req.ID]
-	if !exists {
-		d.mu.Unlock()
-		return fmt.Errorf("agent %q not found", req.ID)
-	}
-	delete(d.agents, req.ID)
-	d.mu.Unlock()
-
-	d.router.RemovePipe(req.ID)
-	d.dispatcher.RemoveACL(req.ID)
-
-	// Tear down nspawn machine and nftables rules.
-	if runtime.GOOS == "linux" {
-		_ = exec.Command("machinectl", "terminate", req.ID).Run()
-		removeVethEgressRules(req.ID)
-	}
-
-	// Remove the subvolume.
-	if agent.subvolPath != "" && agent.subvolPath != "/" {
-		if runtime.GOOS == "linux" {
-			if err := exec.Command("btrfs", "subvolume", "delete", agent.subvolPath).Run(); err != nil {
-				// Fallback to rm if not a btrfs subvolume.
-				_ = os.RemoveAll(agent.subvolPath)
-			}
-		} else {
-			_ = os.RemoveAll(agent.subvolPath)
-		}
-	}
-
-	d.log.Info("agent destroyed", "id", req.ID)
-	return nil
-}
-
-// validAgentID returns true if id matches [a-z0-9][a-z0-9-]{0,62}.
-func validAgentID(id string) bool {
-	if len(id) == 0 || len(id) > 63 {
-		return false
-	}
-	for i, c := range id {
-		switch {
-		case c >= 'a' && c <= 'z':
-		case c >= '0' && c <= '9':
-		case c == '-' && i > 0:
-		default:
-			return false
-		}
-	}
-	return true
 }

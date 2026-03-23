@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // Web — Chrome CDP Firewall
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Web_Page_Read" {
+capability "Browser_Page_Read" {
   category    "Browser"
   description "Fetch the readable text content of a web page, stripped of markup, scripts, and boilerplate"
   risk        low
@@ -26,7 +26,7 @@ capability "Web_Page_Read" {
   returns     "string" description="Readable page text in markdown format"
 }
 // testing
-capability "Web_Page_Screenshot" {
+capability "Browser_Page_Screenshot" {
   category    "Browser"
   description "Capture a screenshot of a web page or a specific element"
   risk        "low"
@@ -45,7 +45,7 @@ capability "Web_Page_Screenshot" {
   }
   returns     "bytes" description="PNG image data"
 }
-capability "Web_Page_GetTitle" {
+capability "Browser_Page_GetTitle" {
   category    "Browser"
   description "Return the page title, meta description, and canonical URL without full content extraction"
   risk        "low"
@@ -56,7 +56,7 @@ capability "Web_Page_GetTitle" {
   }
   returns     "object" description="Object with fields: title, description, canonical_url, status_code"
 }
-capability "Web_Form_Submit" {
+capability "Browser_Form_Submit" {
   category    "Browser"
   description "Fill fields in an HTML form and submit it"
   risk        "high"
@@ -75,7 +75,7 @@ capability "Web_Form_Submit" {
   }
   returns     "object" description="Object with fields: final_url, status_code, page_text"
 }
-capability "Web_Link_List" {
+capability "Browser_Link_List" {
   category    "Browser"
   description "Extract all hyperlinks from the current page or a specified URL"
   risk        "low"
@@ -139,7 +139,7 @@ capability "Search_Corpus_Query" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Fs — Agent Workspace Filesystem
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Fs_File_Read" {
+capability "Filesystem_File_Read" {
   category    "Filesystem"
   description "Read the contents of a file in the agent workspace"
   risk        "low"
@@ -154,7 +154,7 @@ capability "Fs_File_Read" {
   }
   returns     "string" description="File contents"
 }
-capability "Fs_File_Write" {
+capability "Filesystem_File_Write" {
   category    "Filesystem"
   description "Write or overwrite a file in the agent workspace"
   risk        "medium"
@@ -166,12 +166,15 @@ capability "Fs_File_Write" {
   field       "content" type="string" required=true {
     description "Content to write; use base64 encoding for binary data"
   }
+  field       "append" type="bool" required=false default=false {
+    description "If true, append to the file instead of overwriting"
+  }
   field       "encoding" type="string" required=false default="utf-8" {
     enum "utf-8" "base64"
   }
   returns     "object" description="Object with fields: path, bytes_written"
 }
-capability "Fs_File_Delete" {
+capability "Filesystem_File_Delete" {
   category    "Filesystem"
   description "Delete a file from the agent workspace"
   risk        "medium"
@@ -182,7 +185,7 @@ capability "Fs_File_Delete" {
   }
   returns     "bool" description="true if the file was deleted"
 }
-capability "Fs_File_Move" {
+capability "Filesystem_File_Move" {
   category    "Filesystem"
   description "Move or rename a file within the agent workspace"
   risk        "medium"
@@ -197,7 +200,7 @@ capability "Fs_File_Move" {
   }
   returns     "bool" description="true if the move succeeded"
 }
-capability "Fs_Dir_List" {
+capability "Filesystem_Dir_List" {
   category    "Filesystem"
   description "List the contents of a directory in the agent workspace"
   risk        "low"
@@ -211,7 +214,7 @@ capability "Fs_Dir_List" {
   }
   returns     "list<object>" description="List of {name, type, size_bytes, modified_at} objects"
 }
-capability "Fs_Dir_Create" {
+capability "Filesystem_Dir_Create" {
   category    "Filesystem"
   description "Create a directory (and any missing parents) in the agent workspace"
   risk        "low"
@@ -285,7 +288,7 @@ capability "Code_Lint_Run" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Mail — Provider-neutral Email
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Mail_Message_List" {
+capability "Email_Message_List" {
   category    "Email"
   description "List email messages matching a filter; returns metadata only, not bodies"
   risk        "low"
@@ -308,7 +311,7 @@ capability "Mail_Message_List" {
   }
   returns     "list<object>" description="List of {id, from, subject, date, unread, has_attachments} objects"
 }
-capability "Mail_Message_Read" {
+capability "Email_Message_Read" {
   category    "Email"
   description "Read the body and headers of a specific email message"
   risk        "low"
@@ -321,7 +324,7 @@ capability "Mail_Message_Read" {
   }
   returns     "object" description="Object with fields: from, to, cc, subject, date, body_markdown, attachments"
 }
-capability "Mail_Message_Create" {
+capability "Email_Message_Create" {
   category    "Email"
   description "Create an email draft without sending it"
   risk        "medium"
@@ -341,7 +344,7 @@ capability "Mail_Message_Create" {
   }
   returns     "object" description="Object with fields: draft_id, created_at"
 }
-capability "Mail_Message_Send" {
+capability "Email_Message_Send" {
   category    "Email"
   description "Send an existing draft message"
   risk        "critical"
@@ -443,7 +446,7 @@ capability "Calendar_Slot_Find" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Sheet — Provider-neutral Spreadsheets
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Sheet_Range_Read" {
+capability "Spreadsheet_Range_Read" {
   category    "Spreadsheet"
   description "Read a cell range from a spreadsheet; returns raw values only, no formatting"
   risk        "low"
@@ -458,7 +461,7 @@ capability "Sheet_Range_Read" {
   }
   returns     "list<list<string>>" description="2D array of cell values as strings"
 }
-capability "Sheet_Range_Update" {
+capability "Spreadsheet_Range_Update" {
   category    "Spreadsheet"
   description "Write values to a cell range in a spreadsheet"
   risk        "high"
@@ -475,7 +478,7 @@ capability "Sheet_Range_Update" {
   }
   returns     "object" description="Object with fields: updated_range, updated_cells"
 }
-capability "Sheet_Row_Create" {
+capability "Spreadsheet_Row_Create" {
   category    "Spreadsheet"
   description "Append a row to the end of a sheet"
   risk        "high"
@@ -492,7 +495,7 @@ capability "Sheet_Row_Create" {
   }
   returns     "object" description="Object with fields: range, updated_rows"
 }
-capability "Sheet_Sheet_List" {
+capability "Spreadsheet_Sheet_List" {
   category    "Spreadsheet"
   description "List all sheet tabs within a spreadsheet"
   risk        "low"
@@ -507,7 +510,7 @@ capability "Sheet_Sheet_List" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Doc — Provider-neutral Documents
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Doc_Content_Read" {
+capability "Document_Content_Read" {
   category    "Document"
   description "Read a document's full content as clean markdown; strips comments and change history"
   risk        "low"
@@ -517,7 +520,7 @@ capability "Doc_Content_Read" {
   }
   returns     "string" description="Document content in markdown format"
 }
-capability "Doc_Content_Append" {
+capability "Document_Content_Append" {
   category    "Document"
   description "Append text to the end of a document"
   risk        "high"
@@ -530,7 +533,7 @@ capability "Doc_Content_Append" {
   }
   returns     "object" description="Object with fields: document_id, revision_id"
 }
-capability "Doc_Content_Replace" {
+capability "Document_Content_Replace" {
   category    "Document"
   description "Replace a specific section of a document identified by a heading"
   risk        "high"
@@ -547,7 +550,7 @@ capability "Doc_Content_Replace" {
   }
   returns     "object" description="Object with fields: document_id, revision_id, replaced_chars"
 }
-capability "Doc_Doc_List" {
+capability "Document_Doc_List" {
   category    "Document"
   description "List documents accessible to the agent's credential"
   risk        "low"
@@ -567,7 +570,7 @@ capability "Doc_Doc_List" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Msg — Provider-neutral Real-time Messaging
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Msg_Message_Send" {
+capability "Messaging_Chat_Send" {
   category    "Messaging"
   description "Send a message to a channel or user"
   risk        "critical"
@@ -584,7 +587,7 @@ capability "Msg_Message_Send" {
   }
   returns     "object" description="Object with fields: message_id, timestamp, permalink"
 }
-capability "Msg_Message_List" {
+capability "Messaging_Message_List" {
   category    "Messaging"
   description "List recent messages from a channel"
   risk        "low"
@@ -602,7 +605,7 @@ capability "Msg_Message_List" {
   }
   returns     "list<object>" description="List of {id, user, text, timestamp, thread_ts} objects"
 }
-capability "Msg_Channel_List" {
+capability "Messaging_Channel_List" {
   category    "Messaging"
   description "List channels the credential has access to"
   risk        "low"
@@ -679,7 +682,7 @@ capability "Memory_Fact_List" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Git — Version Control
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Git_Status_Read" {
+capability "VersionControl_Status_Read" {
   category    "VersionControl"
   description "Read the working tree status of a repository in the agent workspace"
   risk        "low"
@@ -689,7 +692,7 @@ capability "Git_Status_Read" {
   }
   returns     "object" description="Object with fields: branch, staged, unstaged, untracked"
 }
-capability "Git_Diff_Read" {
+capability "VersionControl_Diff_Read" {
   category    "VersionControl"
   description "Read the diff for staged changes, unstaged changes, or between refs"
   risk        "low"
@@ -707,7 +710,7 @@ capability "Git_Diff_Read" {
   }
   returns     "string" description="Unified diff output"
 }
-capability "Git_Log_List" {
+capability "VersionControl_Log_List" {
   category    "VersionControl"
   description "List recent commits on the current or specified branch"
   risk        "low"
@@ -724,7 +727,7 @@ capability "Git_Log_List" {
   }
   returns     "list<object>" description="List of {hash, author, date, subject} objects"
 }
-capability "Git_Branch_List" {
+capability "VersionControl_Branch_List" {
   category    "VersionControl"
   description "List branches in a repository"
   risk        "low"
@@ -737,7 +740,7 @@ capability "Git_Branch_List" {
   }
   returns     "list<object>" description="List of {name, is_current, last_commit_hash, last_commit_date} objects"
 }
-capability "Git_Branch_Create" {
+capability "VersionControl_Branch_Create" {
   category    "VersionControl"
   description "Create and check out a new branch"
   risk        "medium"
@@ -754,7 +757,7 @@ capability "Git_Branch_Create" {
   }
   returns     "object" description="Object with fields: name, from_hash"
 }
-capability "Git_Commit_Create" {
+capability "VersionControl_Commit_Create" {
   category    "VersionControl"
   description "Stage specified files and create a commit"
   risk        "medium"
@@ -771,7 +774,7 @@ capability "Git_Commit_Create" {
   }
   returns     "object" description="Object with fields: hash, branch, files_changed"
 }
-capability "Git_Remote_Push" {
+capability "VersionControl_Remote_Push" {
   category    "VersionControl"
   description "Push the current branch to a permitted remote"
   risk        "high"
@@ -792,7 +795,7 @@ capability "Git_Remote_Push" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Data — Structured Data Sources
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Data_Query_Exec" {
+capability "Database_Query_Exec" {
   category    "Database"
   description "Execute a read-only SQL query against a permitted data source"
   risk        "medium"
@@ -812,7 +815,7 @@ capability "Data_Query_Exec" {
   }
   returns     "object" description="Object with fields: columns, rows, row_count, truncated"
 }
-capability "Data_Table_List" {
+capability "Database_Table_List" {
   category    "Database"
   description "List tables or collections in a data source"
   risk        "low"
@@ -822,7 +825,7 @@ capability "Data_Table_List" {
   }
   returns     "list<object>" description="List of {name, row_count, size_bytes} objects"
 }
-capability "Data_Schema_Read" {
+capability "Database_Schema_Read" {
   category    "Database"
   description "Read the schema of a specific table or collection"
   risk        "low"
@@ -841,7 +844,7 @@ capability "Data_Schema_Read" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Sys — System / Process (within nspawn jail)
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Sys_Process_Exec" {
+capability "System_Process_Exec" {
   category    "System"
   description "Execute a process in the agent jail and capture its output"
   risk        "high"
@@ -863,14 +866,14 @@ capability "Sys_Process_Exec" {
   }
   returns     "object" description="Object with fields: stdout, stderr, exit_code, duration_ms"
 }
-capability "Sys_Process_List" {
+capability "System_Process_List" {
   category    "System"
   description "List running processes in the agent jail"
   risk        "low"
   reads       entity="Process"
   returns     "list<object>" description="List of {pid, name, cpu_pct, mem_mb, started_at} objects"
 }
-capability "Sys_Process_Kill" {
+capability "System_Process_Kill" {
   category    "System"
   description "Send a signal to a process in the agent jail"
   risk        "high"
@@ -999,7 +1002,7 @@ capability "Commerce_Order_Create" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Home — Smart Home Device Control
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Home_Device_Invoke" {
+capability "SmartHome_Device_Invoke" {
   category    "SmartHome"
   description "Invoke an action on a smart home device via the configured hub (e.g. Home Assistant, Google Home)"
   risk        "medium"
@@ -1023,7 +1026,7 @@ capability "Home_Device_Invoke" {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Messaging — Provider-neutral Message Dispatch
 // ═══════════════════════════════════════════════════════════════════════════════
-capability "Messaging_Message_Send" {
+capability "Messaging_Sms_Send" {
   category    "Messaging"
   description "Send a message to a contact via the configured messaging provider (e.g. WhatsApp, SMS, Signal)"
   risk        "high"

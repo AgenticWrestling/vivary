@@ -20,7 +20,7 @@ func TestCapabilityACL_AllowedCapability(t *testing.T) {
 		Entries: []ACLEntry{{CapabilityName: FilesystemFileWriteName, Scope: t.TempDir()}},
 	})
 
-	args, _ := json.Marshal(FilesystemFileWriteArgs{
+	args, _ := json.Marshal(Filesystem_File_Write{
 		Path: "out.txt", Content: "hello",
 	})
 	resp, err := d.Dispatch(context.Background(), Request{
@@ -44,7 +44,7 @@ func TestCapabilityACL_UnauthorisedCapability(t *testing.T) {
 		Entries: []ACLEntry{}, // no entries — nothing allowed
 	})
 
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "x.txt", Content: "data"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "x.txt", Content: "data"})
 	resp, err := d.Dispatch(context.Background(), Request{
 		Name: FilesystemFileWriteName, AgentID: "agent-1", SeqNo: 2, Args: args,
 	})
@@ -80,7 +80,7 @@ func TestFilesystemWrite_AllowedWrite(t *testing.T) {
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), scope)
 
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "result.txt", Content: "test data"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "result.txt", Content: "test data"})
 	resp, err := cap.Execute(ctx, Request{
 		Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 	})
@@ -106,7 +106,7 @@ func TestFilesystemWrite_PathTraversal(t *testing.T) {
 		"../../etc/passwd",
 		"sub/../../outside.txt",
 	} {
-		args, _ := json.Marshal(FilesystemFileWriteArgs{Path: badPath, Content: "x"})
+		args, _ := json.Marshal(Filesystem_File_Write{Path: badPath, Content: "x"})
 		resp, err := cap.Execute(ctx, Request{
 			Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 		})
@@ -124,7 +124,7 @@ func TestFilesystemWrite_AbsolutePath(t *testing.T) {
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), scope)
 
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "/etc/passwd", Content: "x"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "/etc/passwd", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{
 		Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 	})
@@ -140,7 +140,7 @@ func TestFilesystemWrite_NoScope(t *testing.T) {
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), "") // empty scope
 
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "out.txt", Content: "x"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "out.txt", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{
 		Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 	})
@@ -158,7 +158,7 @@ func TestFilesystemWrite_Append(t *testing.T) {
 	ctx := contextWithScope(context.Background(), scope)
 
 	for _, content := range []string{"line1\n", "line2\n"} {
-		args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "log.txt", Content: content, Append: true})
+		args, _ := json.Marshal(Filesystem_File_Write{Path: "log.txt", Content: content, Append: true})
 		resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 		if err != nil || !resp.OK {
 			t.Fatalf("append failed: %v %s", err, resp.ErrorDetail)
@@ -185,7 +185,7 @@ func TestFilesystemWrite_SymlinkInsideScope(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), scope)
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "link.txt", Content: "via link"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "link.txt", Content: "via link"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestFilesystemWrite_SymlinkEscapeScope(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), scope)
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "escape", Content: "x"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "escape", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestFilesystemWrite_SymlinkIntermediateDirEscape(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), scope)
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "subdir/file.txt", Content: "x"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "subdir/file.txt", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestFilesystemWrite_SymlinkLoop(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := contextWithScope(context.Background(), scope)
-	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "a", Content: "loop"})
+	args, _ := json.Marshal(Filesystem_File_Write{Path: "a", Content: "loop"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)

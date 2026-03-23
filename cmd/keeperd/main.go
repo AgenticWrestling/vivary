@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"vivary.dev/vivary/internal/capabilities"
 	"vivary.dev/vivary/internal/chromproxy"
 	"vivary.dev/vivary/internal/ctl"
+	agentruntime "vivary.dev/vivary/internal/runtime"
 	"vivary.dev/vivary/internal/switchboard"
 )
 
@@ -77,6 +79,16 @@ func main() {
 		_ = auditDB.WriteSecurityEvent(ev.Time, ev.AgentID, ev.Kind, ev.Detail)
 	})
 
+	var rt agentruntime.ContainerRuntime
+	if os.Getenv("VIVARY_STUB_RUNTIME") != "" || runtime.GOOS != "linux" {
+		rt = &agentruntime.StubRuntime{}
+	} else {
+		rt = &agentruntime.LinuxRuntime{
+			NspawnRootBase: "/var/lib/vivary/agents",
+			WardBinaryPath: "/usr/lib/vivary/ward",
+		}
+	}
+
 	d := &daemon{
 		ctx:        ctx,
 		cfg:        cfg,
@@ -84,6 +96,7 @@ func main() {
 		auditDB:    auditDB,
 		dispatcher: dispatcher,
 		router:     router,
+		runtime:    rt,
 		agents:     make(map[string]*agentState),
 		startedAt:  time.Now(),
 	}
@@ -116,6 +129,7 @@ type daemon struct {
 	auditDB    *audit.DB
 	dispatcher *capabilities.Dispatcher
 	router     *switchboard.Router
+	runtime    agentruntime.ContainerRuntime
 	seqOut     switchboard.SeqCounter
 
 	mu        sync.RWMutex

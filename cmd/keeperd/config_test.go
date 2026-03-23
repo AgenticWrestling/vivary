@@ -98,33 +98,17 @@ cpu-shares 2048
 	}
 }
 
-func TestVethIfName_Short(t *testing.T) {
-	got := vethIfName("myagent")
-	want := "ve-myagent"
-	if got != want {
-		t.Errorf("vethIfName(%q) = %q, want %q", "myagent", got, want)
-	}
-}
-
-func TestVethIfName_Truncated(t *testing.T) {
-	// "ve-" (3) + 15-char name = 18 chars > 15; must truncate to 15.
-	got := vethIfName("a-very-long-name")
-	if len(got) > ifnamesiz {
-		t.Errorf("vethIfName returned %q (len %d), want <= %d chars", got, len(got), ifnamesiz)
-	}
-}
-
 func TestValidAgentID(t *testing.T) {
 	valid := []string{"a", "agent1", "my-agent", "a1-b2-c3"}
 	for _, id := range valid {
-		if !validAgentID(id) {
-			t.Errorf("validAgentID(%q) = false, want true", id)
+		if err := ValidateAgentID(id); err != nil {
+			t.Errorf("ValidateAgentID(%q) error: %v, want nil", id, err)
 		}
 	}
 	invalid := []string{"", "A", "my_agent", "-start", "too-long-" + string(make([]byte, 60))}
 	for _, id := range invalid {
-		if validAgentID(id) {
-			t.Errorf("validAgentID(%q) = true, want false", id)
+		if err := ValidateAgentID(id); err == nil {
+			t.Errorf("ValidateAgentID(%q) = nil, want error", id)
 		}
 	}
 }

@@ -29,11 +29,16 @@ import (
 	"time"
 
 	"vivary.dev/vivary/internal/audit"
+	"vivary.dev/vivary/internal/capabilities"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
 )
 
 const wardVersion = "0.1.0-dev"
+
+var (
+	capRegistry map[string]string
+)
 
 func main() {
 	agentID := flag.String("agent-id", "", "agent identity (required)")
@@ -46,6 +51,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ward: --agent-id is required")
 		os.Exit(1)
 	}
+
+	// Load the generated capability registry.
+	capRegistry = capabilities.GeneratedRegistry()
 
 	log := newLogger(*logLevel)
 	log.Info("ward starting", "version", wardVersion, "agent", *agentID)
@@ -268,43 +276,8 @@ type llmOutcome struct {
 // capability.  Ward has a local copy of all registered schemas so that cap-cli
 // --help works without a keeperd round-trip.
 func (w *ward) getCapabilitySchema(name string) string {
-	// Schemas are loaded from capability CLI binaries' --help output at startup,
-	// or hard-coded here for the MVP capability set.
-	switch name {
-	case "Browser_Page_Read":
-		return browserPageReadSchema
-	case "Filesystem_File_Write":
-		return filesystemFileWriteSchema
-	}
-	return ""
+	return capRegistry[name]
 }
-
-// Static schemas mirrored from the capability package (kept in sync by vivary-gen).
-const browserPageReadSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Browser_Page_Read",
-  "description": "Navigate to a URL and return the readable text of the page via the accessibility tree.",
-  "type": "object",
-  "required": ["url"],
-  "properties": {
-    "url": {"type": "string", "description": "The fully-qualified HTTPS URL to load."},
-    "wait_for": {"type": "string", "enum": ["networkidle","domcontentloaded","load"], "default": "networkidle"},
-    "max_chars": {"type": "integer", "default": 32768, "minimum": 1, "maximum": 262144}
-  }
-}`
-
-const filesystemFileWriteSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Filesystem_File_Write",
-  "description": "Write text content to a file in the agent output directory.",
-  "type": "object",
-  "required": ["path", "content"],
-  "properties": {
-    "path": {"type": "string", "description": "Relative path within the agent output directory."},
-    "content": {"type": "string", "description": "UTF-8 text content to write."},
-    "append": {"type": "boolean", "default": false}
-  }
-}`
 
 // runLLMSubprocess spawns the LLM CLI, intercepts tool calls, and returns when
 // the subprocess exits.  Returns (outcome, "", nil) on success, or

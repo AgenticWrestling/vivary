@@ -20,48 +20,15 @@ import (
 
 const FilesystemFileWriteName = "Filesystem_File_Write"
 
-const filesystemFileWriteSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Filesystem_File_Write",
-  "description": "Write text or binary content to a file in the agent's output directory.",
-  "type": "object",
-  "required": ["path", "content"],
-  "properties": {
-    "path": {
-      "type": "string",
-      "description": "Relative path within the agent output directory.  Must not start with '/' or contain '..'.",
-      "examples": ["results/report.txt", "data/out.json"]
-    },
-    "content": {
-      "type": "string",
-      "description": "UTF-8 text content to write.  Binary data should be base64-encoded.",
-      "examples": ["Hello, world!"]
-    },
-    "append": {
-      "type": "boolean",
-      "description": "If true, append to an existing file instead of overwriting.",
-      "default": false
-    }
-  },
-  "additionalProperties": false
-}`
-
-// FilesystemFileWriteArgs is the decoded argument struct.
-type FilesystemFileWriteArgs struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Append  bool   `json:"append,omitempty"`
-}
-
 // FilesystemFileWrite implements Capability for Filesystem_File_Write.
 type FilesystemFileWrite struct{}
 
 func (f *FilesystemFileWrite) Name() string      { return FilesystemFileWriteName }
-func (f *FilesystemFileWrite) Explain() string   { return filesystemFileWriteSchema }
+func (f *FilesystemFileWrite) Explain() string   { return Filesystem_File_WriteSchema }
 func (f *FilesystemFileWrite) AuditPayload() bool { return true }
 
 func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Response, error) {
-	var args FilesystemFileWriteArgs
+	var args Filesystem_File_Write
 	if err := json.Unmarshal(req.Args, &args); err != nil {
 		return DeniedResponse("args schema mismatch: " + err.Error()), nil
 	}
@@ -78,7 +45,14 @@ func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Respons
 	}
 
 	// Scope check: the ACL scope is the allowed prefix root.
+	// Legacy string scope check.
 	scope := ScopeFromContext(ctx)
+	if scope == "" {
+		// Also check ECS-style constraints.
+		constraints := ConstraintsFromContext(ctx)
+		scope = getPathPrefixFromConstraints(constraints)
+	}
+
 	if scope == "" {
 		return DeniedResponse("no filesystem write scope configured for this agent"), nil
 	}
@@ -86,33 +60,33 @@ func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Respons
 	// Resolve the target path and check it is strictly under scope.
 	target := filepath.Join(scope, args.Path)
 	clean := filepath.Clean(target)
-	if !strings.HasPrefix(clean, filepath.Clean(scope)+string(filepath.Separator)) {
-		return DeniedResponse(fmt.Sprintf("resolved path %q escapes allowed prefix %q", clean, scope)), nil
+	if !strings.HasPrefix(clean, filepath.Clean(scope)+string(filepath.Separator)) && clean != filepath.Clean(scope) {
+		return DeniedResponse(fmt.Sprintf("path %q is outside allowed scope", args.Path)), nil
 	}
 
-	// Symlink escape check: walk every path component and ensure no component is
-	// a symlink that would redirect outside the scope root.
+	// Check for symlink escapes along the full path.
 	if err := checkNoSymlinkEscape(scope, clean); err != nil {
-		return DeniedResponse("symlink escape detected: " + err.Error()), nil
+		return DeniedResponse("filesystem security violation: " + err.Error()), nil
 	}
 
-	// Create parent directories (within scope).
+	// Ensure parent directory exists.
 	if err := os.MkdirAll(filepath.Dir(clean), 0o750); err != nil {
-		return Response{OK: false, ErrorCode: "io_error", ErrorDetail: err.Error()}, nil
+		return Response{OK: false, ErrorCode: "fs_error", ErrorDetail: err.Error()}, nil
 	}
 
-	flag := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	// Write the file.
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if args.Append {
-		flag = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
-	fh, err := os.OpenFile(clean, flag, 0o640)
+	fobj, err := os.OpenFile(clean, flags, 0o640)
 	if err != nil {
-		return Response{OK: false, ErrorCode: "io_error", ErrorDetail: err.Error()}, nil
+		return Response{OK: false, ErrorCode: "fs_error", ErrorDetail: err.Error()}, nil
 	}
-	defer fh.Close()
+	defer fobj.Close()
 
-	if _, err := fh.WriteString(args.Content); err != nil {
-		return Response{OK: false, ErrorCode: "io_error", ErrorDetail: err.Error()}, nil
+	if _, err := fobj.WriteString(args.Content); err != nil {
+		return Response{OK: false, ErrorCode: "fs_error", ErrorDetail: err.Error()}, nil
 	}
 
 	data, _ := json.Marshal(map[string]string{"path": clean, "status": "written"})
@@ -155,10 +129,21 @@ func checkNoSymlinkEscape(scope, clean string) error {
 			if err != nil {
 				return fmt.Errorf("could not resolve symlink %q: %w", cur, err)
 			}
-			if !strings.HasPrefix(resolved, filepath.Clean(scope)+string(filepath.Separator)) {
+			if !strings.HasPrefix(resolved, filepath.Clean(scope)+string(filepath.Separator)) && resolved != filepath.Clean(scope) {
 				return fmt.Errorf("symlink %q → %q escapes scope", cur, resolved)
 			}
 		}
 	}
 	return nil
+}
+
+func getPathPrefixFromConstraints(constraints []ScopeConstraint) string {
+	for _, sc := range constraints {
+		if sc.Entity == "File" || sc.Entity == "Folder" {
+			if ps, ok := sc.Constraints["path-prefix"]; ok && len(ps) > 0 {
+				return ps[0]
+			}
+		}
+	}
+	return ""
 }
