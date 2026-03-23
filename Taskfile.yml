@@ -23,6 +23,8 @@ tasks:
       - build:ward
       - build:viv
       - build:vivlog
+      - build:cap-cli
+      - build:vivgen
 
   build:keeperd:
     desc: Build keeperd
@@ -47,6 +49,18 @@ tasks:
     cmds:
       - mkdir -p {{.BIN_DIR}}
       - go build -o {{.BIN_DIR}}/vivlog ./cmd/vivlog
+
+  build:cap-cli:
+    desc: Build cap-cli
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/cap-cli ./cmd/cap-cli
+
+  build:vivgen:
+    desc: Build vivgen
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/vivgen ./cmd/vivgen
 
   dev:
     desc: Build binaries and run the Go test suite

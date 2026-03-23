@@ -176,6 +176,38 @@ entity "Channel" {
     }
 }
 
+// ─── Commerce ─────────────────────────────────────────────────────────────────
+
+entity "Order" {
+    description "A purchase order or transaction request"
+    components "Identified" "Owned" "Timestamped"
+    fields {
+        field "sku" type="string"
+        field "quantity" type="int"
+        field "status" type="string"
+    }
+    scope-constraints {
+        "source-id" field="Identified.id" description="Restrict to this commerce source or account"
+        "owner"     field="Owned.owner_email" description="Restrict to orders owned by this account"
+    }
+}
+
+// ─── Smart Home / IoT ─────────────────────────────────────────────────────────
+
+entity "Device" {
+    description "A controllable smart home or IoT device"
+    components "Identified" "Owned"
+    fields {
+        field "device_type" type="string"
+        field "location"    type="string"
+        field "state"       type="string"
+    }
+    scope-constraints {
+        "device-id" field="Identified.id" description="Restrict to this specific device"
+        "owner"     field="Owned.owner_email" description="Restrict to devices owned by this account"
+    }
+}
+
 // ─── Version Control ──────────────────────────────────────────────────────────
 
 entity "Repository" {

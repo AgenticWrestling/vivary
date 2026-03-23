@@ -31,8 +31,8 @@ go build -o bin/keeperd ./cmd/keeperd
 go build -o bin/ward    ./cmd/ward
 go build -o bin/viv     ./cmd/viv
 go build -o bin/vivlog  ./cmd/vivlog
-go build -o bin/cap-cli    ./cmd/cap-cli
-go build -o bin/vivary-gen ./cmd/vivary-gen
+go build -o bin/cap-cli ./cmd/cap-cli
+go build -o bin/vivgen  ./cmd/vivgen
 ```
 
 ---
@@ -187,44 +187,38 @@ container.  Override with `--tool-sock` or the `WARD_TOOL_SOCK` env var.
 ## cap-cli (capability CLI binary)
 
 `cap-cli` is the generic capability CLI deployed inside each nspawn container.
-It is symlinked per capability name (e.g. `Browser_Page_Read` → `cap-cli`).
+It determines the capability to invoke from its binary name (argv[0]).
+For manual testing, you can symlink it:
 
 ```sh
-# Print the JSON Schema for a capability (useful for debugging)
-Browser_Page_Read --help
-Filesystem_File_Write --help
+ln -s cap-cli bin/Browser_Page_Read
+ln -s cap-cli bin/Filesystem_File_Write
 
-# Invoke a capability (normally called by the LLM subprocess, not by hand)
-WARD_TOOL_SOCK=/run/ward-tool.sock Browser_Page_Read --url https://example.com
-WARD_TOOL_SOCK=/run/ward-tool.sock Filesystem_File_Write --path out.txt --content "hello"
+# Print the JSON Schema for a capability
+bin/Browser_Page_Read --help
+bin/Filesystem_File_Write --help
+
+# Invoke a capability manually
+WARD_TOOL_SOCK=/run/ward-tool.sock bin/Browser_Page_Read --url https://example.com
+WARD_TOOL_SOCK=/run/ward-tool.sock bin/Filesystem_File_Write --path out.txt --content "hello"
 ```
 
 ---
 
-## vivary-gen (schema code generator)
+## vivgen (schema code generator)
 
-Generates a static `Explain()` method for a capability Args struct.
+Generates Go types and JSON schemas from `capabilities/*.kdl`.
 
 ```sh
-bin/vivary-gen \
-  -in  internal/capabilities/browser.go \
-  -out internal/capabilities/browser_schema.go \
-  -cap Browser_Page_Read
-
-# With backward-compat check against a saved previous schema
-bin/vivary-gen \
-  -in  internal/capabilities/browser.go \
-  -out internal/capabilities/browser_schema.go \
-  -cap Browser_Page_Read \
-  -prev-schema .schema-snapshots/Browser_Page_Read.json
+bin/vivgen --dir capabilities --pkg capabilities --output internal/capabilities/generated.go
 ```
 
-Linting rules enforced at generation time:
+The generator enforces:
 - Capability name must be `Namespace_Noun_Verb` (two underscores, each segment
   starts with an uppercase letter, no vendor-specific terms).
-- Every exported field must have a `description` struct tag.
-- All JSON field names must be `snake_case`.
-- Removed or renamed fields fail the backward-compat check.
+- Field metadata in KDL (description, examples, enums).
+- Consistent naming between capabilities, entities, and categories.
+- Backward compatibility (removed or renamed fields fail the check).
 
 ---
 

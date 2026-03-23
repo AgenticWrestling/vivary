@@ -102,6 +102,22 @@ category "Media" {
     risk "low"
     note "Processing may invoke external model APIs; data leaves the container"
 }
+// ─── Commerce ─────────────────────────────────────────────────────────────────
+category "Commerce" {
+    description "Commerce and order placement actions against explicitly permitted systems"
+    gateway "commerce-gateway"
+    risk-read "medium"
+    risk-write "critical"
+    note "Transactions and purchases require explicit approval and scope limits"
+}
+// ─── Smart Home / IoT ─────────────────────────────────────────────────────────
+category "SmartHome" {
+    description "Control and inspection of permitted smart home and IoT devices"
+    gateway "smarthome-gateway"
+    risk-read "low"
+    risk-write "high"
+    note "Device control should be restricted to explicitly allowed devices and actions"
+}
 // ─── Swarm Coordination ───────────────────────────────────────────────────────
 category "Swarm" {
     description "Agent-to-agent messaging via the keeperd MUS switchboard"
@@ -109,4 +125,3 @@ category "Swarm" {
     risk "medium"
     note "Message routing is ACL-enforced by keeperd; agents cannot self-grant destinations"
 }
-

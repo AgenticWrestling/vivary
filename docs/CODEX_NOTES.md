@@ -37,7 +37,7 @@ The main recommendation is to finish the single-agent runtime cleanly before add
 - agent provisioning exists, but it is not yet safely abstracted or robustly recoverable
 - TUI live updates exist, but agent runtime state shown in the UI is still fairly thin
 - Ward has the shape of the planned adapter, but its subprocess/backend abstraction is still incomplete
-- `vivary-gen` exists, but schema synchronization with Ward and keeperd is not fully finished
+- `vivgen` exists, but schema synchronization with Ward and keeperd is not fully finished
 - browser capability exists in code, but the default end-to-end story still looks incomplete
 
 ### Missing or still stub-like
@@ -73,7 +73,7 @@ The main recommendation is to finish the single-agent runtime cleanly before add
 
 - provisioning/spawn logic appears more fragile than the design suggests
 - browser isolation and whitelist enforcement do not yet look as tight as the design claims
-- hard-coded Ward schema constants and hard-coded Claude invocation are still present despite the documented `vivary-gen` and `AgentCLI` direction
+- hard-coded Ward schema constants and hard-coded Claude invocation are still present despite the documented `vivgen` and `AgentCLI` direction
 - the design assumes clearer per-agent runtime state and approval workflows than the implementation currently provides
 
 ## Main Suggestions

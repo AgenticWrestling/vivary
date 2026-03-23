@@ -35,7 +35,7 @@ These notes are based on an investigation of the current VIVIARY codebase compar
 
 ### Recommendations
 - **Generalize LLM Subprocess**: Abstract the LLM interface (`AgentCLI`) to support different providers (Claude, Gemini, etc.) without modifying the core `ward` logic.
-- **Schema Synchronization**: Use `vivary-gen` to generate the schemas used by `ward` instead of hard-coding them.
+- **Schema Synchronization**: Use `vivgen` to generate the schemas used by `ward` instead of hard-coding them.
 
 ## 4. Capability System (`internal/capabilities`)
 
@@ -80,5 +80,5 @@ These notes are based on an investigation of the current VIVIARY codebase compar
 
 ### Recommendations
 - **Automated Tests**: Expand unit tests for `provisioning.go` (mocking the shell commands) and `ward` loop detection.
-- **`vivary-gen` Integration**: Ensure `vivary-gen` is integrated into the build pipeline to keep schemas in sync.
+- **`vivgen` Integration**: Ensure `vivgen` is integrated into the build pipeline to keep schemas in sync.
 - **Nix Integration**: Further tighten the Nix-based reproducible environment to include all required host-side tools (`nft`, `btrfs-progs`, etc.).
