@@ -244,7 +244,7 @@ The current docs are better than average at acknowledging tradeoffs. Keep leanin
 The fastest way to reinforce the rest of the design is to make policy and debug ergonomics a first-class promise:
 
 - every denial should explain which check failed
-- `vivary-log` should make MUS traffic legible without bespoke tooling
+- `vivlog` should make MUS traffic legible without bespoke tooling
 - the CLI should be able to drive and inspect the whole MVP without depending on the TUI
 - examples of safe `agent.kdl` policies should ship with the repo
 

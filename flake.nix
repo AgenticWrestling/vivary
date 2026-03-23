@@ -21,8 +21,8 @@
         vendorHash = "sha256-EyTTIp9PLCLmBxJJWlGS4/XzNxq8+B9UPfNxu0H6FP0=";
         subPackages = [
           "cmd/keeperd"
-          "cmd/vivary"
-          "cmd/vivary-log"
+          "cmd/viv"
+          "cmd/vivlog"
           "cmd/ward"
           "cmd/cap-cli"
         ];
@@ -149,7 +149,7 @@ Then launch:
 
   scripts/distro-lxd.sh launch vivary-runtime vivary
 
-Includes base image plus: keeperd, vivary, vivary-log in PATH;
+Includes base image plus: keeperd, viv, vivlog in PATH;
 ward and cap-cli at /usr/lib/vivary/ for nspawn bind-mounting.
 Chromium runs at the host OS layer.
             '';

@@ -21,8 +21,8 @@ tasks:
     deps:
       - build:keeperd
       - build:ward
-      - build:vivary
-      - build:vivary-log
+      - build:viv
+      - build:vivlog
 
   build:keeperd:
     desc: Build keeperd
@@ -36,17 +36,17 @@ tasks:
       - mkdir -p {{.BIN_DIR}}
       - go build -o {{.BIN_DIR}}/ward ./cmd/ward
 
-  build:vivary:
-    desc: Build vivary CLI
+  build:viv:
+    desc: Build viv CLI
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/vivary ./cmd/vivary
+      - go build -o {{.BIN_DIR}}/viv ./cmd/viv
 
-  build:vivary-log:
-    desc: Build vivary-log
+  build:vivlog:
+    desc: Build vivlog
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/vivary-log ./cmd/vivary-log
+      - go build -o {{.BIN_DIR}}/vivlog ./cmd/vivlog
 
   dev:
     desc: Build binaries and run the Go test suite
@@ -59,15 +59,15 @@ tasks:
     cmds:
       - go run ./cmd/keeperd --workspace {{.WORKSPACE}}
 
-  dev:vivary:
-    desc: Run the vivary CLI against the local keeper socket
+  dev:viv:
+    desc: Run the viv CLI against the local keeper socket
     cmds:
-      - go run ./cmd/vivary --socket {{.WORKSPACE}}/keeper.sock {{.CLI_ARGS}}
+      - go run ./cmd/viv --socket {{.WORKSPACE}}/keeper.sock {{.CLI_ARGS}}
 
-  dev:vivary-log:
-    desc: Run vivary-log against the local audit DB
+  dev:vivlog:
+    desc: Run vivlog against the local audit DB
     cmds:
-      - go run ./cmd/vivary-log --db {{.WORKSPACE}}/audit.db {{.CLI_ARGS}}
+      - go run ./cmd/vivlog --db {{.WORKSPACE}}/audit.db {{.CLI_ARGS}}
 
   distro:
     desc: Build the minimal headless LXD base image

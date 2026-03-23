@@ -1,4 +1,4 @@
-// vivary is the operator CLI/TUI for the VIVARY runtime.
+// viv is the operator CLI/TUI for the VIVARY runtime.
 package main
 
 import (
@@ -39,7 +39,7 @@ func main() {
 		c := mustDialClient(*socketPath)
 		defer c.conn.Close()
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "vivary agent <create|destroy|list> ...")
+			fmt.Fprintln(os.Stderr, "viv agent <create|destroy|list> ...")
 			os.Exit(1)
 		}
 		switch args[1] {
@@ -71,10 +71,10 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `vivary — VIVARY operator CLI
+	fmt.Fprintln(os.Stderr, `viv — VIVARY operator CLI
 
 Usage:
-  vivary [--socket <path>] <command> [args]
+  viv [--socket <path>] <command> [args]
 
 Commands:
   tui                        Launch the BubbleTea operator TUI (default)
@@ -186,7 +186,7 @@ func (c *client) cmdAgentCreate(args []string) {
 	_ = fs.Parse(args)
 
 	if *id == "" || *template == "" {
-		fmt.Fprintln(os.Stderr, "vivary agent create --id <id> --template <path> [--provider <name>]")
+		fmt.Fprintln(os.Stderr, "viv agent create --id <id> --template <path> [--provider <name>]")
 		os.Exit(1)
 	}
 
@@ -206,7 +206,7 @@ func (c *client) cmdAgentDestroy(args []string) {
 	id := fs.String("id", "", "agent ID (required)")
 	_ = fs.Parse(args)
 	if *id == "" {
-		fmt.Fprintln(os.Stderr, "vivary agent destroy --id <id>")
+		fmt.Fprintln(os.Stderr, "viv agent destroy --id <id>")
 		os.Exit(1)
 	}
 	payload := ctl.MarshalJSON(ctl.AgentDestroyPayload{ID: *id})

@@ -68,7 +68,7 @@ Testing is a first-class requirement in this repo. New work is not complete with
 ## Good Changes
 
 - Make policy denials easier to understand.
-- Make `vivary log` more useful.
+- Make `vivlog` more useful.
 - Reduce trusted-surface complexity.
 - Tighten capability schemas and validation.
 - Improve test coverage around boundaries and failure modes.

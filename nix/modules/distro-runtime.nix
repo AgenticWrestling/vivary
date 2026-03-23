@@ -28,7 +28,7 @@
     "L+ /usr/lib/vivary/cap-cli - - - - ${vivaryPackages}/bin/cap-cli"
   ];
 
-  # User-facing binaries (keeperd, vivary, vivary-log) land in PATH via
+  # User-facing binaries (keeperd, viv, vivlog) land in PATH via
   # environment.systemPackages → /run/current-system/sw/bin/.
   environment.systemPackages = lib.optionals (vivaryPackages != null) [
     vivaryPackages

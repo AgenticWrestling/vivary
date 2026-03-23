@@ -403,7 +403,7 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.flash = "approval workflow not yet implemented in keeperd"
 		return m, nil
 	case "d":
-		m.flash = "debug tip: use vivary-log for MUS/audit inspection"
+		m.flash = "debug tip: use vivlog for MUS/audit inspection"
 		return m, nil
 	default:
 		return m, nil

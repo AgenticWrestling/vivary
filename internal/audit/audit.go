@@ -1,7 +1,7 @@
 // Package audit persists every MUS frame that transits keeperd into a SQLite
 // WAL table.  The schema is append-only; keeperd never deletes rows.
 //
-// The vivary-log CLI reads this table via the same package to decode records.
+// The vivlog CLI reads this table via the same package to decode records.
 package audit
 
 import (

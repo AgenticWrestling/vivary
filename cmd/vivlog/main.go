@@ -1,4 +1,4 @@
-// vivary-log is the audit trail inspection CLI.
+// vivlog is the audit trail inspection CLI.
 //
 // It reads the SQLite WAL written by keeperd and provides Unix-style filters
 // and output modes for debugging capability failures, protocol issues, and
@@ -6,10 +6,10 @@
 //
 // Usage:
 //
-//	vivary log tail [--n <count>]
-//	vivary log show --agent <id>
-//	vivary log grep --msg-type <type>
-//	vivary log decode --seq <n>
+//	vivlog tail [--n <count>]
+//	vivlog show --agent <id>
+//	vivlog grep --msg-type <type>
+//	vivlog decode --seq <n>
 package main
 
 import (
@@ -35,7 +35,7 @@ func main() {
 
 	db, err := audit.Open(*dbPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vivary-log: open %q: %v\n", *dbPath, err)
+		fmt.Fprintf(os.Stderr, "vivlog: open %q: %v\n", *dbPath, err)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -59,10 +59,10 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `vivary-log — VIVARY audit trail inspector
+	fmt.Fprintln(os.Stderr, `vivlog — VIVARY audit trail inspector
 
 Usage:
-  vivary-log [--db <path>] <command> [args]
+  vivlog [--db <path>] <command> [args]
 
 Commands:
   tail [--n <count>]              Show the most recent N frames (default 20)
@@ -97,7 +97,7 @@ func (l *logCLI) cmdShow(args []string) {
 	_ = fs.Parse(args)
 
 	if *agentID == "" {
-		fmt.Fprintln(os.Stderr, "vivary-log show --agent <id>")
+		fmt.Fprintln(os.Stderr, "vivlog show --agent <id>")
 		os.Exit(1)
 	}
 
@@ -116,7 +116,7 @@ func (l *logCLI) cmdGrep(args []string) {
 	_ = fs.Parse(args)
 
 	if *msgType == "" {
-		fmt.Fprintln(os.Stderr, "vivary-log grep --msg-type <type>")
+		fmt.Fprintln(os.Stderr, "vivlog grep --msg-type <type>")
 		os.Exit(1)
 	}
 
@@ -136,7 +136,7 @@ func (l *logCLI) cmdDecode(args []string) {
 	_ = fs.Parse(args)
 
 	if *seqNo == 0 {
-		fmt.Fprintln(os.Stderr, "vivary-log decode --seq <n>")
+		fmt.Fprintln(os.Stderr, "vivlog decode --seq <n>")
 		os.Exit(1)
 	}
 
@@ -216,6 +216,6 @@ func printRecords(records []audit.FrameRecord, jsonOut bool) {
 }
 
 func fatal(format string, a ...any) {
-	fmt.Fprintf(os.Stderr, "vivary-log: "+format+"\n", a...)
+	fmt.Fprintf(os.Stderr, "vivlog: "+format+"\n", a...)
 	os.Exit(1)
 }

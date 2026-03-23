@@ -35,7 +35,6 @@ These notes are based on an investigation of the current VIVIARY codebase compar
 
 ### Recommendations
 - **Generalize LLM Subprocess**: Abstract the LLM interface (`AgentCLI`) to support different providers (Claude, Gemini, etc.) without modifying the core `ward` logic.
-- **Model Context Protocol (MCP)**: Investigate if VIVIARY can act as an MCP host or proxy to simplify tool discovery and execution.
 - **Schema Synchronization**: Use `vivary-gen` to generate the schemas used by `ward` instead of hard-coding them.
 
 ## 4. Capability System (`internal/capabilities`)

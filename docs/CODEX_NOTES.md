@@ -7,7 +7,7 @@ These notes compare the current repository state to `docs/PLAN.md` and `docs/DES
 The repo already has a credible runtime core:
 
 - MUS framing and routing exist
-- `keeperd`, `ward`, `vivary`, and `vivary-log` all exist
+- `keeperd`, `ward`, `viv`, and `vivlog` all exist
 - the TUI/CLI loop is present
 - audit logging is real and tested
 - the Nix/LXD base and runtime image work has started
@@ -23,9 +23,9 @@ The main recommendation is to finish the single-agent runtime cleanly before add
 ### Clearly implemented
 
 - `keeperd` exists and speaks MUS-framed traffic over `keeper.sock`
-- `vivary` exists as CLI and BubbleTea TUI
+- `viv` exists as CLI and BubbleTea TUI
 - `ward` exists and can receive prompts, spawn a Claude subprocess, emit capability requests, and send completion/failure events
-- `vivary-log` exists and can inspect the SQLite audit DB
+- `vivlog` exists and can inspect the SQLite audit DB
 - MUS codec, router, SeqNo enforcement, identity stamping, and byte-rate limiting exist with decent test coverage
 - `Filesystem_File_Write` is implemented
 - browser/CDP plumbing exists in some form
@@ -259,7 +259,7 @@ Suggested target shape:
 
 - `cmd/keeperd` — thin startup/wiring only
 - `cmd/ward` — thin startup/wiring only
-- `cmd/vivary` — CLI/TUI only
+- `cmd/viv` — CLI/TUI only
 - `internal/config` — KDL loading + validation
 - `internal/switchboard` — MUS frame codec + router
 - `internal/runtime` — provisioning/nspawn/nftables/Btrfs integration

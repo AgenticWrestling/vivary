@@ -7,7 +7,7 @@ VIVARY centers on a Go daemon, `keeperd`, that acts as the policy authority, mes
 ```mermaid
 graph TD
     subgraph "Host OS (NixOS LXD Container)"
-        TUI[vivary TUI/CLI]
+        TUI[viv TUI/CLI]
         SOCK((keeper.sock))
         DAEMON[keeperd Go Daemon]
         CHROME[Chrome Headless Host-side]
@@ -108,29 +108,29 @@ sequenceDiagram
 
 ---
 
-### 3. The Control Plane (vivary ↔ keeperd)
+### 3. The Control Plane (viv ↔ keeperd)
 
-The **`vivary`** TUI and CLI is a separate binary from `keeperd`. They communicate over a **Unix domain socket** at a well-known path inside the NixOS container (e.g., `<workspace_root>/keeper.sock`).
+The **`viv`** TUI and CLI is a separate binary from `keeperd`. They communicate over a **Unix domain socket** at a well-known path inside the NixOS container (e.g., `<workspace_root>/keeper.sock`).
 
-The socket uses the same MUS frame format as the agent stdio pipes — a `SwarmHeader` followed by a typed payload. `vivary` identifies itself as `FromID: "ctl"`, a reserved identity the keeper's ACL treats as operator-level, granting access to control messages that agents cannot send.
+The socket uses the same MUS frame format as the agent stdio pipes — a `SwarmHeader` followed by a typed payload. `viv` identifies itself as `FromID: "ctl"`, a reserved identity the keeper's ACL treats as operator-level, granting access to control messages that agents cannot send.
 
 **Control message types (ctl-only):**
 
 | MsgType | Direction | Purpose |
 |---|---|---|
-| `MsgType_CtlSubscribe` | vivary → keeperd | Subscribe to live Completion and Failure event push stream. |
-| `MsgType_CtlEvent` | keeperd → vivary | Pushed on each Completion or Failure event; carries the structured log payload. |
-| `MsgType_CtlAgentCreate` | vivary → keeperd | Provision a new agent workspace from a template. |
-| `MsgType_CtlAgentStop` | vivary → keeperd | Terminate a running agent nspawn container. |
-| `MsgType_CtlVaultAdd` | vivary → keeperd | Add or rotate a credential in the vault. |
-| `MsgType_CtlStatus` | vivary → keeperd | Request a full snapshot of current agent states (used on startup). |
-| `MsgType_CtlApprovalRequired` | keeperd → vivary | Pushed when a capability is awaiting approval; includes full request detail. |
-| `MsgType_CtlApprovalGrant` | vivary → keeperd | Operator approves the pending request. |
-| `MsgType_CtlApprovalDeny` | vivary → keeperd | Operator denies the pending request. |
+| `MsgType_CtlSubscribe` | viv → keeperd | Subscribe to live Completion and Failure event push stream. |
+| `MsgType_CtlEvent` | keeperd → viv | Pushed on each Completion or Failure event; carries the structured log payload. |
+| `MsgType_CtlAgentCreate` | viv → keeperd | Provision a new agent workspace from a template. |
+| `MsgType_CtlAgentStop` | viv → keeperd | Terminate a running agent nspawn container. |
+| `MsgType_CtlVaultAdd` | viv → keeperd | Add or rotate a credential in the vault. |
+| `MsgType_CtlStatus` | viv → keeperd | Request a full snapshot of current agent states (used on startup). |
+| `MsgType_CtlApprovalRequired` | keeperd → viv | Pushed when a capability is awaiting approval; includes full request detail. |
+| `MsgType_CtlApprovalGrant` | viv → keeperd | Operator approves the pending request. |
+| `MsgType_CtlApprovalDeny` | viv → keeperd | Operator denies the pending request. |
 
-`vivary` connects at startup, sends `MsgType_CtlSubscribe`, then receives an initial `MsgType_CtlStatus` followed by a live stream of `MsgType_CtlEvent` pushes. In the MVP this primarily drives a single-agent detail view and CLI status commands; a matrix or fleet view comes with the later multi-agent phase.
+`viv` connects at startup, sends `MsgType_CtlSubscribe`, then receives an initial `MsgType_CtlStatus` followed by a live stream of `MsgType_CtlEvent` pushes. In the MVP this primarily drives a single-agent detail view and CLI status commands; a matrix or fleet view comes with the later multi-agent phase.
 
-Any `vivary` CLI subcommand (e.g., `vivary agent create`, `vivary vault add`) sends the corresponding ctl MUS message to the socket and waits for acknowledgement. `keeperd` is the single source of state.
+Any `viv` CLI subcommand (e.g., `viv agent create`, `viv vault add`) sends the corresponding ctl MUS message to the socket and waits for acknowledgement. `keeperd` is the single source of state.
 
 ---
 
@@ -234,7 +234,7 @@ allow "Swarm_Agent_Spawn" {
 }
 ```
 
-`keeperd` provisions a new Btrfs subvolume from the named template, starts the nspawn container, registers the new agent in the switchboard with `ParentID` set to the requesting agent, and returns the new agent's ID. The spawned agent is automatically torn down when the parent's run completes, unless explicitly promoted to a persistent agent by the operator via `vivary`.
+`keeperd` provisions a new Btrfs subvolume from the named template, starts the nspawn container, registers the new agent in the switchboard with `ParentID` set to the requesting agent, and returns the new agent's ID. The spawned agent is automatically torn down when the parent's run completes, unless explicitly promoted to a persistent agent by the operator via `viv`.
 
 #### 5d. Groups
 
@@ -466,7 +466,7 @@ Three distinct log streams, each serving a different consumer:
 
 #### 10a. Completion Events (Structured, per-prompt)
 
-Emitted by the Ward to `keeperd` at the end of every LLM subprocess run. Written to the SQLite WAL and surfaced in `vivary`.
+Emitted by the Ward to `keeperd` at the end of every LLM subprocess run. Written to the SQLite WAL and surfaced in `viv`.
 
 Fields: `agent_id`, `prompt_seq`, `timestamp_start`, `timestamp_end`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `context_window_used_pct`, `tool_calls_made`, `outcome` (`success` | `failure` | `loop_abort`).
 
@@ -487,19 +487,19 @@ Emitted by the Ward when it detects a known local failure mode at the adapter/se
 
 #### 10c. Audit Trail (Binary MUS, append-only SQLite WAL)
 
-Every MUS frame passing through the Switchboard is recorded. The WAL table schema is: `timestamp TEXT | msg_type TEXT | from_id TEXT | to_id TEXT | payload BLOB` — the text columns are grep-able via `sqlite3`; payloads require `vivary-log` to decode.
+Every MUS frame passing through the Switchboard is recorded. The WAL table schema is: `timestamp TEXT | msg_type TEXT | from_id TEXT | to_id TEXT | payload BLOB` — the text columns are grep-able via `sqlite3`; payloads require `vivlog` to decode.
 
 **PII policy:** Capabilities in high-sensitivity categories (`Email`, `Messaging`, `Document`, `Database`) default to `audit-payload false` — `keeperd` logs the frame header (timestamp, agent, capability name, entity type) but not the payload blob. Full payload logging can be enabled per-capability or per-agent in `agent.kdl`. Encryption at rest for the SQLite WAL (SQLCipher) is planned post-MVP.
 
 ### 10d. Debug Tooling
 
-The primary debug surface is a Unix-style CLI, `vivary-log`, built for inspection before richer fleet UX exists.
+The primary debug surface is a Unix-style CLI, `vivlog`, built for inspection before richer fleet UX exists.
 
-- `vivary log tail` follows new WAL entries in real time.
-- `vivary log show --agent <id>` filters prompt runs and capability events by agent.
-- `vivary log grep --msg-type <type>` exposes grep-friendly headers for shell use.
-- `vivary log decode --seq <n>` renders a specific MUS record in structured form.
-- `vivary log dump --raw` provides raw payload bytes or encoded payload output when policy allows it.
+- `vivlog tail` follows new WAL entries in real time.
+- `vivlog show --agent <id>` filters prompt runs and capability events by agent.
+- `vivlog grep --msg-type <type>` exposes grep-friendly headers for shell use.
+- `vivlog decode --seq <n>` renders a specific MUS record in structured form.
+- `vivlog dump --raw` provides raw payload bytes or encoded payload output when policy allows it.
 
 The design intent is that protocol bring-up, ACL debugging, and prompt-run inspection should all be possible from the CLI without needing internal ad hoc tooling.
 
@@ -517,6 +517,6 @@ The design intent is that protocol bring-up, ACL debugging, and prompt-run inspe
   - **Linux:** Native LXD (Ubuntu, Fedora, CachyOS, etc.).
   - **Windows 11:** LXD inside WSL2 (supports Cgroup v2 and GPU offloading).
   - **macOS:** LXD via OrbStack or Lima.
-- **`distrobuild`:** A script that builds and exports the NixOS LXD image from the Flake. Running `distrobuild` on any supported host produces a byte-identical image, ensuring environment parity across the swarm. All VIVARY binaries (`keeperd`, `ward`, `vivary`) are compiled from the same Flake revision, ensuring Ward and keeperd schema versions are always in sync.
+- **`distrobuild`:** A script that builds and exports the NixOS LXD image from the Flake. Running `distrobuild` on any supported host produces a byte-identical image, ensuring environment parity across the swarm. All VIVARY binaries (`keeperd`, `ward`, `viv`, `vivlog`) are compiled from the same Flake revision, ensuring Ward and keeperd schema versions are always in sync.
 
 - **Btrfs on virtualised storage:** In WSL2 and OrbStack environments, Btrfs runs on a virtual disk image. Snapshot creation remains O(1) (a Btrfs metadata operation), but the underlying virtual disk driver may add latency. Known requirements: OrbStack/Lima requires `btrfs.subvol=true` in the VM config; WSL2 requires the VHD to be formatted as Btrfs at creation time. Both are handled automatically by `distrobuild`.

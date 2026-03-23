@@ -7,14 +7,14 @@
 **Deliverables:**
 
 1. `keeperd` Go daemon with KDL config parsing; exposes a MUS-over-Unix-socket control plane.
-2. BubbleTea TUI/CLI (`vivary`) as a separate binary that connects to `keeper.sock`.
+2. BubbleTea TUI/CLI (`viv`) as a separate binary that connects to `keeper.sock`.
 3. `distrobuild` Nix Flake script producing a reproducible NixOS LXD image.
 4. Single-agent workspace provisioning: nspawn environment from a Btrfs template subvolume.
 5. Ward binary (deployed inside nspawn) with Claude Code subprocess integration.
 6. Narrow initial capability set:
    - `Browser_Page_Read` end-to-end: agent → MUS pipe → `keeperd` ACL check → whitelisting proxy → Chrome CDP → response.
    - `Filesystem_File_Write` scoped to an output path inside the agent subvolume, to prove local write policy enforcement.
-7. SQLite-backed audit trail plus a Unix-style `vivary-log` CLI for decoding and inspecting MUS records.
+7. SQLite-backed audit trail plus a Unix-style `vivlog` CLI for decoding and inspecting MUS records.
 
 **MVP non-goals:**
 
@@ -36,13 +36,13 @@
 
 ### 1.2 Keeper Daemon (`keeperd`)
 
-- Go project structure: `cmd/keeperd`, `cmd/vivary` (TUI), `cmd/ward`, `internal/switchboard`, `internal/capabilities`, `internal/vault`, `internal/chromproxy`, `internal/tui`, `internal/ctl`.
+- Go project structure: `cmd/keeperd`, `cmd/viv` (TUI/CLI), `cmd/vivlog`, `cmd/ward`, `internal/switchboard`, `internal/capabilities`, `internal/vault`, `internal/chromproxy`, `internal/tui`, `internal/ctl`.
 - `keeperd` starts as a daemon, creates a Unix domain socket at a well-known path (`<workspace_root>/keeper.sock`).
-- MUS-over-socket control protocol: `vivary` and any `vivary` subcommands connect to this socket and exchange the same MUS frame format used on agent pipes (`SwarmHeader` + payload). The TUI's `FromID` is `"ctl"` — a reserved identity the ACL layer treats as operator-level.
+- MUS-over-socket control protocol: `viv` and any `viv` subcommands connect to this socket and exchange the same MUS frame format used on agent pipes (`SwarmHeader` + payload). The TUI's `FromID` is `"ctl"` — a reserved identity the ACL layer treats as operator-level.
 - KDL config parsing for `orchestrator.kdl` (socket path, log paths, Chrome settings, vault path) and per-agent `agent.kdl`.
 - **Replace hand-rolled KDL parser** with `github.com/sblinch/kdl-go`. The current scanner handles only single-line nodes and basic blocks; the library gives full spec compliance (multi-line strings, type annotations, slashdash comments) and removes a class of edge-case bugs (e.g., `//` inside quoted strings). `OrchestratorConfig`, `AgentConfig`, and `ProviderConfig` structs should be aligned strictly with the schemas described in `DESIGN.md` as part of this migration. Add structured validation (required fields, naming conventions, uniqueness of agent IDs) at parse time rather than at first use.
 
-### 1.3 BubbleTea TUI (`vivary`)
+### 1.3 BubbleTea TUI (`viv`)
 
 - Separate binary connecting to `keeper.sock` via MUS frames.
 - Single-agent detail view first: status, current prompt seq, last token count, last cost, last event, and approval/debug shortcuts.
@@ -51,7 +51,7 @@
 
 ### 1.4 Agent Workspace Provisioning
 
-- Command: `vivary agent create <id> --template <path>` (sends `MsgType_CtlAgentCreate` to `keeperd`).
+- Command: `viv agent create <id> --template <path>` (sends `MsgType_CtlAgentCreate` to `keeperd`).
 - `keeperd` creates a Btrfs subvolume, copies the template, bind-mounts the Ward binary read-only, writes the agent's `agent.kdl`, configures per-agent cgroup v2 limits, and spawns the nspawn container with the Ward binary as the init process.
 - Per-agent veth pair created at spawn time; nftables rules applied on the host-side veth to whitelist only the configured LLM API endpoint (see `DESIGN.md` §6c).
 - **`ContainerRuntime` interface**: extract all nspawn/btrfs/machinectl/nft `exec.Command` calls into a `ContainerRuntime` interface (`Provision`, `Destroy`, `ApplyNetworkRules`, `RemoveNetworkRules`). Provide a real Linux implementation and a stub/fake for non-Linux test runs. This makes provisioning logic unit-testable without requiring real kernel resources and eases future support for alternative runtimes (e.g., OCI containers).
@@ -92,14 +92,14 @@
 
 ### 2.4 Debug Tooling
 
-- `vivary-log` CLI reads the SQLite WAL and decodes MUS records into a Unix-style inspection surface.
+- `vivlog` CLI reads the SQLite WAL and decodes MUS records into a Unix-style inspection surface.
 - First commands should include:
-  - `vivary log tail`
-  - `vivary log show --agent <id>`
-  - `vivary log grep --msg-type <type>`
-  - `vivary log decode --seq <n>`
+  - `vivlog tail`
+  - `vivlog show --agent <id>`
+  - `vivlog grep --msg-type <type>`
+  - `vivlog decode --seq <n>`
 - Output priorities: readable headers, stable field names, raw payload access when allowed, and machine-friendly output modes for shell pipelines.
-- `vivary-log` must be good enough to debug protocol and ACL issues before richer UI tooling exists.
+- `vivlog` must be good enough to debug protocol and ACL issues before richer UI tooling exists.
 
 ---
 
@@ -129,10 +129,10 @@
 - SQLite WAL table: `timestamp TEXT | msg_type TEXT | from_id TEXT | to_id TEXT | payload BLOB`.
 - Completion Event writer: emitted by the Ward on subprocess exit (fields: `agent_id`, `prompt_seq`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `context_window_used_pct`, `tool_calls_made`, `outcome`).
 - Failure Event writer: emitted by the Ward for each failure mode (`schema_mismatch`, `loop_detected`, `capability_denied`, `subprocess_crash`, `timeout`, `pipe_flood`).
-- `vivary-log` CLI: decodes MUS payloads from the WAL, pretty-prints records; filters by agent, time range, event type, and sequence number.
+- `vivlog` CLI: decodes MUS payloads from the WAL, pretty-prints records; filters by agent, time range, event type, and sequence number.
 - Honour per-capability `audit-payload false` default for high-sensitivity categories (Email, Messaging, Document, Database).
 - **`shouldAuditPayload` implementation**: replace the current stub (always `true`) with real per-capability logic driven by a `AuditPayload() bool` method on the `Capability` interface. High-sensitivity categories (Email, Messaging, Document, Database, Credential) default to `false`; operator config can override per capability.
-- **Audit DB maintenance**: add `vivary-log prune --older-than <duration>` to delete WAL rows beyond a retention window. Add a `max-audit-db-mb` config knob to `orchestrator.kdl`; keeperd enforces it at startup and on a daily timer by deleting the oldest rows.
+- **Audit DB maintenance**: add `vivlog prune --older-than <duration>` to delete WAL rows beyond a retention window. Add a `max-audit-db-mb` config knob to `orchestrator.kdl`; keeperd enforces it at startup and on a daily timer by deleting the oldest rows.
 
 ### 3.5 ECS Scope Model
 
@@ -165,7 +165,7 @@ Before adding multi-agent orchestration, VIVARY must pass an explicit runtime-co
 | Test | Assertion |
 |---|---|
 | Environment parity | `keeperd` boots and passes health check on Linux, macOS (OrbStack), Windows (WSL2). |
-| TUI/CLI connection | `vivary` connects to `keeper.sock`, receives live Completion/Failure events, and can inspect state without polling. |
+| TUI/CLI connection | `viv` connects to `keeper.sock`, receives live Completion/Failure events, and can inspect state without polling. |
 | Prompt run | A prompt reaches the Ward, spawns the LLM subprocess, converts well-formed tool calls into MUS requests, executes allowed tools, and returns a final answer plus completion event. |
 | Filesystem isolation | Agent attempts write to `/etc` and read of keeper host files — both fail. |
 | Network isolation | Agent attempts TCP connection to an arbitrary external host — nftables drops it. |
@@ -174,13 +174,13 @@ Before adding multi-agent orchestration, VIVARY must pass an explicit runtime-co
 | Scoped file write allow | Agent writes to allowed `output/` path; content appears in its subvolume and audit trail records the action. |
 | Scoped file write deny | Agent attempts traversal or disallowed path write; request denied and recorded. |
 | Pipe flood resilience | Agent floods stdout with garbage; frames are dropped, event logged, and `keeperd` remains responsive. |
-| Audit/debug workflow | Operator can use `vivary log` commands to locate a specific prompt run, inspect associated events, and decode the relevant MUS record. |
+| Audit/debug workflow | Operator can use `vivlog` commands to locate a specific prompt run, inspect associated events, and decode the relevant MUS record. |
 
 ### 4.3 Exit Criteria
 
 - Single-agent runtime is stable across supported host environments.
 - Policy denials are understandable from CLI/TUI output and audit logs.
-- Operators can debug capability failures and prompt runs using `vivary-log` without bespoke internal tooling.
+- Operators can debug capability failures and prompt runs using `vivlog` without bespoke internal tooling.
 - The MVP demonstrates clear value as a governed runtime even with no swarm features enabled.
 
 ---
@@ -199,14 +199,14 @@ Only after the MVP exit tests pass do we add swarm concerns.
 
 - Expand the TUI from single-agent detail to matrix/fleet views.
 - Add operator workflows for subagent lifecycle, group visibility, and invocation tracing.
-- Extend `vivary-log` with correlation views across parent/child agent runs.
+- Extend `vivlog` with correlation views across parent/child agent runs.
 
 ### 5.3 Credential Vault
 
 - AES-256-GCM encrypted store in `keeperd`.
 - Agents use a `credential_id` in capability requests; `keeperd` resolves to the actual secret only at gateway invocation time, after ACL checks pass.
 - Secret passed to REST gateway binaries via environment variable — never via MUS or agent filesystem.
-- `vivary vault add|rotate|list` commands (sent as MUS ctl messages to `keeperd`).
+- `viv vault add|rotate|list` commands (sent as MUS ctl messages to `keeperd`).
 - **Encryption at rest (SQLCipher)**: once the vault is introduced, evaluate replacing the plain SQLite audit DB with SQLCipher (AES-256) so that audit records and vault data share the same encrypted file. Key derived from operator passphrase or hardware token; `keeperd` prompts on startup if the key is not in the environment.
 
 ### 5.4 REST API Gateway Binaries
@@ -263,7 +263,7 @@ Investigate whether Ward can act as a Model Context Protocol (MCP) host, exposin
 | Test | Assertion |
 |---|---|
 | Environment parity | `keeperd` boots and passes health check on Linux, macOS (OrbStack), Windows (WSL2). |
-| TUI connection | `vivary` TUI connects to `keeper.sock`, receives live Completion Events as an agent runs. |
+| TUI connection | `viv` TUI connects to `keeper.sock`, receives live Completion Events as an agent runs. |
 | Filesystem isolation | Agent attempts write to `/etc` and read of keeper host files — both fail. |
 | Network isolation | Agent attempts TCP connection to an arbitrary external host — nftables drops it. |
 | Identity integrity | Agent embeds a foreign `FromID` in its header; `keeperd` overwrites with the pipe's registered ID. |
@@ -271,7 +271,7 @@ Investigate whether Ward can act as a Model Context Protocol (MCP) host, exposin
 | Chrome whitelist deny | Agent requests `Browser_Page_Read` for an unlisted URL; `capability_denied` logged, empty response returned. |
 | Completion event | After a prompt run, SQLite WAL contains a Completion Event with correct token counts and cost. |
 | Loop detection | Repeating tool call sequence triggers `loop_detected` event; subprocess terminated cleanly. |
-| Debug tooling | `vivary-log` locates and decodes the relevant WAL entries for a given prompt run. |
+| Debug tooling | `vivlog` locates and decodes the relevant WAL entries for a given prompt run. |
 
 ### Deferred to Multi-Agent Phase
 

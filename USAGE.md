@@ -23,14 +23,14 @@ task build
 # Or individually
 task build:keeperd
 task build:ward
-task build:vivary
-task build:vivary-log
+task build:viv
+task build:vivlog
 
 # Or with go directly
-go build -o bin/keeperd    ./cmd/keeperd
-go build -o bin/ward       ./cmd/ward
-go build -o bin/vivary     ./cmd/vivary
-go build -o bin/vivary-log ./cmd/vivary-log
+go build -o bin/keeperd ./cmd/keeperd
+go build -o bin/ward    ./cmd/ward
+go build -o bin/viv     ./cmd/viv
+go build -o bin/vivlog  ./cmd/vivlog
 go build -o bin/cap-cli    ./cmd/cap-cli
 go build -o bin/vivary-gen ./cmd/vivary-gen
 ```
@@ -109,62 +109,62 @@ if the provider is omitted or cannot be resolved.
 
 ---
 
-## vivary CLI
+## viv CLI
 
 All subcommands connect to `keeper.sock`.  Use `--socket` to override the path.
 
 ```sh
 # Liveness check
-bin/vivary --socket ./keeper.sock ping
+bin/viv --socket ./keeper.sock ping
 
 # Daemon and agent status
-bin/vivary status
+bin/viv status
 
 # Agent management
-bin/vivary agent list
-bin/vivary agent create --id my-agent --template /path/to/template
-bin/vivary agent create --id my-agent --template /path/to/template --provider anthropic
-bin/vivary agent destroy --id my-agent
+bin/viv agent list
+bin/viv agent create --id my-agent --template /path/to/template
+bin/viv agent create --id my-agent --template /path/to/template --provider anthropic
+bin/viv agent destroy --id my-agent
 
 # Dispatch a prompt to a running agent
-bin/vivary prompt --agent my-agent --seq 1 "Summarise the README"
+bin/viv prompt --agent my-agent --seq 1 "Summarise the README"
 ```
 
-`task dev:vivary CLI_ARGS="status"` runs the CLI against `./keeper.sock` without building first.
+`task dev:viv CLI_ARGS="status"` runs the CLI against `./keeper.sock` without building first.
 
 ---
 
-## vivary-log
+## vivlog
 
 Inspect the SQLite audit trail written by keeperd.
 
 ```sh
 # Most recent 20 frames (default)
-bin/vivary-log tail
+bin/vivlog tail
 
 # Last 50 frames
-bin/vivary-log tail --n 50
+bin/vivlog tail --n 50
 
 # All frames for a specific agent
-bin/vivary-log show --agent my-agent
+bin/vivlog show --agent my-agent
 
 # Filter by message type
-bin/vivary-log grep --msg-type CompletionEvent
-bin/vivary-log grep --msg-type FailureEvent
-bin/vivary-log grep --msg-type capability_denied
+bin/vivlog grep --msg-type CompletionEvent
+bin/vivlog grep --msg-type FailureEvent
+bin/vivlog grep --msg-type capability_denied
 
 # Decode a specific frame by sequence number
-bin/vivary-log decode --seq 42
+bin/vivlog decode --seq 42
 
 # Machine-readable JSON output (any subcommand)
-bin/vivary-log tail --json
-bin/vivary-log show --agent my-agent --json
+bin/vivlog tail --json
+bin/vivlog show --agent my-agent --json
 
 # Point at a non-default DB
-bin/vivary-log --db /var/lib/vivary/workspace/audit.db tail
+bin/vivlog --db /var/lib/vivary/workspace/audit.db tail
 ```
 
-`task dev:vivary-log CLI_ARGS="tail"` runs against `./audit.db`.
+`task dev:vivlog CLI_ARGS="tail"` runs against `./audit.db`.
 
 ---
 
@@ -235,13 +235,13 @@ Linting rules enforced at generation time:
 task dev:keeperd
 
 # Terminal 2 — interact
-task dev:vivary CLI_ARGS="ping"
-task dev:vivary CLI_ARGS="status"
-task dev:vivary CLI_ARGS="agent create --id test-1 --template /tmp/agent-template"
-task dev:vivary CLI_ARGS="agent list"
+task dev:viv CLI_ARGS="ping"
+task dev:viv CLI_ARGS="status"
+task dev:viv CLI_ARGS="agent create --id test-1 --template /tmp/agent-template"
+task dev:viv CLI_ARGS="agent list"
 
 # Terminal 3 — watch the audit log
-task dev:vivary-log CLI_ARGS="tail --n 5"
+task dev:vivlog CLI_ARGS="tail --n 5"
 ```
 
 ---
