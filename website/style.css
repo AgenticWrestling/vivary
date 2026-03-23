@@ -75,12 +75,7 @@ body::before {
     justify-content: space-between;
     align-items: center;
     gap: 1.5rem;
-    min-height: 72px;
-    transition: min-height 0.35s ease;
-}
-
-.site-header:not(.scrolled) .nav-bar {
-    min-height: 140px;
+    min-height: var(--nav-height, 160px);
 }
 
 .masthead-mark {
@@ -118,13 +113,20 @@ h3,
 }
 
 .mark-name {
-    font-size: 3.8rem;
+    font-size: var(--logo-size, 5rem);
     letter-spacing: 0.06em;
-    transition: font-size 0.35s ease;
 }
 
-.site-header.scrolled .mark-name {
-    font-size: 1.9rem;
+.mark-acronym {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    color: var(--signal);
+    opacity: var(--acronym-opacity, 1);
+    white-space: nowrap;
+    overflow: hidden;
+    line-height: 1.4;
 }
 
 .mark-kicker {
