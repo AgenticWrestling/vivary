@@ -115,7 +115,7 @@ h3,
 .diagram-title,
 .diagram-box-title {
     font-family: var(--font-display);
-    letter-spacing: 0.08em;
+    letter-spacing: 0.02em;
 }
 
 .mark-name {
@@ -222,7 +222,7 @@ h3,
 
 h1 {
     font-size: clamp(2.6rem, 7vw, 4.6rem);
-    line-height: 0.92;
+    line-height: 1.08;
     margin-bottom: 1rem;
     color: var(--text-main);
     max-width: 20ch;
@@ -385,7 +385,7 @@ h1 {
 
 h2 {
     font-size: clamp(1.9rem, 4vw, 3rem);
-    line-height: 1;
+    line-height: 1.12;
     color: var(--text-main);
 }
 
