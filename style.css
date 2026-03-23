@@ -159,6 +159,10 @@ h3,
     align-items: stretch;
 }
 
+.hero > .container > .hero-copy {
+    max-width: 72rem;
+}
+
 .hero-copy,
 .hero-plate,
 .principle-card,
@@ -203,7 +207,7 @@ h1 {
     line-height: 0.92;
     margin-bottom: 1rem;
     color: var(--text-main);
-    max-width: 12ch;
+    max-width: 20ch;
 }
 
 .hero-lead {
