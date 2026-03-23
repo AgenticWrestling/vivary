@@ -82,7 +82,7 @@ func (d *daemon) handleCapabilityRequest(f switchboard.Frame) {
 		req.AgentID = f.Header.FromID
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
 	resp, err := d.dispatcher.Dispatch(ctx, capabilities.Request{

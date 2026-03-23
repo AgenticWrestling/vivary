@@ -8,7 +8,7 @@ import (
 // TestWardLoop verifies that the loop detector triggers at the configured
 // threshold and that distinct (capability, args) pairs do not interfere.
 func TestWardLoop_TriggerAtThreshold(t *testing.T) {
-	ld := &loopDetector{threshold: 3}
+	ld := newLoopDetector(3)
 	args := json.RawMessage(`{"url":"https://example.com"}`)
 
 	for i := range 2 {
@@ -23,7 +23,7 @@ func TestWardLoop_TriggerAtThreshold(t *testing.T) {
 }
 
 func TestWardLoop_DistinctArgsNoTrigger(t *testing.T) {
-	ld := &loopDetector{threshold: 2}
+	ld := newLoopDetector(2)
 	for i := range 5 {
 		args, _ := json.Marshal(map[string]int{"n": i})
 		if ld.check("MyTool", args) {
@@ -33,7 +33,7 @@ func TestWardLoop_DistinctArgsNoTrigger(t *testing.T) {
 }
 
 func TestWardLoop_DistinctCapabilitiesNoTrigger(t *testing.T) {
-	ld := &loopDetector{threshold: 2}
+	ld := newLoopDetector(2)
 	args := json.RawMessage(`{}`)
 	caps := []string{"Cap_A_Do", "Cap_B_Do", "Cap_C_Do"}
 	for _, cap := range caps {

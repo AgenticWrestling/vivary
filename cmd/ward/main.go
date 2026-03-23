@@ -24,12 +24,12 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"vivary.dev/vivary/internal/audit"
+	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
 )
 
@@ -177,10 +177,6 @@ func (w *ward) run(ctx context.Context) error {
 
 // ---- Capability response dispatch ------------------------------------------
 
-type pendingResp struct {
-	ch chan capResp
-}
-
 type capResp struct {
 	hdr     switchboard.SwarmHeader
 	payload []byte
@@ -188,13 +184,13 @@ type capResp struct {
 
 var (
 	pendingMu    sync.RWMutex
-	pendingBySeq = make(map[uint64]*pendingResp)
+	pendingBySeq = make(map[uint64]chan capResp)
 )
 
 func (w *ward) registerPending(seqNo uint64) chan capResp {
 	ch := make(chan capResp, 1)
 	pendingMu.Lock()
-	pendingBySeq[seqNo] = &pendingResp{ch: ch}
+	pendingBySeq[seqNo] = ch
 	pendingMu.Unlock()
 	return ch
 }
@@ -207,14 +203,14 @@ func (w *ward) removePending(seqNo uint64) {
 
 func (w *ward) deliverCapabilityResponse(hdr switchboard.SwarmHeader, payload []byte) {
 	pendingMu.RLock()
-	p := pendingBySeq[hdr.SeqNo]
+	ch := pendingBySeq[hdr.SeqNo]
 	pendingMu.RUnlock()
-	if p == nil {
+	if ch == nil {
 		w.log.Warn("ward: capability response for unknown seqno", "seq", hdr.SeqNo)
 		return
 	}
 	select {
-	case p.ch <- capResp{hdr: hdr, payload: payload}:
+	case ch <- capResp{hdr: hdr, payload: payload}:
 	default:
 	}
 }
@@ -223,12 +219,7 @@ func (w *ward) deliverCapabilityResponse(hdr switchboard.SwarmHeader, payload []
 
 // handlePrompt runs in its own goroutine for each incoming CtlPrompt frame.
 func (w *ward) handlePrompt(ctx context.Context, payload []byte) {
-	type promptMsg struct {
-		AgentID string `json:"agent_id"`
-		Seq     uint64 `json:"seq"`
-		Text    string `json:"text"`
-	}
-	var msg promptMsg
+	var msg ctl.PromptPayload
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		w.log.Error("ward: malformed prompt payload", "err", err)
 		return
@@ -237,11 +228,9 @@ func (w *ward) handlePrompt(ctx context.Context, payload []byte) {
 	w.promptSeq.Store(msg.Seq)
 	w.log.Info("ward: prompt received", "seq", msg.Seq)
 
-	startAt := time.Now()
-	outcome, ev, ferr := w.runLLMSubprocess(ctx, msg.Seq, msg.Text)
+	outcome, ev, ferr := w.runLLMSubprocess(ctx, msg.Text)
 
 	if ferr != nil {
-		// Emit failure event.
 		fev := audit.FailureEvent{
 			AgentID: w.agentID, PromptSeq: msg.Seq,
 			Kind:   ev, Detail: ferr.Error(),
@@ -251,18 +240,17 @@ func (w *ward) handlePrompt(ctx context.Context, payload []byte) {
 		return
 	}
 
-	// Emit completion event.
 	cev := audit.CompletionEvent{
-		AgentID:   w.agentID,
-		PromptSeq: msg.Seq,
-		Model:     outcome.model,
-		InputTokens: outcome.inputTokens, OutputTokens: outcome.outputTokens,
-		CostUSD:             outcome.costUSD,
+		AgentID:              w.agentID,
+		PromptSeq:            msg.Seq,
+		Model:                outcome.model,
+		InputTokens:          outcome.inputTokens,
+		OutputTokens:         outcome.outputTokens,
+		CostUSD:              outcome.costUSD,
 		ContextWindowUsedPct: outcome.ctxPct,
-		ToolCallsMade:       outcome.toolCalls,
-		Outcome:             "success",
+		ToolCallsMade:        outcome.toolCalls,
+		Outcome:              "success",
 	}
-	_ = startAt // reserved for latency telemetry
 	b, _ := audit.MarshalEvent(cev)
 	_ = w.pipe.send(switchboard.MsgType_CompletionEvent, "keeper", b)
 }
@@ -321,12 +309,11 @@ const filesystemFileWriteSchema = `{
 // runLLMSubprocess spawns the LLM CLI, intercepts tool calls, and returns when
 // the subprocess exits.  Returns (outcome, "", nil) on success, or
 // (zero, failureKind, err) on failure.
-func (w *ward) runLLMSubprocess(ctx context.Context, promptSeq uint64, promptText string) (llmOutcome, string, error) {
-	// Build the subprocess command.
-	// claude --print runs headlessly with the prompt as the argument.
-	// WARD_TOOL_SOCK is set so capability CLIs find the tool socket.
+func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutcome, string, error) {
+	// claude --print passes the prompt as a positional argument and runs
+	// non-interactively.  WARD_TOOL_SOCK is set so capability CLIs can reach
+	// the tool server.
 	cmd := exec.CommandContext(ctx, "claude", "--print", promptText, "--output-format", "stream-json")
-	cmd.Stdin = strings.NewReader(promptText)
 	cmd.Env = append(os.Environ(), toolServerEnvKey+"="+w.toolSockPath)
 
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -345,7 +332,7 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptSeq uint64, promptTex
 	// Drain stderr asynchronously (Claude uses it for status messages).
 	go io.Copy(io.Discard, stderrPipe) //nolint:errcheck
 
-	loop := &loopDetector{threshold: w.loopThreshold}
+	loop := newLoopDetector(w.loopThreshold)
 	var outcome llmOutcome
 
 	scanner := bufio.NewScanner(stdoutPipe)
@@ -370,15 +357,14 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptSeq uint64, promptTex
 			switch evType {
 			case "tool_use":
 				outcome.toolCalls++
-				toolResp, fkind, ferr := w.handleToolUse(ctx, promptSeq, event, loop)
+				// TODO(Phase 2): inject toolResp back into claude subprocess via
+				// the MCP tool-result protocol once stream-json bidirectional
+				// tool-call flow is implemented.
+				_, fkind, ferr := w.handleToolUse(ctx, event, loop)
 				if ferr != nil {
 					_ = cmd.Process.Kill()
 					return llmOutcome{}, fkind, ferr
 				}
-				// toolResp is injected back via the subprocess's tool result
-				// mechanism (Claude Code reads it from its own stdin in headless
-				// mode via the MCP tool result protocol — handled separately).
-				_ = toolResp
 
 			case "message_stop":
 				// Extract usage stats if present.
@@ -410,7 +396,6 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptSeq uint64, promptTex
 // returns the capability response payload.
 func (w *ward) handleToolUse(
 	ctx context.Context,
-	promptSeq uint64,
 	event map[string]json.RawMessage,
 	loop *loopDetector,
 ) ([]byte, string, error) {
@@ -441,33 +426,23 @@ func (w *ward) handleToolUse(
 		Args:    inputArgs,
 	})
 
-	// Register pending response slot before sending (avoid race).
-	hdr := switchboard.SwarmHeader{
-		Version: 0,
-		Type:    switchboard.MsgType_CapabilityRequest,
-		FromID:  w.agentID,
-		ToID:    "keeper",
-		SeqNo:   w.pipe.seq.Next(),
-	}
-	respCh := w.registerPending(hdr.SeqNo)
-	defer w.removePending(hdr.SeqNo)
+	// Allocate seqNo and register the response channel before sending to
+	// avoid a race where keeperd responds before we've registered the slot.
+	seqNo := w.pipe.seq.Next()
+	respCh := w.registerPending(seqNo)
+	defer w.removePending(seqNo)
 
-	w.pipe.mu.Lock()
-	err := switchboard.WriteFrame(w.pipe.w, hdr, reqPayload)
-	w.pipe.mu.Unlock()
-	if err != nil {
+	if err := w.pipe.sendWithSeq(seqNo, reqPayload); err != nil {
 		return nil, "subprocess_crash", fmt.Errorf("send capability request: %w", err)
 	}
 
-	// Wait for keeperd's response (with context timeout).
-	timeout := 30 * time.Second
+	const capabilityTimeout = 30 * time.Second
 	select {
 	case <-ctx.Done():
 		return nil, "timeout", ctx.Err()
-	case <-time.After(timeout):
-		return nil, "timeout", fmt.Errorf("capability %q timed out after %v", toolName, timeout)
+	case <-time.After(capabilityTimeout):
+		return nil, "timeout", fmt.Errorf("capability %q timed out after %v", toolName, capabilityTimeout)
 	case resp := <-respCh:
-		_ = promptSeq // reserved for correlation
 		return resp.payload, "", nil
 	}
 }
@@ -482,6 +457,10 @@ type loopDetector struct {
 	counts    map[uint64]int
 }
 
+func newLoopDetector(threshold int) *loopDetector {
+	return &loopDetector{threshold: threshold, counts: make(map[uint64]int)}
+}
+
 func (l *loopDetector) check(toolName string, args json.RawMessage) bool {
 	h := fnv.New64a()
 	h.Write([]byte(toolName))
@@ -490,9 +469,6 @@ func (l *loopDetector) check(toolName string, args json.RawMessage) bool {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.counts == nil {
-		l.counts = make(map[uint64]int)
-	}
 	l.counts[key]++
 	return l.counts[key] >= l.threshold
 }

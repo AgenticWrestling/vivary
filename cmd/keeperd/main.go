@@ -78,6 +78,7 @@ func main() {
 	})
 
 	d := &daemon{
+		ctx:        ctx,
 		cfg:        cfg,
 		log:        log,
 		auditDB:    auditDB,
@@ -109,6 +110,7 @@ type agentState struct {
 }
 
 type daemon struct {
+	ctx        context.Context // cancelled on SIGINT/SIGTERM
 	cfg        OrchestratorConfig
 	log        *slog.Logger
 	auditDB    *audit.DB
