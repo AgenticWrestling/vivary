@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIVARY - Capability-Restricted, Isolated, Auditable AI Runtime</title>
+    <title>VIVARY - Coordinate AI agents in ways you can actually explain.</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,7 +15,7 @@
         <header class="site-header">
             <nav class="container nav-bar">
                 <div class="masthead-mark">
-                    <span class="mark-kicker">Capability-Restricted AI Runtime</span>
+                    <span class="mark-kicker">Governed AI Agent Runtime</span>
                     <span class="mark-name">VIVARY</span>
                 </div>
                 <ul class="nav-links">
@@ -30,9 +30,9 @@
             <section class="hero">
                 <div class="container hero-grid">
                     <div class="hero-copy">
-                        <p class="eyebrow">Transparent, Convenient &amp; Efficient, pick three.</p>
-                        <h1>Capability-restricted, isolated, auditable AI runtime.</h1>
-                        <p class="hero-lead">VIVARY runs AI agents inside isolated `systemd-nspawn` environments with no raw credentials, no unrestricted network access, and a clear audit trail for every important action.</p>
+                        <p class="eyebrow">Coordinate AI agents in ways you can actually explain.</p>
+                        <h1>A compiled Go runtime for isolated, governed AI agents.</h1>
+                        <p class="hero-lead">Capabilities are self-describing Unix CLI tools. Credentials never enter the container. Every action produces a human-legible audit record.</p>
                         <div class="hero-actions">
                             <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Inspect the Works</a>
                             <a href="#apparatus" class="btn btn-secondary">See Architecture</a>
@@ -106,7 +106,7 @@
                         <article class="principle-card">
                             <span class="card-index">IV</span>
                             <h3>Audit is built in</h3>
-                            <p>MUS-framed traffic and structured events are recorded for inspection. `vivary-log` exists so operators can see what the runtime actually did.</p>
+                            <p>MUS-framed traffic and structured events are recorded for inspection. `vivlog` exists so operators can see what the runtime actually did.</p>
                         </article>
                     </div>
                 </div>
@@ -150,7 +150,7 @@
                             <text x="98" y="288" class="diagram-box-text">identity and dispatch</text>
 
                             <rect x="74" y="350" width="186" height="80" rx="8" class="diagram-box ctl-box"/>
-                            <text x="98" y="382" class="diagram-box-title">vivary</text>
+                            <text x="98" y="382" class="diagram-box-title">viv</text>
                             <text x="98" y="404" class="diagram-box-text">TUI / CLI over keeper.sock</text>
 
                             <rect x="324" y="182" width="238" height="248" rx="10" class="diagram-boundary ward-zone"/>
@@ -175,7 +175,7 @@
                             <rect x="644" y="308" width="272" height="126" rx="10" class="diagram-box audit-box"/>
                             <text x="670" y="344" class="diagram-box-title">MUS Audit Log</text>
                             <text x="670" y="368" class="diagram-box-text">SQLite WAL</text>
-                            <text x="670" y="390" class="diagram-box-text">decoded by vivary-log</text>
+                            <text x="670" y="390" class="diagram-box-text">decoded by vivlog</text>
                             <text x="670" y="412" class="diagram-box-text">frames, events, denials</text>
 
                             <path d="M260 390 H304 Q322 390 322 344 V282 H324" class="signal-line" marker-end="url(#signal-head)"/>
@@ -243,7 +243,7 @@
             <div class="container footer-content">
                 <div>
                     <p class="footer-mark">VIVARY</p>
-                    <p>Capability-restricted, isolated, auditable AI runtime.</p>
+                    <p>Coordinate AI agents in ways you can actually explain.</p>
                 </div>
                 <div>
                     <a href="https://github.com/AgenticWrestling/vivary">GitHub Repository</a>

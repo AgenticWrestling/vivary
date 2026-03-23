@@ -2,6 +2,8 @@
 
 **V**irtualized **I**solated **V**erifiable **A**gent **R**untime **Y**ard
 
+*Coordinate AI agents in ways you can actually explain.*
+
 VIVARY is a governed runtime for isolated, auditable AI agents on a shared host. The initial product focus is a single agent running inside a hardened `systemd-nspawn` enclosure with no credentials, no raw network access beyond its LLM API endpoint, and no visibility beyond its own filesystem and a tightly controlled [MUS](https://github.com/mus-format/mus-go) formatted stdio pipe to the central `keeperd` daemon. Multi-agent swarm orchestration is a later phase built on top of this runtime core.
 
 ## Core Features
