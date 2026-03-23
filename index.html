@@ -3,23 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIVARY - Governed Runtime for Isolated Machine Intelligences</title>
+    <title>VIVARY - Capability-Restricted, Isolated, Auditable AI Runtime</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Cormorant+Garamond:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fascinate&family=Pathway+Gothic+One&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="page-shell">
         <header class="site-header">
             <nav class="container nav-bar">
                 <div class="masthead-mark">
-                    <span class="mark-kicker">House of Governed Computation</span>
+                    <span class="mark-kicker">Capability-Restricted AI Runtime</span>
                     <span class="mark-name">VIVARY</span>
                 </div>
                 <ul class="nav-links">
-                    <li><a href="#apparatus">Apparatus</a></li>
+                    <li><a href="#apparatus">Architecture</a></li>
                     <li><a href="#principles">Principles</a></li>
                     <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fa-brands fa-github"></i> GitHub</a></li>
                 </ul>
@@ -30,25 +30,25 @@
             <section class="hero">
                 <div class="container hero-grid">
                     <div class="hero-copy">
-                        <p class="eyebrow">Memorial Edition for the Governance of Artificial Persons</p>
-                        <h1>Governed runtime for isolated machine intelligences.</h1>
-                        <p class="hero-lead">VIVARY treats agent execution as an operating apparatus: warded chambers, explicit powers, auditable signal traffic, and an operator who remains sovereign over the machine.</p>
+                        <p class="eyebrow">Transparent, Convenient &amp; Efficient, pick three.</p>
+                        <h1>Capability-restricted, isolated, auditable AI runtime.</h1>
+                        <p class="hero-lead">VIVARY runs AI agents inside isolated `systemd-nspawn` environments with no raw credentials, no unrestricted network access, and a clear audit trail for every important action.</p>
                         <div class="hero-actions">
                             <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Inspect the Works</a>
-                            <a href="#apparatus" class="btn btn-secondary">Study the Apparatus</a>
+                            <a href="#apparatus" class="btn btn-secondary">See Architecture</a>
                         </div>
                         <dl class="hero-facts">
                             <div>
                                 <dt>Runtime Posture</dt>
-                                <dd>Single-agent MVP, governed first</dd>
+                                <dd>Single-agent MVP, runtime core first</dd>
                             </div>
                             <div>
                                 <dt>Control Plane</dt>
-                                <dd>`keeperd` authority, `ward` adapter</dd>
+                                <dd>`keeperd` authority, `ward` syntax adapter</dd>
                             </div>
                             <div>
                                 <dt>Audit Medium</dt>
-                                <dd>MUS frames to SQLite WAL</dd>
+                                <dd>MUS frames recorded to SQLite WAL</dd>
                             </div>
                         </dl>
                     </div>
@@ -56,7 +56,7 @@
                     <div class="hero-plate">
                         <div class="plate-frame">
                             <div class="plate-header">
-                                <span>Operator's Cabinet Plate</span>
+                                <span>Operator Console</span>
                                 <span>Series 01</span>
                             </div>
                             <div class="plate-logo">VIVARY</div>
@@ -64,16 +64,16 @@
                             <div class="plate-rule"></div>
                             <div class="plate-readout">
                                 <div>
-                                    <span class="readout-label">Keeper State</span>
-                                    <span class="readout-value">Authoritative</span>
+                                <span class="readout-label">Policy Authority</span>
+                                <span class="readout-value">keeperd</span>
                                 </div>
                                 <div>
-                                    <span class="readout-label">Ward Role</span>
-                                    <span class="readout-value">Syntactic Adapter</span>
+                                <span class="readout-label">Agent Boundary</span>
+                                <span class="readout-value">ward</span>
                                 </div>
                                 <div>
-                                    <span class="readout-label">Browser Plane</span>
-                                    <span class="readout-value">Host-side Only</span>
+                                <span class="readout-label">Browser Access</span>
+                                <span class="readout-value">host-side via keeperd</span>
                                 </div>
                             </div>
                         </div>
@@ -85,28 +85,28 @@
                 <div class="container">
                     <div class="section-heading">
                         <p class="section-kicker">Operating Principles</p>
-                        <h2>The house rules of the runtime.</h2>
+                        <h2>The core runtime model.</h2>
                     </div>
                     <div class="principles-grid">
                         <article class="principle-card">
                             <span class="card-index">I</span>
-                            <h3>Containment before cleverness</h3>
-                            <p>Each agent runs inside a narrow chamber with limited filesystem reach, a firewalled egress path, and no direct claim on host identity.</p>
+                            <h3>Isolation is the default</h3>
+                            <p>Each agent gets its own filesystem, a MUS pipe to `keeperd`, and a firewalled path to its configured LLM API endpoint only.</p>
                         </article>
                         <article class="principle-card">
                             <span class="card-index">II</span>
-                            <h3>Authority remains centralized</h3>
-                            <p><code>keeperd</code> decides what a request means, whether it is permitted, and how it is recorded. The Ward does not become a second policy court.</p>
+                            <h3>`keeperd` is the authority</h3>
+                            <p>`keeperd` owns policy, routing, approvals, credential resolution, and audit. It decides whether a well-formed request is allowed.</p>
                         </article>
                         <article class="principle-card">
                             <span class="card-index">III</span>
-                            <h3>Capabilities are explicit instruments</h3>
-                            <p>Agents do not receive raw credentials or ambient powers. They receive named capabilities with scopes, denials, and operator-legible contracts.</p>
+                            <h3>Capabilities are explicit</h3>
+                            <p>Agents do not receive broad default access. They receive named capabilities with scopes, denials, and operator-visible contracts.</p>
                         </article>
                         <article class="principle-card">
                             <span class="card-index">IV</span>
-                            <h3>Every signal leaves a trace</h3>
-                            <p>MUS-framed traffic and structured events are preserved for later inspection. Debugging is part of the machine, not an afterthought.</p>
+                            <h3>Audit is built in</h3>
+                            <p>MUS-framed traffic and structured events are recorded for inspection. `vivary-log` exists so operators can see what the runtime actually did.</p>
                         </article>
                     </div>
                 </div>
@@ -115,26 +115,98 @@
             <section id="apparatus" class="apparatus">
                 <div class="container">
                     <div class="section-heading">
-                        <p class="section-kicker">Containment Apparatus</p>
-                        <h2>A host machine, a keeper, and one warded intelligence.</h2>
+                        <p class="section-kicker">Architecture</p>
+                        <h2>One control plane, one agent, one audit path.</h2>
                     </div>
 
                     <div class="diagram-shell">
-                        <img src="architecture.svg" alt="VIVARY architecture diagram" class="apparatus-diagram">
+                        <svg viewBox="0 0 980 640" xmlns="http://www.w3.org/2000/svg" class="apparatus-diagram" aria-labelledby="arch-title arch-desc" role="img">
+                            <title id="arch-title">VIVARY architecture diagram</title>
+                            <desc id="arch-desc">A host OS containing a NixOS LXD layer with vivary, keeperd, and a single nspawn agent, plus host-side Chrome and MUS audit logs.</desc>
+
+                            <defs>
+                                <marker id="signal-head" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+                                    <polygon points="0 0, 12 4, 0 8" fill="#b8c3cd" />
+                                </marker>
+                                <pattern id="paper-grid" width="18" height="18" patternUnits="userSpaceOnUse">
+                                    <path d="M 18 0 L 0 0 0 18" fill="none" stroke="rgba(184,195,205,0.08)" stroke-width="1"/>
+                                </pattern>
+                            </defs>
+
+                            <rect x="10" y="10" width="960" height="620" rx="18" class="diagram-boundary outer-shell"/>
+                            <rect x="24" y="24" width="932" height="592" rx="12" class="diagram-boundary inner-shell"/>
+                            <rect x="24" y="24" width="932" height="592" rx="12" fill="url(#paper-grid)"/>
+
+                            <text x="48" y="58" class="diagram-title">Host OS</text>
+                            <text x="48" y="82" class="diagram-caption">Chrome and audit inspection stay outside the container boundary</text>
+
+                            <rect x="42" y="112" width="554" height="462" rx="10" class="diagram-boundary container-zone"/>
+                            <text x="68" y="146" class="diagram-title">NixOS LXD Layer</text>
+                            <text x="68" y="170" class="diagram-caption">Minimal, reproducible base system</text>
+
+                            <rect x="74" y="212" width="214" height="104" rx="8" class="diagram-box keeper-box"/>
+                            <text x="98" y="246" class="diagram-box-title">keeperd</text>
+                            <text x="98" y="268" class="diagram-box-text">policy, routing, audit</text>
+                            <text x="98" y="288" class="diagram-box-text">identity and dispatch</text>
+
+                            <rect x="74" y="350" width="186" height="80" rx="8" class="diagram-box ctl-box"/>
+                            <text x="98" y="382" class="diagram-box-title">vivary</text>
+                            <text x="98" y="404" class="diagram-box-text">TUI / CLI over keeper.sock</text>
+
+                            <rect x="324" y="182" width="238" height="248" rx="10" class="diagram-boundary ward-zone"/>
+                            <text x="348" y="214" class="diagram-title small">nspawn Agent</text>
+
+                            <rect x="350" y="240" width="184" height="56" rx="6" class="diagram-box ward-box"/>
+                            <text x="372" y="272" class="diagram-box-title">ward</text>
+                            <text x="372" y="292" class="diagram-box-text tight">syntax + protocol adapter</text>
+
+                            <rect x="350" y="320" width="184" height="50" rx="6" class="diagram-box llm-box"/>
+                            <text x="372" y="350" class="diagram-box-title">LLM subprocess</text>
+
+                            <text x="350" y="402" class="diagram-caption">no raw credentials</text>
+                            <text x="350" y="422" class="diagram-caption">no unrestricted network egress</text>
+
+                            <rect x="644" y="140" width="272" height="126" rx="10" class="diagram-box chrome-box"/>
+                            <text x="670" y="176" class="diagram-box-title">Chrome</text>
+                            <text x="670" y="200" class="diagram-box-text">host-side browser</text>
+                            <text x="670" y="222" class="diagram-box-text">isolated profile per agent</text>
+                            <text x="670" y="244" class="diagram-box-text">keeperd speaks CDP</text>
+
+                            <rect x="644" y="308" width="272" height="126" rx="10" class="diagram-box audit-box"/>
+                            <text x="670" y="344" class="diagram-box-title">MUS Audit Log</text>
+                            <text x="670" y="368" class="diagram-box-text">SQLite WAL</text>
+                            <text x="670" y="390" class="diagram-box-text">decoded by vivary-log</text>
+                            <text x="670" y="412" class="diagram-box-text">frames, events, denials</text>
+
+                            <path d="M260 390 H304 Q322 390 322 344 V282 H324" class="signal-line" marker-end="url(#signal-head)"/>
+                            <text x="148" y="372" class="signal-label">MUS over Unix socket</text>
+
+                            <path d="M288 252 H350" class="signal-line" marker-end="url(#signal-head)"/>
+                            <text x="298" y="232" class="signal-label">MUS over stdio</text>
+
+                            <path d="M562 250 H644" class="signal-line" marker-end="url(#signal-head)"/>
+                            <text x="574" y="232" class="signal-label">CDP proxy</text>
+
+                            <path d="M288 286 Q318 306 350 336" class="signal-line soft" marker-end="url(#signal-head)"/>
+                            <text x="164" y="324" class="signal-label">prompt dispatch</text>
+
+                            <path d="M288 302 Q480 496 644 372" class="signal-line soft" marker-end="url(#signal-head)"/>
+                            <text x="424" y="472" class="signal-label">MUS frames and event records</text>
+                        </svg>
                     </div>
 
                     <div class="apparatus-notes">
                         <article>
                             <h3>Keeper</h3>
-                            <p>The semantic court of the machine. It stamps identity, enforces policy, resolves credentials, writes the audit record, and mediates all external force.</p>
+                            <p>The policy and routing authority. It stamps identity, enforces policy, resolves credentials, writes audit records, and mediates external access.</p>
                         </article>
                         <article>
                             <h3>Ward</h3>
-                            <p>The local interpreter at the chamber edge. It turns backend-specific tool syntax into MUS requests, rejects malformed calls, and reports session facts.</p>
+                            <p>The syntax and protocol adapter at the agent boundary. It turns backend-specific tool syntax into MUS requests, rejects malformed calls, and reports local execution facts.</p>
                         </article>
                         <article>
                             <h3>Operator</h3>
-                            <p>The human still has a console worthy of the system: live state, prompt dispatch, event traces, and a CLI-first path into the logs.</p>
+                            <p>The operator has live state, prompt dispatch, event traces, and a CLI-first path into the logs.</p>
                         </article>
                     </div>
                 </div>
@@ -143,24 +215,24 @@
             <section class="instruments">
                 <div class="container instruments-grid">
                     <div class="instrument-panel">
-                        <p class="section-kicker">Instrument Register</p>
-                        <h2>What the machine offers in its first form.</h2>
+                        <p class="section-kicker">Included in the MVP</p>
+                        <h2>What the MVP actually includes.</h2>
                         <ul class="instrument-list">
-                            <li><span>01</span> Single-agent governed runtime core</li>
-                            <li><span>02</span> Host-side browser mediation by `keeperd`</li>
-                            <li><span>03</span> Capability dispatch with explicit scope</li>
-                            <li><span>04</span> MUS-framed audit and debug surface</li>
+                            <li><span>01</span> Single-agent runtime core</li>
+                            <li><span>02</span> `keeperd` as policy and routing authority</li>
+                            <li><span>03</span> `ward` as syntax and protocol adapter</li>
+                            <li><span>04</span> Browser and filesystem capabilities with audit and debug tooling</li>
                         </ul>
                     </div>
 
                     <div class="instrument-panel dark">
-                        <p class="section-kicker">Notably Excluded</p>
-                        <h2>No ambient magic.</h2>
+                        <p class="section-kicker">Excluded for now</p>
+                        <h2>What it does not try to do yet.</h2>
                         <ul class="instrument-list muted">
-                            <li><span>--</span> No raw credentials inside the agent chamber</li>
+                            <li><span>--</span> No raw credentials inside the agent</li>
                             <li><span>--</span> No unrestricted network egress</li>
                             <li><span>--</span> No GUI dependency in the container runtime</li>
-                            <li><span>--</span> No premature swarm theatrics in the MVP</li>
+                            <li><span>--</span> No multi-agent orchestration in the MVP</li>
                         </ul>
                     </div>
                 </div>
@@ -171,7 +243,7 @@
             <div class="container footer-content">
                 <div>
                     <p class="footer-mark">VIVARY</p>
-                    <p>Governed runtime for isolated, auditable AI agents.</p>
+                    <p>Capability-restricted, isolated, auditable AI runtime.</p>
                 </div>
                 <div>
                     <a href="https://github.com/AgenticWrestling/vivary">GitHub Repository</a>
