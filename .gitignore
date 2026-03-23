@@ -15,10 +15,10 @@ audit.db
 vault.enc
 orchestrator.kdl
 
-# Accidentally built binaries at repo root
-vivary
-keeperd
-ward
-vivary-log
-cap-cli
-vivary-gen
+# Accidentally built binaries at repo root (leading / anchors to root only)
+/vivary
+/keeperd
+/ward
+/vivary-log
+/cap-cli
+/vivary-gen

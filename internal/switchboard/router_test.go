@@ -150,6 +150,102 @@ func TestRouterIdentityCorrect(t *testing.T) {
 
 // ---- SeqNo monotonicity ----------------------------------------------------
 
+// ---- Byte-rate limiter -----------------------------------------------------
+
+func TestByteRateLimiter_AllowWithinBudget(t *testing.T) {
+	l := NewByteRateLimiter(1000)
+	if !l.Allow(500) {
+		t.Error("500 bytes should be allowed on a fresh 1000 B/s limiter")
+	}
+	if !l.Allow(499) {
+		t.Error("cumulative 999 bytes should stay within budget of 1000")
+	}
+}
+
+func TestByteRateLimiter_ExactLimit(t *testing.T) {
+	l := NewByteRateLimiter(100)
+	if !l.Allow(100) {
+		t.Error("exactly 100 bytes should be allowed")
+	}
+	if l.Allow(1) {
+		t.Error("1 byte beyond the 100 B/s budget should be denied")
+	}
+}
+
+func TestByteRateLimiter_WindowReset(t *testing.T) {
+	l := NewByteRateLimiter(100)
+	l.Allow(100) // exhaust the window
+	if l.Allow(1) {
+		t.Error("should be denied within the same window")
+	}
+	// Backdate windowStart to simulate a new second.
+	l.mu.Lock()
+	l.windowStart = l.windowStart.Add(-2 * time.Second)
+	l.mu.Unlock()
+	if !l.Allow(50) {
+		t.Error("budget should be fully refreshed after window reset")
+	}
+}
+
+// TestRouterPipeFlood verifies that a pipe whose first 2-byte peek exceeds the
+// rate budget emits a pipe_flood security event and stops reading.
+func TestRouterPipeFlood(t *testing.T) {
+	var secEvents []SecurityEvent
+	var secMu sync.Mutex
+	router := NewRouter(testLogger(), func(ev SecurityEvent) {
+		secMu.Lock()
+		secEvents = append(secEvents, ev)
+		secMu.Unlock()
+	})
+
+	var got []Frame
+	var gotMu sync.Mutex
+	router.RegisterHandler(func(f Frame) {
+		gotMu.Lock()
+		got = append(got, f)
+		gotMu.Unlock()
+	})
+
+	hdr := SwarmHeader{
+		Version: 0, Type: MsgType_Ping,
+		FromID: "flood-agent", ToID: "keeper",
+		SeqNo: 1,
+	}
+	buf := writeFrameTo(t, hdr, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// A limit of 1 byte/sec means Allow(2) for the peek will immediately fail.
+	pipe := &Pipe{
+		AgentID: "flood-agent",
+		Reader:  buf,
+		Writer:  io.Discard,
+		Limiter: NewByteRateLimiter(1),
+	}
+	router.AddPipe(ctx, pipe)
+
+	time.Sleep(50 * time.Millisecond)
+
+	secMu.Lock()
+	defer secMu.Unlock()
+	found := false
+	for _, ev := range secEvents {
+		if ev.Kind == "pipe_flood" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected pipe_flood security event, got none")
+	}
+	// Frame must NOT be delivered when the pipe is flooded.
+	gotMu.Lock()
+	defer gotMu.Unlock()
+	if len(got) > 0 {
+		t.Error("no frames should be delivered after pipe_flood")
+	}
+}
+
 // TestRouterSeqNoMonotonicity verifies that a frame with a non-increasing SeqNo
 // is dropped and a seq_no_rewind security event is emitted.
 func TestRouterSeqNoMonotonicity(t *testing.T) {

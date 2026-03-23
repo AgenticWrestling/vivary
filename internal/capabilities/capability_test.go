@@ -170,6 +170,95 @@ func TestFilesystemWrite_Append(t *testing.T) {
 	}
 }
 
+// ---- Symlink escape tests (TestFilesystemWrite_Symlink*) -------------------
+
+func TestFilesystemWrite_SymlinkInsideScope(t *testing.T) {
+	scope := t.TempDir()
+	// Create a real file inside scope, then symlink to it within scope.
+	real := filepath.Join(scope, "real.txt")
+	if err := os.WriteFile(real, []byte("existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(scope, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	cap := &FilesystemFileWrite{}
+	ctx := contextWithScope(context.Background(), scope)
+	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "link.txt", Content: "via link"})
+	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("symlink within scope should be allowed: %s %s", resp.ErrorCode, resp.ErrorDetail)
+	}
+}
+
+func TestFilesystemWrite_SymlinkEscapeScope(t *testing.T) {
+	scope := t.TempDir()
+	outside := t.TempDir()
+	// Create a symlink inside scope pointing at an outside directory.
+	if err := os.Symlink(outside, filepath.Join(scope, "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	cap := &FilesystemFileWrite{}
+	ctx := contextWithScope(context.Background(), scope)
+	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "escape", Content: "x"})
+	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("symlink pointing outside scope should be denied")
+	}
+}
+
+func TestFilesystemWrite_SymlinkIntermediateDirEscape(t *testing.T) {
+	scope := t.TempDir()
+	outside := t.TempDir()
+	// An intermediate directory component is itself a symlink to outside.
+	if err := os.Symlink(outside, filepath.Join(scope, "subdir")); err != nil {
+		t.Fatal(err)
+	}
+
+	cap := &FilesystemFileWrite{}
+	ctx := contextWithScope(context.Background(), scope)
+	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "subdir/file.txt", Content: "x"})
+	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("write through symlinked intermediate dir escaping scope should be denied")
+	}
+}
+
+func TestFilesystemWrite_SymlinkLoop(t *testing.T) {
+	scope := t.TempDir()
+	// Create a circular symlink: a → b → a
+	a := filepath.Join(scope, "a")
+	b := filepath.Join(scope, "b")
+	if err := os.Symlink(b, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(a, b); err != nil {
+		t.Fatal(err)
+	}
+
+	cap := &FilesystemFileWrite{}
+	ctx := contextWithScope(context.Background(), scope)
+	args, _ := json.Marshal(FilesystemFileWriteArgs{Path: "a", Content: "loop"})
+	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("symlink loop should be denied")
+	}
+}
+
 // ---- Browser URL scope tests -----------------------------------------------
 
 func TestBrowserPageRead_URLScope(t *testing.T) {
@@ -184,6 +273,21 @@ func TestBrowserPageRead_URLScope(t *testing.T) {
 		{"https://a.com", "https://b.com,https://a.com", true},
 		{"not-a-url", "https://example.com", false},
 		{"http://example.com", "https://example.com", false}, // scheme mismatch
+		// Subdomain confusion: prefix-match must not allow hostname extension.
+		{"https://example.com.evil.com/page", "https://example.com", false},
+		// Case insensitivity.
+		{"https://EXAMPLE.COM/page", "https://example.com", true},
+		// Port in both URL and scope.
+		{"https://example.com:8443/page", "https://example.com:8443", true},
+		{"https://example.com:8443/page", "https://example.com", false}, // port mismatch
+		// Whitespace around entries in comma-separated scope.
+		{"https://example.com/page", " https://example.com , https://other.com ", true},
+		// Exact URL matches scope (no trailing slash required).
+		{"https://example.com", "https://example.com", true},
+		// Trailing slash on scope prefix.
+		{"https://example.com/path", "https://example.com/", true},
+		// Query string delimiter is a valid boundary.
+		{"https://example.com?q=1", "https://example.com", true},
 	}
 	for _, tc := range cases {
 		got := urlMatchesScope(tc.url, tc.scope)

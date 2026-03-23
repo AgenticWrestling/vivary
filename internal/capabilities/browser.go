@@ -117,7 +117,17 @@ func urlMatchesScope(rawURL, scope string) bool {
 	needle := strings.ToLower(rawURL)
 	for _, prefix := range strings.Split(scope, ",") {
 		p := strings.TrimSpace(strings.ToLower(prefix))
-		if p != "" && strings.HasPrefix(needle, p) {
+		if p == "" || !strings.HasPrefix(needle, p) {
+			continue
+		}
+		// Guard against subdomain confusion: after matching the prefix the
+		// very next character (if any) must be a path/query/fragment separator,
+		// not a continuation of the hostname (e.g. "example.com.evil.com").
+		// If the prefix itself already ends with a separator we are fine.
+		rest := needle[len(p):]
+		lastOfP := p[len(p)-1]
+		if rest == "" || rest[0] == '/' || rest[0] == '?' || rest[0] == '#' ||
+			lastOfP == '/' || lastOfP == '?' || lastOfP == '#' {
 			return true
 		}
 	}
