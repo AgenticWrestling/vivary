@@ -967,3 +967,78 @@ capability "Swarm_Agent_List" {
   returns     "list<object>" description="List of {id, status, groups, last_seen} objects"
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Commerce — Provider-neutral Order Placement
+// ═══════════════════════════════════════════════════════════════════════════════
+capability "Commerce_Order_Create" {
+  category    "Commerce"
+  description "Place an order with a configured commerce provider (e.g. Shopify, Amazon). Requires explicit operator approval by default due to critical risk level."
+  risk        "critical"
+  writes      entity="Order"
+  field       "sku" type="string" required=true {
+    description "Product SKU or provider item ID to purchase"
+    example     "B08N5WRWNW"
+  }
+  field       "quantity" type="int" required=true {
+    description "Number of units to order"
+    min         1
+    max         100
+  }
+  field       "shipping_address_id" type="string" required=true {
+    description "ID of a pre-registered shipping address in the operator vault"
+    example     "addr_home"
+  }
+  field       "confirm" type="bool" required=true default=false {
+    description "Must be explicitly set to true; prevents accidental order placement"
+  }
+  returns     "object" description="Object with fields: order_id, total_amount, currency, estimated_delivery"
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Home — Smart Home Device Control
+// ═══════════════════════════════════════════════════════════════════════════════
+capability "Home_Device_Invoke" {
+  category    "SmartHome"
+  description "Invoke an action on a smart home device via the configured hub (e.g. Home Assistant, Google Home)"
+  risk        "medium"
+  writes      entity="Device"
+  field       "device_id" type="string" required=true {
+    description "Hub-assigned device identifier"
+    example     "light.living_room_main"
+  }
+  field       "action" type="string" required=true {
+    description "Action to invoke on the device"
+    enum        "on" "off" "toggle" "set"
+  }
+  field       "value" type="string" required=false {
+    description "Parameter for 'set' actions, e.g. brightness percentage or target temperature"
+    example     "72"
+  }
+  returns     "object" description="Object with fields: device_id, new_state, acknowledged_at"
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Messaging — Provider-neutral Message Dispatch
+// ═══════════════════════════════════════════════════════════════════════════════
+capability "Messaging_Message_Send" {
+  category    "Messaging"
+  description "Send a message to a contact via the configured messaging provider (e.g. WhatsApp, SMS, Signal)"
+  risk        "high"
+  writes      entity="Message"
+  field       "to" type="string" required=true {
+    description "Recipient phone number (E.164) or provider contact ID"
+    example     "+14155552671"
+  }
+  field       "body" type="string" required=true {
+    description "Plain-text message body"
+  }
+  field       "provider" type="string" required=false default="whatsapp" {
+    description "Messaging provider to use"
+    enum        "whatsapp" "sms" "signal"
+  }
+  returns     "object" description="Object with fields: message_id, status, sent_at"
+}
+
