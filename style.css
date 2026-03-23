@@ -76,6 +76,11 @@ body::before {
     align-items: center;
     gap: 1.5rem;
     min-height: 72px;
+    transition: min-height 0.35s ease;
+}
+
+.site-header:not(.scrolled) .nav-bar {
+    min-height: 140px;
 }
 
 .masthead-mark {
@@ -113,8 +118,13 @@ h3,
 }
 
 .mark-name {
-    font-size: 1.9rem;
+    font-size: 3.8rem;
     letter-spacing: 0.06em;
+    transition: font-size 0.35s ease;
+}
+
+.site-header.scrolled .mark-name {
+    font-size: 1.9rem;
 }
 
 .mark-kicker {
@@ -694,4 +704,149 @@ code {
 .why-card p {
     font-size: 1rem;
     color: var(--text-soft);
+}
+
+/* ── Capabilities section ─────────────────────────────────────────────────── */
+
+.capabilities-section {
+    position: relative;
+    padding: 5rem 0;
+}
+
+.cap-intro,
+.cap-note {
+    max-width: 68rem;
+    margin: 0 auto 2rem;
+    text-align: center;
+    font-size: 1rem;
+    color: var(--text-soft);
+}
+
+.cap-note {
+    margin-top: 2rem;
+    margin-bottom: 0;
+}
+
+.cap-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.cap-card {
+    position: relative;
+    background: linear-gradient(180deg, rgba(41, 50, 60, 0.9), rgba(24, 31, 39, 0.98));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 12px 28px var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.cap-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.cap-name {
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    color: var(--steel-bright);
+    background: rgba(142, 161, 174, 0.12);
+    padding: 0.15rem 0.45rem;
+    border-radius: 5px;
+    letter-spacing: 0.02em;
+}
+
+.cap-category {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--signal);
+}
+
+.cap-risk {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    margin-left: auto;
+}
+
+.cap-risk--low    { color: #6aab79; background: rgba(106, 171, 121, 0.1); border: 1px solid rgba(106, 171, 121, 0.25); }
+.cap-risk--medium { color: #c9a84c; background: rgba(201, 168, 76, 0.1);  border: 1px solid rgba(201, 168, 76, 0.25); }
+.cap-risk--high   { color: #c97a5a; background: rgba(201, 122, 90, 0.1);  border: 1px solid rgba(201, 122, 90, 0.25); }
+
+.cap-desc {
+    font-size: 0.95rem;
+    color: var(--text-soft);
+}
+
+.cap-fields {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex: 1;
+}
+
+.cap-fields li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-size: 0.84rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.field-name {
+    font-family: var(--font-mono);
+    color: var(--steel-bright);
+    min-width: 8ch;
+}
+
+.field-type {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+}
+
+.field-req {
+    font-size: 0.76rem;
+    color: rgba(201, 122, 90, 0.85);
+    margin-left: auto;
+}
+
+.field-opt {
+    font-size: 0.76rem;
+    color: var(--steel);
+    margin-left: auto;
+}
+
+.cap-returns {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--signal);
+    padding-top: 0.25rem;
+}
+
+.cap-returns span {
+    color: var(--steel-bright);
+}
+
+@media (max-width: 980px) {
+    .cap-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .capabilities-section {
+        padding: 4rem 0;
+    }
 }
