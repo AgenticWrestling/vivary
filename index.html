@@ -271,6 +271,52 @@
                             <div class="cap-returns">→ object — path, bytes_written</div>
                         </article>
 
+                        <article class="cap-card">
+                            <div class="cap-head">
+                                <code class="cap-name">Commerce_Order_Create</code>
+                                <span class="cap-category">Commerce</span>
+                                <span class="cap-risk cap-risk--critical">risk: critical</span>
+                            </div>
+                            <p class="cap-desc">Place an order with a configured commerce provider. Requires a <code>confirm: true</code> field and operator approval gate by default.</p>
+                            <ul class="cap-fields">
+                                <li><span class="field-name">sku</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">quantity</span><span class="field-type">int</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">shipping_address_id</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">confirm</span><span class="field-type">bool</span><span class="field-req">must be true</span></li>
+                            </ul>
+                            <div class="cap-returns">→ object — order_id, total_amount, estimated_delivery</div>
+                        </article>
+
+                        <article class="cap-card">
+                            <div class="cap-head">
+                                <code class="cap-name">Home_Device_Invoke</code>
+                                <span class="cap-category">SmartHome</span>
+                                <span class="cap-risk cap-risk--medium">risk: medium</span>
+                            </div>
+                            <p class="cap-desc">Invoke an action on a smart home device via the configured hub (Home Assistant, Google Home, etc.).</p>
+                            <ul class="cap-fields">
+                                <li><span class="field-name">device_id</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">action</span><span class="field-type">string</span><span class="field-req">on · off · toggle · set</span></li>
+                                <li><span class="field-name">value</span><span class="field-type">string</span><span class="field-opt">optional</span></li>
+                            </ul>
+                            <div class="cap-returns">→ object — device_id, new_state, acknowledged_at</div>
+                        </article>
+
+                        <article class="cap-card">
+                            <div class="cap-head">
+                                <code class="cap-name">Messaging_Message_Send</code>
+                                <span class="cap-category">Messaging</span>
+                                <span class="cap-risk cap-risk--high">risk: high</span>
+                            </div>
+                            <p class="cap-desc">Send a message to a contact via WhatsApp, SMS, or Signal. Recipient must be a pre-approved contact in <code>agent.kdl</code>.</p>
+                            <ul class="cap-fields">
+                                <li><span class="field-name">to</span><span class="field-type">string</span><span class="field-req">required — E.164</span></li>
+                                <li><span class="field-name">body</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">provider</span><span class="field-type">string</span><span class="field-opt">default "whatsapp"</span></li>
+                            </ul>
+                            <div class="cap-returns">→ object — message_id, status, sent_at</div>
+                        </article>
+
                     </div>
                     <p class="cap-note">Capabilities are granted per-agent in <code>agent.kdl</code>. Each grant specifies scope, rate limits, and whether operator approval is required before execution. All calls — allowed and denied — are written to the audit log.</p>
                 </div>
