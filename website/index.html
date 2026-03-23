@@ -34,8 +34,9 @@
                         <h1>A Go runtime for isolated, governed AI agents.</h1>
                         <p class="hero-lead">Capabilities are self-describing Unix CLI tools. Credentials never enter the container. Every action produces a human-legible audit record.</p>
                         <div class="hero-actions">
-                            <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Inspect the Works</a>
-                            <a href="#what" class="btn btn-secondary">See the Benefits</a>
+                            <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Open Source</a>
+                            <a href="#what" class="btn btn-secondary">Benefits</a>
+                            <a href="#how" class="btn btn-secondary">Tech Stack</a>
                         </div>
                         <dl class="hero-facts">
                             <div>
@@ -214,6 +215,66 @@
             </section>
         </main>
 
+            <section id="capabilities" class="capabilities-section">
+                <div class="container">
+                    <div class="section-heading">
+                        <p class="section-kicker">Capabilities</p>
+                        <h2>What are "Capabilities"?</h2>
+                    </div>
+                    <p class="cap-intro">Every action an agent can take is a named, scoped, typed capability — declared in <code>capabilities.kdl</code> and enforced by <code>keeperd</code>. Capabilities are self-documenting Unix CLI tools: run any with <code>--help</code> to get its full JSON schema. No capability, no access.</p>
+                    <div class="cap-grid">
+
+                        <article class="cap-card">
+                            <div class="cap-head">
+                                <code class="cap-name">Web_Page_Read</code>
+                                <span class="cap-category">Browser</span>
+                                <span class="cap-risk cap-risk--low">risk: low</span>
+                            </div>
+                            <p class="cap-desc">Fetch the readable text content of a web page, stripped of markup, scripts, and boilerplate.</p>
+                            <ul class="cap-fields">
+                                <li><span class="field-name">url</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">timeout</span><span class="field-type">int</span><span class="field-opt">default 30s</span></li>
+                                <li><span class="field-name">wait_for</span><span class="field-type">string</span><span class="field-opt">default "networkidle"</span></li>
+                            </ul>
+                            <div class="cap-returns">→ string — readable page text in markdown</div>
+                        </article>
+
+                        <article class="cap-card">
+                            <div class="cap-head">
+                                <code class="cap-name">Calendar_Event_Create</code>
+                                <span class="cap-category">Calendar</span>
+                                <span class="cap-risk cap-risk--high">risk: high</span>
+                            </div>
+                            <p class="cap-desc">Create a new calendar event. Writes to the CalendarEvent entity; requires explicit grant in <code>agent.kdl</code>.</p>
+                            <ul class="cap-fields">
+                                <li><span class="field-name">title</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">start</span><span class="field-type">string</span><span class="field-req">required — ISO8601</span></li>
+                                <li><span class="field-name">end</span><span class="field-type">string</span><span class="field-req">required — ISO8601</span></li>
+                                <li><span class="field-name">attendees</span><span class="field-type">list&lt;string&gt;</span><span class="field-opt">optional</span></li>
+                            </ul>
+                            <div class="cap-returns">→ object — event_id, html_link</div>
+                        </article>
+
+                        <article class="cap-card">
+                            <div class="cap-head">
+                                <code class="cap-name">Fs_File_Write</code>
+                                <span class="cap-category">Filesystem</span>
+                                <span class="cap-risk cap-risk--medium">risk: medium</span>
+                            </div>
+                            <p class="cap-desc">Write or overwrite a file in the agent's scoped workspace. Path prefix is enforced by <code>keeperd</code>; symlink escapes are rejected.</p>
+                            <ul class="cap-fields">
+                                <li><span class="field-name">path</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">content</span><span class="field-type">string</span><span class="field-req">required</span></li>
+                                <li><span class="field-name">encoding</span><span class="field-type">string</span><span class="field-opt">default "utf-8"</span></li>
+                            </ul>
+                            <div class="cap-returns">→ object — path, bytes_written</div>
+                        </article>
+
+                    </div>
+                    <p class="cap-note">Capabilities are granted per-agent in <code>agent.kdl</code>. Each grant specifies scope, rate limits, and whether operator approval is required before execution. All calls — allowed and denied — are written to the audit log.</p>
+                </div>
+            </section>
+
         <footer class="site-footer">
             <div class="container footer-content">
                 <div>
@@ -226,5 +287,11 @@
             </div>
         </footer>
     </div>
+    <script>
+        const hdr = document.querySelector('.site-header');
+        window.addEventListener('scroll', function () {
+            hdr.classList.toggle('scrolled', window.scrollY > 80);
+        }, { passive: true });
+    </script>
 </body>
 </html>
