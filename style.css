@@ -604,6 +604,10 @@ code {
     .diagram-shell {
         padding: 0.7rem;
     }
+
+    .why-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 680px) {
@@ -651,4 +655,39 @@ code {
     .hero-facts {
         grid-template-columns: 1fr;
     }
+
+    .why-section {
+        padding: 4rem 0;
+    }
+}
+
+.why-section {
+    position: relative;
+    padding: 5rem 0;
+}
+
+.why-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.why-card {
+    position: relative;
+    background: linear-gradient(180deg, rgba(41, 50, 60, 0.9), rgba(24, 31, 39, 0.98));
+    border: 1px solid var(--line);
+    border-left: 3px solid rgba(155, 75, 63, 0.7);
+    box-shadow: 0 12px 28px var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+.why-card h3 {
+    color: var(--text-main);
+    margin-bottom: 0.5rem;
+}
+
+.why-card p {
+    font-size: 1rem;
+    color: var(--text-soft);
 }

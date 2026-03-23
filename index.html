@@ -19,8 +19,9 @@
                     <span class="mark-name">VIVARY</span>
                 </div>
                 <ul class="nav-links">
-                    <li><a href="#apparatus">Architecture</a></li>
-                    <li><a href="#principles">Principles</a></li>
+                    <li><a href="#what">What</a></li>
+                    <li><a href="#why">Why</a></li>
+                    <li><a href="#how">How</a></li>
                     <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fa-brands fa-github"></i> GitHub</a></li>
                 </ul>
             </nav>
@@ -35,20 +36,20 @@
                         <p class="hero-lead">Capabilities are self-describing Unix CLI tools. Credentials never enter the container. Every action produces a human-legible audit record.</p>
                         <div class="hero-actions">
                             <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Inspect the Works</a>
-                            <a href="#apparatus" class="btn btn-secondary">See Architecture</a>
+                            <a href="#what" class="btn btn-secondary">See the Benefits</a>
                         </div>
                         <dl class="hero-facts">
                             <div>
-                                <dt>Runtime Posture</dt>
-                                <dd>Single-agent MVP, runtime core first</dd>
+                                <dt>Isolation</dt>
+                                <dd>systemd-nspawn per agent, no raw credentials</dd>
                             </div>
                             <div>
-                                <dt>Control Plane</dt>
-                                <dd>`keeperd` authority, `ward` syntax adapter</dd>
+                                <dt>Policy Authority</dt>
+                                <dd><code>keeperd</code> — routes, audits, enforces</dd>
                             </div>
                             <div>
-                                <dt>Audit Medium</dt>
-                                <dd>MUS frames recorded to SQLite WAL</dd>
+                                <dt>Audit</dt>
+                                <dd>MUS frames → SQLite WAL → <code>vivlog</code></dd>
                             </div>
                         </dl>
                     </div>
@@ -69,11 +70,11 @@
                                 </div>
                                 <div>
                                 <span class="readout-label">Agent Boundary</span>
-                                <span class="readout-value">ward</span>
+                                <span class="readout-value">ward (per agent)</span>
                                 </div>
                                 <div>
-                                <span class="readout-label">Browser Access</span>
-                                <span class="readout-value">host-side via keeperd</span>
+                                <span class="readout-label">Audit Trail</span>
+                                <span class="readout-value">vivlog / SQLite WAL</span>
                                 </div>
                             </div>
                         </div>
@@ -81,48 +82,75 @@
                 </div>
             </section>
 
-            <section id="principles" class="principles">
+            <section id="what" class="principles">
                 <div class="container">
                     <div class="section-heading">
-                        <p class="section-kicker">Operating Principles</p>
-                        <h2>The core runtime model.</h2>
+                        <p class="section-kicker">What you get</p>
+                        <h2>Agents you can actually govern.</h2>
                     </div>
                     <div class="principles-grid">
                         <article class="principle-card">
                             <span class="card-index">I</span>
-                            <h3>Isolation is the default</h3>
-                            <p>Each agent gets its own filesystem, a MUS pipe to `keeperd`, and a firewalled path to its configured LLM API endpoint only.</p>
+                            <h3>Hard isolation by default</h3>
+                            <p>Each agent runs in its own <code>systemd-nspawn</code> container with its own Btrfs subvolume, a firewalled veth, and a single MUS pipe to <code>keeperd</code>. No ambient access to the host.</p>
                         </article>
                         <article class="principle-card">
                             <span class="card-index">II</span>
-                            <h3>`keeperd` is the authority</h3>
-                            <p>`keeperd` owns policy, routing, approvals, credential resolution, and audit. It decides whether a well-formed request is allowed.</p>
+                            <h3>Credentials never leave the host</h3>
+                            <p>Agents reference a <code>credential_id</code>. <code>keeperd</code> holds the vault and resolves secrets at dispatch time. No token, key, or password ever enters the container.</p>
                         </article>
                         <article class="principle-card">
                             <span class="card-index">III</span>
-                            <h3>Capabilities are explicit</h3>
-                            <p>Agents do not receive broad default access. They receive named capabilities with scopes, denials, and operator-visible contracts.</p>
+                            <h3>Capabilities are contracts, not strings</h3>
+                            <p>Each capability is a self-documenting Unix CLI tool: run it with <code>--help</code> and it returns its full JSON schema. Scope, rate limits, and approval requirements are declared in <code>agent.kdl</code>, not buried in prompts.</p>
                         </article>
                         <article class="principle-card">
                             <span class="card-index">IV</span>
-                            <h3>Audit is built in</h3>
-                            <p>MUS-framed traffic and structured events are recorded for inspection. `vivlog` exists so operators can see what the runtime actually did.</p>
+                            <h3>Every action is auditable</h3>
+                            <p>MUS-framed traffic and structured events are recorded to a SQLite WAL. <code>vivlog</code> gives operators a plain CLI to decode frames, trace denials, and reconstruct what the runtime actually did.</p>
                         </article>
                     </div>
                 </div>
             </section>
 
-            <section id="apparatus" class="apparatus">
+            <section id="why" class="why-section">
                 <div class="container">
                     <div class="section-heading">
-                        <p class="section-kicker">Architecture</p>
-                        <h2>One control plane, one agent, one audit path.</h2>
+                        <p class="section-kicker">Why not just use X?</p>
+                        <h2>The alternatives leave gaps you can't close later.</h2>
+                    </div>
+                    <div class="why-grid">
+                        <article class="why-card">
+                            <h3>OpenAI Assistants &amp; hosted platforms</h3>
+                            <p>Your agents run in their infrastructure. Credentials, tool results, and audit data never leave their cloud. Vendor lock-in is structural, not incidental. You cannot inspect what the runtime actually did.</p>
+                        </article>
+                        <article class="why-card">
+                            <h3>Open-source frameworks (LangChain, CrewAI, AutoGen)</h3>
+                            <p>Agents get process-level access to the host environment. Tool calls are untyped function calls. Policy is prompt text. There is no audit trail, no approval flow, and no credential separation — by design.</p>
+                        </article>
+                        <article class="why-card">
+                            <h3>MCP (Model Context Protocol)</h3>
+                            <p>No isolation. No credential separation. Tool definitions live in prompts. Any server an agent can reach can be called. No structured audit. MCP is a tool-discovery protocol, not a governance layer.</p>
+                        </article>
+                        <article class="why-card">
+                            <h3>Raw containers or VMs</h3>
+                            <p>You get OS-level isolation but nothing above it. No capability schema. No policy enforcement. No audit protocol. No orchestration. Every project ends up rebuilding the same ad-hoc governance layer from scratch.</p>
+                        </article>
+                    </div>
+                </div>
+            </section>
+
+            <section id="how" class="apparatus">
+                <div class="container">
+                    <div class="section-heading">
+                        <p class="section-kicker">How it works</p>
+                        <h2>One control plane. Any number of agents. One audit trail.</h2>
                     </div>
 
                     <div class="diagram-shell">
                         <svg viewBox="0 0 980 640" xmlns="http://www.w3.org/2000/svg" class="apparatus-diagram" aria-labelledby="arch-title arch-desc" role="img">
                             <title id="arch-title">VIVARY architecture diagram</title>
-                            <desc id="arch-desc">A host OS containing a NixOS LXD layer with vivary, keeperd, and a single nspawn agent, plus host-side Chrome and MUS audit logs.</desc>
+                            <desc id="arch-desc">A host OS containing a NixOS LXD layer with keeperd and multiple nspawn agent containers, plus host-side Chrome and MUS audit logs decoded by vivlog.</desc>
 
                             <defs>
                                 <marker id="signal-head" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
@@ -154,7 +182,7 @@
                             <text x="98" y="404" class="diagram-box-text">TUI / CLI over keeper.sock</text>
 
                             <rect x="324" y="182" width="238" height="248" rx="10" class="diagram-boundary ward-zone"/>
-                            <text x="348" y="214" class="diagram-title small">nspawn Agent</text>
+                            <text x="348" y="214" class="diagram-title small">nspawn Agent ×N</text>
 
                             <rect x="350" y="240" width="184" height="56" rx="6" class="diagram-box ward-box"/>
                             <text x="372" y="272" class="diagram-box-title">ward</text>
@@ -197,43 +225,17 @@
 
                     <div class="apparatus-notes">
                         <article>
-                            <h3>Keeper</h3>
-                            <p>The policy and routing authority. It stamps identity, enforces policy, resolves credentials, writes audit records, and mediates external access.</p>
+                            <h3>Compiled Go, few dependencies</h3>
+                            <p><code>keeperd</code>, <code>ward</code>, <code>viv</code>, and <code>vivlog</code> are statically-linked Go binaries. The full runtime ships in a minimal NixOS LXD image. No Python. No npm. No runtime interpreter.</p>
                         </article>
                         <article>
-                            <h3>Ward</h3>
-                            <p>The syntax and protocol adapter at the agent boundary. It turns backend-specific tool syntax into MUS requests, rejects malformed calls, and reports local execution facts.</p>
+                            <h3>MUS binary framing</h3>
+                            <p>All agent-to-keeper traffic uses compact MUS frames with typed headers. Every frame is logged. <code>vivlog</code> decodes them without bespoke tooling — grep-friendly, CLI-first.</p>
                         </article>
                         <article>
-                            <h3>Operator</h3>
-                            <p>The operator has live state, prompt dispatch, event traces, and a CLI-first path into the logs.</p>
+                            <h3>KDL capability schema</h3>
+                            <p>Capabilities are declared in <code>agent.kdl</code> with named scopes, rate limits, and optional approval gates. The schema is machine-generated from Go types; there is no drift between policy and implementation.</p>
                         </article>
-                    </div>
-                </div>
-            </section>
-
-            <section class="instruments">
-                <div class="container instruments-grid">
-                    <div class="instrument-panel">
-                        <p class="section-kicker">Included in the MVP</p>
-                        <h2>What the MVP actually includes.</h2>
-                        <ul class="instrument-list">
-                            <li><span>01</span> Single-agent runtime core</li>
-                            <li><span>02</span> `keeperd` as policy and routing authority</li>
-                            <li><span>03</span> `ward` as syntax and protocol adapter</li>
-                            <li><span>04</span> Browser and filesystem capabilities with audit and debug tooling</li>
-                        </ul>
-                    </div>
-
-                    <div class="instrument-panel dark">
-                        <p class="section-kicker">Excluded for now</p>
-                        <h2>What it does not try to do yet.</h2>
-                        <ul class="instrument-list muted">
-                            <li><span>--</span> No raw credentials inside the agent</li>
-                            <li><span>--</span> No unrestricted network egress</li>
-                            <li><span>--</span> No GUI dependency in the container runtime</li>
-                            <li><span>--</span> No multi-agent orchestration in the MVP</li>
-                        </ul>
                     </div>
                 </div>
             </section>
