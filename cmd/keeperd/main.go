@@ -309,6 +309,13 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 		resp.Type = switchboard.MsgType_Pong
 		return resp, nil
 
+	case switchboard.MsgType_CtlApproval:
+		// Phase 2: human-in-the-loop capability approval gate.
+		// The CtlApproval frame is reserved for the operator to grant or deny
+		// a pending capability request.  Not yet implemented; return error.
+		resp.Type = switchboard.MsgType_CtlApproval
+		return resp, []byte(`{"ok":false,"error":"approval gate not yet implemented (Phase 2)"}`)
+
 	default:
 		d.log.Warn("ctl: unhandled msg type", "type", hdr.Type)
 		return switchboard.SwarmHeader{}, nil
