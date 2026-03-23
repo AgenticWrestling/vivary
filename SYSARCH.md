@@ -53,7 +53,12 @@ This version is less of a mirror of the landing page and more of a source-of-tru
 flowchart TD
     OP[Operator]
 
+    CLOUD[LLM API Endpoints
+    cloud providers]
+
     subgraph HOST[Host OS]
+        DISPATCH[Dispatch Agent
+        ward + Agent CLI]
         CHROME[Chrome
         browser process]
         AUDIT[SQLite WAL
@@ -62,41 +67,82 @@ flowchart TD
         subgraph LXD[NixOS LXD Layer]
             VIV[viv
             TUI / CLI]
-            SOCK[keeper.sock
-            Unix socket]
             KEEPER[keeperd
             policy authority
             routing + audit]
 
-            subgraph NSPAWN[systemd-nspawn Agent]
-                WARD[ward
-                syntax / protocol adapter]
-                LLM[LLM subprocess]
-                FS[Agent filesystem
-                Btrfs subvolume]
-                NET[LLM API egress
-                firewalled veth]
+            subgraph DISO[systemd-nspawn Agent: Designer]
+                DWARD[ward]
+                DCLI[Agent CLI]
+                DFS[Agent filesystem]
+            end
+
+            subgraph AISO[systemd-nspawn Agent: Architect]
+                AWARD[ward]
+                ACLI[Agent CLI]
+                AFS[Agent filesystem]
+            end
+
+            subgraph QISO[systemd-nspawn Agent: QA]
+                QWARD[ward]
+                QCLI[Agent CLI]
+                QFS[Agent filesystem]
+            end
+
+            subgraph MISO[systemd-nspawn Agent: Marketing]
+                MWARD[ward]
+                MCLI[Agent CLI]
+                MFS[Agent filesystem]
             end
         end
     end
 
     OP --> VIV
-    VIV -->|MUS frames| SOCK
-    SOCK --> KEEPER
-    KEEPER -->|MUS over stdio| WARD
-    WARD -->|spawn / stdio| LLM
-    WARD --> FS
-    LLM --> NET
+    VIV -->|MUS frames / Unix socket| KEEPER
+
+    KEEPER -->|MUS over stdio| DISPATCH
+    DISPATCH -->|spawn / stdio| DCLIHOST[Agent CLI]
+    DISPATCH -->|firewalled veth| CLOUD
+
+    KEEPER -->|MUS over stdio| DWARD
+    DWARD -->|spawn / stdio| DCLI
+    DWARD --> DFS
+    DCLI -->|firewalled veth| CLOUD
+
+    KEEPER -->|MUS over stdio| AWARD
+    AWARD -->|spawn / stdio| ACLI
+    AWARD --> AFS
+    ACLI -->|firewalled veth| CLOUD
+
+    KEEPER -->|MUS over stdio| QWARD
+    QWARD -->|spawn / stdio| QCLI
+    QWARD --> QFS
+    QCLI -->|firewalled veth| CLOUD
+
+    KEEPER -->|MUS over stdio| MWARD
+    MWARD -->|spawn / stdio| MCLI
+    MWARD --> MFS
+    MCLI -->|firewalled veth| CLOUD
+
     KEEPER -->|CDP proxy| CHROME
     KEEPER -->|audit records| AUDIT
-    WARD -->|completion / failure events| KEEPER
-    WARD -->|capability requests| KEEPER
+    DISPATCH -->|completion / failure events| KEEPER
+    DISPATCH -->|capability requests| KEEPER
+    DWARD -->|completion / failure events| KEEPER
+    DWARD -->|capability requests| KEEPER
+    AWARD -->|completion / failure events| KEEPER
+    AWARD -->|capability requests| KEEPER
+    QWARD -->|completion / failure events| KEEPER
+    QWARD -->|capability requests| KEEPER
+    MWARD -->|completion / failure events| KEEPER
+    MWARD -->|capability requests| KEEPER
 ```
 
 ## Engineering Notes
 
 - `keeperd` is the semantic and policy authority.
 - `ward` is the per-agent syntax/protocol adapter and subprocess manager.
-- `viv` talks to `keeperd` over `keeper.sock` using the same MUS frame model as Ward traffic.
+- `viv` talks to `keeperd` over a Unix socket using the same MUS frame model as Ward traffic.
 - Browser access is host-side and mediated by `keeperd`; the agent never talks to Chrome directly.
-- The agent boundary is the combination of the nspawn container, its filesystem, its MUS pipe, and its restricted LLM API egress.
+- Most agents run inside `systemd-nspawn`, but a host-resident dispatch agent is also possible.
+- Each agent connects to its own LLM API endpoint; the `firewalled veth` edge is the enforcement point for isolated agents.
