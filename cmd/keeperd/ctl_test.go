@@ -472,6 +472,109 @@ func TestKeeperWardPipe_FailureEventUpdatesCtlStatus(t *testing.T) {
 	}
 }
 
+func TestKeeperWardPipe_CompletionEventUpdatesCtlStatus(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+
+	const agentID = "test-agent-pipe-success"
+	pr, pw := io.Pipe()
+	pipe := &switchboard.Pipe{
+		AgentID: agentID,
+		Reader:  pr,
+		Writer:  io.Discard,
+		Limiter: switchboard.NewByteRateLimiter(1 << 20),
+	}
+
+	d.mu.Lock()
+	d.agents[agentID] = &agentState{id: agentID, pipe: pipe}
+	d.mu.Unlock()
+	d.router.AddPipe(context.Background(), pipe)
+	t.Cleanup(func() {
+		_ = pw.Close()
+		d.router.RemovePipe(agentID)
+	})
+
+	cev := audit.CompletionEvent{
+		AgentID:      agentID,
+		PromptSeq:    23,
+		Model:        "claude-sonnet-4-5",
+		InputTokens:  120,
+		OutputTokens: 55,
+		CostUSD:      0.0025,
+		Outcome:      "success",
+		ToolCalls:    4,
+	}
+	payload, err := audit.MarshalEvent(&cev)
+	if err != nil {
+		t.Fatalf("marshal completion event: %v", err)
+	}
+	hdr := switchboard.SwarmHeader{
+		Version: 0,
+		Type:    switchboard.MsgType_CompletionEvent,
+		FromID:  agentID,
+		ToID:    "keeper",
+		SeqNo:   1,
+	}
+	if err := switchboard.WriteFrame(pw, hdr, payload); err != nil {
+		t.Fatalf("write completion frame: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		d.mu.RLock()
+		state := d.agents[agentID]
+		updated := state != nil && state.lastOutcome == "success" && state.inputTokens == 120 && state.outputTokens == 55 && state.toolCalls == 4 && !state.lastEventAt.IsZero()
+		d.mu.RUnlock()
+		if updated {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	c := dialCtl(t, sockPath)
+	c.send(t, switchboard.MsgType_CtlStatus, nil)
+	hdrResp, respPayload := c.recv(t)
+	if hdrResp.Type != switchboard.MsgType_CtlStatus {
+		t.Fatalf("expected CtlStatus, got %v", hdrResp.Type)
+	}
+	var status ctl.StatusPayload
+	if err := status.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+
+	var found *ctl.AgentStatus
+	for i := range status.Agents {
+		if status.Agents[i].ID == agentID {
+			found = &status.Agents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("agent %q not found in status", agentID)
+	}
+	if found.State != "running" {
+		t.Fatalf("State = %q, want running", found.State)
+	}
+	if found.LastOutcome != "success" {
+		t.Fatalf("LastOutcome = %q, want success", found.LastOutcome)
+	}
+	if found.InputTokens != 120 {
+		t.Fatalf("InputTokens = %d, want 120", found.InputTokens)
+	}
+	if found.OutputTokens != 55 {
+		t.Fatalf("OutputTokens = %d, want 55", found.OutputTokens)
+	}
+	if found.ToolCalls != 4 {
+		t.Fatalf("ToolCalls = %d, want 4", found.ToolCalls)
+	}
+	if found.CostUSD == "" {
+		t.Fatal("CostUSD should be set after completion event from ward pipe")
+	}
+	if found.LastEventAt == "" {
+		t.Fatal("LastEventAt should be set after completion event from ward pipe")
+	}
+}
+
 // TestAuditPayloadPolicy verifies that shouldAuditPayload correctly delegates
 // to the Capability.AuditPayload() method for CapabilityRequest frames.
 func TestAuditPayloadPolicy_KnownCapabilityTrue(t *testing.T) {
