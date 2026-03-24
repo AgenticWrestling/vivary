@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"vivary.dev/vivary/internal/chromproxy"
 )
@@ -62,8 +63,9 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 
 	policy := buildBrowserWhitelistPolicy(scope, ConstraintsFromContext(ctx))
 
-	// TODO: use args.Timeout
-	text, err := b.ChromeProxy(ctx, req.AgentID, args.URL, policy, args.WaitFor, 32768)
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(args.Timeout)*time.Second)
+	defer cancel()
+	text, err := b.ChromeProxy(timeoutCtx, req.AgentID, args.URL, policy, args.WaitFor, 32768)
 	if err != nil {
 		return Response{OK: false, ErrorCode: "chrome_error", ErrorDetail: err.Error()}, nil
 	}
@@ -75,7 +77,7 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 func buildBrowserWhitelistPolicy(scope string, constraints []ScopeConstraint) chromproxy.WhitelistPolicy {
 	policy := chromproxy.WhitelistPolicy{}
 	if scope != "" {
-		for _, prefix := range strings.Split(scope, ",") {
+		for prefix := range strings.SplitSeq(scope, ",") {
 			prefix = strings.TrimSpace(prefix)
 			if prefix != "" {
 				policy.Prefixes = append(policy.Prefixes, prefix)
@@ -105,7 +107,7 @@ func urlMatchesScope(rawURL, scope string) bool {
 		return false
 	}
 	needle := strings.ToLower(rawURL)
-	for _, prefix := range strings.Split(scope, ",") {
+	for prefix := range strings.SplitSeq(scope, ",") {
 		p := strings.TrimSpace(strings.ToLower(prefix))
 		if p == "" || !strings.HasPrefix(needle, p) {
 			continue

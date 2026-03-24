@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"vivary.dev/vivary/internal/chromproxy"
 )
 
 // ---- ACL tests (TestCapabilityACL) -----------------------------------------
@@ -256,6 +258,122 @@ func TestFilesystemWrite_SymlinkLoop(t *testing.T) {
 	}
 	if resp.OK {
 		t.Fatal("symlink loop should be denied")
+	}
+}
+
+// ---- BrowserPageRead.Execute integration tests (TestCapabilityACL / PLAN §3.2) ----
+//
+// These exercise the full Execute path (scope check + proxy call) to verify
+// that both the capability-layer and proxy-layer whitelist checks fire
+// correctly, rather than testing only the urlMatchesScope helper.
+
+// stubProxy returns a ChromeProxy function whose behaviour is controlled by the
+// test: allow is called on allowed requests, deny signals unexpected calls.
+func stubProxy(t *testing.T, wantAllow bool) func(ctx context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error) {
+	t.Helper()
+	return func(_ context.Context, _, _ string, _ chromproxy.WhitelistPolicy, _ string, _ int) (string, error) {
+		if !wantAllow {
+			t.Error("stubProxy called unexpectedly — scope check should have denied before reaching the proxy")
+		}
+		return "stub page text", nil
+	}
+}
+
+func TestBrowserPageRead_Execute_EmptyScopeDenies(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
+	ctx := contextWithScope(context.Background(), "")
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("empty scope should deny the request")
+	}
+	if resp.ErrorCode != "capability_denied" {
+		t.Errorf("error_code = %q, want capability_denied", resp.ErrorCode)
+	}
+}
+
+func TestBrowserPageRead_Execute_MatchingScopeAllows(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, true)}
+	ctx := contextWithScope(context.Background(), "https://example.com")
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("matching scope should allow: %s %s", resp.ErrorCode, resp.ErrorDetail)
+	}
+}
+
+func TestBrowserPageRead_Execute_NonMatchingScopeDenies(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
+	ctx := contextWithScope(context.Background(), "https://other.com")
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("non-matching scope should deny")
+	}
+}
+
+func TestBrowserPageRead_Execute_ECSConstraintAllows(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, true)}
+	// No legacy scope — rely on ECS domain-suffix constraint only.
+	ctx := contextWithScope(context.Background(), "")
+	ctx = contextWithConstraints(ctx, []ScopeConstraint{
+		{Entity: "Link", Constraints: map[string][]string{
+			"domain-suffix": {"wikipedia.org"},
+		}},
+	})
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://en.wikipedia.org/wiki/Test"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("ECS domain-suffix constraint should allow: %s %s", resp.ErrorCode, resp.ErrorDetail)
+	}
+}
+
+func TestBrowserPageRead_Execute_ECSConstraintDeniesOtherDomain(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
+	ctx := contextWithScope(context.Background(), "")
+	ctx = contextWithConstraints(ctx, []ScopeConstraint{
+		{Entity: "Link", Constraints: map[string][]string{
+			"domain-suffix": {"wikipedia.org"},
+		}},
+	})
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://evil.com/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("domain not matching ECS constraint should be denied")
+	}
+}
+
+func TestBrowserPageRead_Execute_NilProxyReturnsUnavailable(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: nil}
+	ctx := contextWithScope(context.Background(), "https://example.com")
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK || resp.ErrorCode != "unavailable" {
+		t.Fatalf("nil proxy should return unavailable, got ok=%v code=%s", resp.OK, resp.ErrorCode)
 	}
 }
 
