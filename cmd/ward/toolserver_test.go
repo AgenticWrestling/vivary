@@ -279,6 +279,67 @@ func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
 	}
 }
 
+func TestHandlePrompt_EmitsMalformedToolCallFailureViaToolSocket(t *testing.T) {
+	tmp := t.TempDir()
+	claudePath := filepath.Join(tmp, "claude")
+	claudeScript := `#!/bin/sh
+python3 - <<'PY'
+import os, socket, time
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect(os.environ["WARD_TOOL_SOCK"])
+sock.sendall(b'this is not json')
+sock.shutdown(socket.SHUT_WR)
+time.sleep(5)
+PY
+`
+	if err := os.WriteFile(claudePath, []byte(claudeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	w := newTestWardForServer(t)
+	w.pipe = &musPipe{w: &out, agentID: w.agentID, log: w.log}
+	sockPath := filepath.Join(tmp, "ward-tool.sock")
+	w.toolSockPath = sockPath
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ts := &toolServer{sockPath: sockPath, w: w}
+	go func() { _ = ts.run(ctx) }()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := os.Stat(sockPath); err != nil {
+		t.Fatalf("tool socket did not appear: %v", err)
+	}
+
+	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 99, Text: "test prompt"}
+	w.handlePrompt(context.Background(), prompt.MarshalMUS())
+
+	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		t.Fatalf("read emitted frame: %v", err)
+	}
+	if hdr.Type != switchboard.MsgType_FailureEvent {
+		t.Fatalf("frame type = %v, want FailureEvent", hdr.Type)
+	}
+	ev, err := audit.UnmarshalFailure(payload)
+	if err != nil {
+		t.Fatalf("decode failure event: %v", err)
+	}
+	if ev.Kind != "malformed_tool_call" {
+		t.Fatalf("failure kind = %q, want %q", ev.Kind, "malformed_tool_call")
+	}
+	if ev.PromptSeq != 99 {
+		t.Fatalf("prompt seq = %d, want 99", ev.PromptSeq)
+	}
+}
+
 // ---- toolServer integration tests ------------------------------------------
 
 func TestToolServer_MalformedJSON(t *testing.T) {
