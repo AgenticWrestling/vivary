@@ -315,7 +315,7 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 		if err := req.UnmarshalMUS(r); err != nil {
 			return resp, errorPayload(err)
 		}
-		err := d.agentCreate(ctx, payload)
+		err := d.agentCreate(ctx, req)
 		resp.Type = switchboard.MsgType_CtlAgentCreate
 		if err != nil {
 			return resp, errorPayload(err)
@@ -327,7 +327,7 @@ func (d *daemon) dispatchCtl(ctx context.Context, hdr switchboard.SwarmHeader, p
 		if err := req.UnmarshalMUS(r); err != nil {
 			return resp, errorPayload(err)
 		}
-		err := d.agentDestroy(payload)
+		err := d.agentDestroy(req)
 		resp.Type = switchboard.MsgType_CtlAgentDestroy
 		if err != nil {
 			return resp, errorPayload(err)

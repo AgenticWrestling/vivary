@@ -268,6 +268,11 @@ func (d *Dispatcher) Register(cap Capability) {
 	d.reg.Register(cap)
 }
 
+// Names returns the registered capability names from the underlying registry.
+func (d *Dispatcher) Names() []string {
+	return d.reg.Names()
+}
+
 // SetACL installs or replaces the ACL for an agent.
 func (d *Dispatcher) SetACL(acl *ACL) {
 	d.mu.Lock()

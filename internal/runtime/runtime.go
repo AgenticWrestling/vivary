@@ -19,6 +19,11 @@ type ContainerRuntime interface {
 	// DestroySubvolume removes the agent's root filesystem.
 	DestroySubvolume(agentID, subvolPath string) error
 
+	// InstallCapabilityCLIs creates symlinks inside subvolPath so each
+	// capability name resolves to the cap-cli binary at runtime.
+	// Symlinks live at <subvolPath>/usr/bin/<capName> → cap-cli.
+	InstallCapabilityCLIs(subvolPath string, capNames []string) error
+
 	// SpawnWard starts the Ward process for the agent.
 	// On Linux this typically uses systemd-nspawn.
 	SpawnWard(ctx context.Context, agentID, subvolPath string, cfg WardConfig) (*exec.Cmd, error)
@@ -41,9 +46,10 @@ type WardConfig struct {
 
 // LinuxRuntime is the production implementation of ContainerRuntime.
 type LinuxRuntime struct {
-	NspawnRootBase  string
-	WardBinaryPath  string
-	UseSystemdRun   bool
+	NspawnRootBase   string
+	WardBinaryPath   string
+	CapCLIBinaryPath string
+	UseSystemdRun    bool
 }
 
 func (r *LinuxRuntime) ProvisionSubvolume(agentID, templatePath string) (string, error) {
@@ -154,6 +160,26 @@ func (r *LinuxRuntime) RemoveNetworkRules(agentID string) error {
 	return exec.Command("nft", "delete", "table", "ip", "vivary-"+agentID).Run()
 }
 
+func (r *LinuxRuntime) InstallCapabilityCLIs(subvolPath string, capNames []string) error {
+	binDir := filepath.Join(subvolPath, "usr", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir cap bin dir: %w", err)
+	}
+	capCLI := r.CapCLIBinaryPath
+	if capCLI == "" {
+		capCLI = "/usr/bin/cap-cli"
+	}
+	for _, name := range capNames {
+		link := filepath.Join(binDir, name)
+		// Remove stale symlink if present.
+		_ = os.Remove(link)
+		if err := os.Symlink(capCLI, link); err != nil {
+			return fmt.Errorf("symlink cap-cli for %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func (r *LinuxRuntime) Terminate(agentID string) error {
 	return exec.Command("machinectl", "terminate", agentID).Run()
 }
@@ -188,6 +214,10 @@ func (r *StubRuntime) ApplyNetworkRules(agentID string, allowedIPs []string) err
 }
 
 func (r *StubRuntime) RemoveNetworkRules(agentID string) error {
+	return nil
+}
+
+func (r *StubRuntime) InstallCapabilityCLIs(subvolPath string, capNames []string) error {
 	return nil
 }
 

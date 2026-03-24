@@ -17,7 +17,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -33,11 +32,7 @@ import (
 
 // agentCreate is called from dispatchCtl when a CtlAgentCreate frame arrives.
 // It replaces the stub in main.go.
-func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
-	var req ctl.AgentCreatePayload
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return fmt.Errorf("invalid AgentCreatePayload: %w", err)
-	}
+func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) error {
 	if req.ID == "" {
 		return fmt.Errorf("agent ID is required")
 	}
@@ -54,26 +49,22 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 	d.agents[req.ID] = &agentState{id: req.ID}
 	d.mu.Unlock()
 
-	// Cleanup stack for error recovery.
-	var cleanup []func()
+	// Cleanup stack: executed in reverse on any error path.
+	var (
+		cleanup []func()
+		success bool
+	)
 	defer func() {
-		if req.ID != "" && d.agents[req.ID] != nil && d.agents[req.ID].subvolPath == "" {
-			// If we still have a reserved slot but no subvolPath, we failed before
-			// completion.
-			d.mu.Lock()
-			delete(d.agents, req.ID)
-			d.mu.Unlock()
+		if success {
+			return
 		}
-	}()
-
-	runCleanup := func() {
 		for i := len(cleanup) - 1; i >= 0; i-- {
 			cleanup[i]()
 		}
 		d.mu.Lock()
 		delete(d.agents, req.ID)
 		d.mu.Unlock()
-	}
+	}()
 
 	agentCfg := AgentConfig{
 		ID:             req.ID,
@@ -87,7 +78,6 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 
 	subvolPath, err := d.runtime.ProvisionSubvolume(req.ID, req.Template)
 	if err != nil {
-		runCleanup()
 		return fmt.Errorf("provision subvolume: %w", err)
 	}
 	cleanup = append(cleanup, func() {
@@ -96,8 +86,13 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 
 	// Write agent.kdl into the subvolume.
 	if err := writeAgentKDL(subvolPath, agentCfg); err != nil {
-		runCleanup()
 		return fmt.Errorf("write agent.kdl: %w", err)
+	}
+
+	// Install per-capability symlinks inside the container so cap-cli is
+	// reachable under each capability name.
+	if err := d.runtime.InstallCapabilityCLIs(subvolPath, d.dispatcher.Names()); err != nil {
+		return fmt.Errorf("install capability CLIs: %w", err)
 	}
 
 	// Install capability ACL.
@@ -129,10 +124,10 @@ func (d *daemon) agentCreate(ctx context.Context, payload []byte) error {
 
 	// Spawn the Ward process.
 	if err := d.spawnAgent(ctx, req.ID, subvolPath, agentCfg); err != nil {
-		runCleanup()
 		return fmt.Errorf("spawn agent: %w", err)
 	}
 
+	success = true
 	d.log.Info("agent provisioned", "id", req.ID, "subvol", subvolPath)
 	return nil
 }
@@ -225,11 +220,7 @@ func writeAgentKDL(subvolPath string, cfg AgentConfig) error {
 }
 
 // agentDestroy is fully implemented — tears down nspawn, removes the subvolume.
-func (d *daemon) agentDestroy(payload []byte) error {
-	var req ctl.AgentDestroyPayload
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return fmt.Errorf("invalid AgentDestroyPayload: %w", err)
-	}
+func (d *daemon) agentDestroy(req ctl.AgentDestroyPayload) error {
 
 	d.mu.Lock()
 	agent, exists := d.agents[req.ID]
