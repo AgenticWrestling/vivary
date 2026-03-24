@@ -257,6 +257,17 @@ func NewDispatcher(reg *Registry) *Dispatcher {
 	return &Dispatcher{reg: reg, acls: make(map[string]*ACL)}
 }
 
+// Lookup returns the Capability registered under name, or (nil, false).
+func (d *Dispatcher) Lookup(name string) (Capability, bool) {
+	return d.reg.Lookup(name)
+}
+
+// Register adds a capability to the underlying registry.
+// Useful in tests that need to inject capabilities after the dispatcher is created.
+func (d *Dispatcher) Register(cap Capability) {
+	d.reg.Register(cap)
+}
+
 // SetACL installs or replaces the ACL for an agent.
 func (d *Dispatcher) SetACL(acl *ACL) {
 	d.mu.Lock()

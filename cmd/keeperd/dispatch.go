@@ -31,7 +31,7 @@ import (
 // validated frame from any pipe (Ward or ctl-originated agent prompts).
 func (d *daemon) handleFrame(f switchboard.Frame) {
 	// Audit: record every frame.  Omit payload for high-sensitivity types.
-	auditPayload := d.shouldAuditPayload(f.Header.Type, f.Header.FromID)
+	auditPayload := d.shouldAuditPayload(f)
 	var stored []byte
 	if auditPayload {
 		stored = f.Payload
@@ -175,12 +175,28 @@ func (d *daemon) handleFailureEvent(f switchboard.Frame) {
 	d.pushToCtlSubscribers(f)
 }
 
-// shouldAuditPayload returns false for high-sensitivity capability categories.
-// Currently based on MsgType; per-capability audit-payload flags extend this.
-func (d *daemon) shouldAuditPayload(_ switchboard.MsgType, _ string) bool {
-	// CompletionEvent and FailureEvent payloads are always stored — they are
-	// telemetry not sensitive data.
-	return true
+// shouldAuditPayload returns true if f's payload should be written to the
+// audit WAL.
+//
+// For CapabilityRequest frames the decision is delegated to the registered
+// capability's AuditPayload() method so that high-sensitivity categories
+// (Email, Messaging, Document, Database) can suppress payload storage.
+// All other frame types (CompletionEvent, FailureEvent, control frames) are
+// always audited — they carry telemetry, not user content.
+func (d *daemon) shouldAuditPayload(f switchboard.Frame) bool {
+	if f.Header.Type != switchboard.MsgType_CapabilityRequest {
+		return true
+	}
+	// Peek at the capability name without full payload decode.
+	var payload capabilities.CapabilityRequestPayload
+	if err := payload.UnmarshalMUS(bytes.NewReader(f.Payload)); err != nil {
+		return true // malformed frame; audit conservatively
+	}
+	cap, ok := d.dispatcher.Lookup(payload.Capability)
+	if !ok {
+		return true // unknown capability; audit conservatively
+	}
+	return cap.AuditPayload()
 }
 
 // ---- Ctl subscriber push ---------------------------------------------------

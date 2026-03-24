@@ -384,6 +384,93 @@ func TestKeeperRuntimeState_FailureUpdatesStatus(t *testing.T) {
 	}
 }
 
+// TestAuditPayloadPolicy verifies that shouldAuditPayload correctly delegates
+// to the Capability.AuditPayload() method for CapabilityRequest frames.
+func TestAuditPayloadPolicy_KnownCapabilityTrue(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+
+	// FilesystemFileWrite.AuditPayload() == true, so payload should be stored.
+	payload := capabilities.CapabilityRequestPayload{
+		Capability: capabilities.FilesystemFileWriteName,
+		Args:       []byte(`{}`),
+	}
+	f := switchboard.Frame{
+		Header:  switchboard.SwarmHeader{Type: switchboard.MsgType_CapabilityRequest},
+		Payload: payload.MarshalMUS(),
+	}
+	if !d.shouldAuditPayload(f) {
+		t.Error("expected shouldAuditPayload=true for FilesystemFileWrite")
+	}
+}
+
+func TestAuditPayloadPolicy_UnknownCapabilityConservative(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+
+	// Unknown capability name should default to true (audit conservatively).
+	payload := capabilities.CapabilityRequestPayload{
+		Capability: "Email_Message_Send",
+		Args:       []byte(`{}`),
+	}
+	f := switchboard.Frame{
+		Header:  switchboard.SwarmHeader{Type: switchboard.MsgType_CapabilityRequest},
+		Payload: payload.MarshalMUS(),
+	}
+	if !d.shouldAuditPayload(f) {
+		t.Error("expected shouldAuditPayload=true for unknown capability (conservative fallback)")
+	}
+}
+
+func TestAuditPayloadPolicy_NonCapabilityFrameAlwaysTrue(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+
+	for _, msgType := range []switchboard.MsgType{
+		switchboard.MsgType_CompletionEvent,
+		switchboard.MsgType_FailureEvent,
+		switchboard.MsgType_Ping,
+	} {
+		f := switchboard.Frame{Header: switchboard.SwarmHeader{Type: msgType}}
+		if !d.shouldAuditPayload(f) {
+			t.Errorf("expected shouldAuditPayload=true for %v (telemetry frame)", msgType)
+		}
+	}
+}
+
+// TestAuditPayloadPolicy_SuppressedCapability verifies that a capability
+// with AuditPayload()==false causes shouldAuditPayload to return false.
+// We register a stub capability that suppresses payload logging.
+func TestAuditPayloadPolicy_SuppressedCapability(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+
+	// Register a stub with AuditPayload()==false.
+	d.dispatcher.Register(&suppressedCap{})
+
+	payload := capabilities.CapabilityRequestPayload{
+		Capability: "Test_Sensitive_Read",
+		Args:       []byte(`{}`),
+	}
+	f := switchboard.Frame{
+		Header:  switchboard.SwarmHeader{Type: switchboard.MsgType_CapabilityRequest},
+		Payload: payload.MarshalMUS(),
+	}
+	if d.shouldAuditPayload(f) {
+		t.Error("expected shouldAuditPayload=false for capability with AuditPayload()==false")
+	}
+}
+
+// suppressedCap is a test-only capability with AuditPayload()==false.
+type suppressedCap struct{}
+
+func (s *suppressedCap) Name() string                                              { return "Test_Sensitive_Read" }
+func (s *suppressedCap) Explain() string                                           { return "{}" }
+func (s *suppressedCap) AuditPayload() bool                                        { return false }
+func (s *suppressedCap) Execute(_ context.Context, _ capabilities.Request) (capabilities.Response, error) {
+	return capabilities.Response{OK: true}, nil
+}
+
 // TestCtlSocket_MultipleCommands verifies sequential requests on one connection.
 func TestCtlSocket_MultipleCommands(t *testing.T) {
 	_, sockPath, cancel := newTestDaemon(t)
