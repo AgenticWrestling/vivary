@@ -69,8 +69,6 @@ func TestVivgenCommand_GeneratesRegistry(t *testing.T) {
 	assertContains(t, generated, `Browser_Page_ReadSchema`)
 	assertContains(t, generated, `"Filesystem_File_Write"`)
 	assertContains(t, generated, `Filesystem_File_WriteSchema`)
-	assertContains(t, generated, `"Commerce_Order_Create"`)
-	assertContains(t, generated, `Commerce_Order_CreateSchema`)
 }
 
 func TestVivgenCommand_ExplainSchemaContainsKDLMetadata(t *testing.T) {

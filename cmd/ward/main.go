@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"strings"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -45,6 +46,7 @@ func main() {
 	loopThreshold := flag.Int("loop-threshold", 5, "repeated tool call threshold before loop_detected")
 	logLevel := flag.String("log-level", "info", "log level: debug|info|warn|error")
 	toolSock := flag.String("tool-sock", defaultToolSockPath, "path for capability CLI Unix socket")
+	agentKDL := flag.String("agent-kdl", "/agent.kdl", "path to agent.kdl inside the container")
 	flag.Parse()
 
 	if *agentID == "" {
@@ -57,6 +59,14 @@ func main() {
 
 	log := newLogger(*logLevel)
 	log.Info("ward starting", "version", wardVersion, "agent", *agentID)
+
+	// Build the system prompt from agent.kdl (may be empty in dev/test mode).
+	sysPrompt := buildSystemPrompt(*agentKDL)
+	if sysPrompt == "" {
+		log.Warn("ward: no agent.kdl found or no capabilities; LLM will have no tool context", "path", *agentKDL)
+	} else {
+		log.Info("ward: system prompt built", "capabilities", countCapLines(sysPrompt))
+	}
 
 	// keeperd communicates with the Ward via its stdin/stdout (the MUS pipe).
 	// Ward reads frames from os.Stdin and writes frames to os.Stdout.
@@ -72,6 +82,7 @@ func main() {
 		pipe:          pipe,
 		loopThreshold: *loopThreshold,
 		toolSockPath:  *toolSock,
+		systemPrompt:  sysPrompt,
 		log:           log,
 	}
 
@@ -143,6 +154,7 @@ type ward struct {
 	pipe          *musPipe
 	loopThreshold int
 	toolSockPath  string
+	systemPrompt  string
 	log           *slog.Logger
 
 	promptSeq atomic.Uint64
@@ -292,8 +304,13 @@ func (w *ward) getCapabilitySchema(name string) string {
 func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutcome, string, error) {
 	// claude --print passes the prompt as a positional argument and runs
 	// non-interactively.  WARD_TOOL_SOCK is set so capability CLIs can reach
-	// the tool server.
-	cmd := exec.CommandContext(ctx, "claude", "--print", promptText, "--output-format", "stream-json")
+	// the tool server.  --system-prompt injects the capability tool context so
+	// the LLM knows which tools are available and how to call them.
+	args := []string{"--print", promptText, "--output-format", "stream-json"}
+	if w.systemPrompt != "" {
+		args = append(args, "--system-prompt", w.systemPrompt)
+	}
+	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Env = append(os.Environ(), toolServerEnvKey+"="+w.toolSockPath)
 
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -381,6 +398,18 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	return outcome, "", nil
 }
 
+
+// countCapLines counts "### " section headers in a system prompt as a proxy
+// for the number of capability entries, used only for the startup log line.
+func countCapLines(prompt string) int {
+	n := 0
+	for line := range strings.SplitSeq(prompt, "\n") {
+		if strings.HasPrefix(line, "### ") {
+			n++
+		}
+	}
+	return n
+}
 
 // ---- Loop detector ---------------------------------------------------------
 

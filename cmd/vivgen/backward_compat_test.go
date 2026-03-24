@@ -10,7 +10,7 @@ import (
 func TestVivgenBackwardCompat_KDLFieldRemovalFails(t *testing.T) {
 	prev := mustSchemaForCapabilityFromDir(t, repoRootCompat(t), "Browser_Page_Read")
 	modifiedDir := writeModifiedCapabilitiesDir(t, func(s string) string {
-		return strings.Replace(s, "  field       \"wait_for\" type=\"string\" required=false default=\"networkidle\" {\n    description \"Page load event to wait for before extracting content\"\n    enum        \"load\" \"domcontentloaded\" \"networkidle\"\n  }\n", "", 1)
+		return strings.Replace(s, "  field wait_for type=string required=#false default=networkidle {\n    description \"Page load event to wait for before extracting content\"\n    enum load domcontentloaded networkidle\n  }\n", "", 1)
 	})
 	next := mustSchemaForCapabilityFromDir(t, modifiedDir, "Browser_Page_Read")
 	if err := checkGeneratedSchemaBackwardCompat(prev, next); err == nil {
@@ -21,8 +21,7 @@ func TestVivgenBackwardCompat_KDLFieldRemovalFails(t *testing.T) {
 func TestVivgenBackwardCompat_KDLFieldRenameFails(t *testing.T) {
 	prev := mustSchemaForCapabilityFromDir(t, repoRootCompat(t), "Browser_Page_Read")
 	modifiedDir := writeModifiedCapabilitiesDir(t, func(s string) string {
-		s = strings.Replace(s, "field       \"wait_for\"", "field       \"wait_until\"", 1)
-		return strings.Replace(s, "description \"Page load event to wait for before extracting content\"", "description \"Page load event to wait for before extracting content\"", 1)
+		return strings.Replace(s, "field wait_for", "field wait_until", 1)
 	})
 	next := mustSchemaForCapabilityFromDir(t, modifiedDir, "Browser_Page_Read")
 	if err := checkGeneratedSchemaBackwardCompat(prev, next); err == nil {
@@ -33,8 +32,8 @@ func TestVivgenBackwardCompat_KDLFieldRenameFails(t *testing.T) {
 func TestVivgenBackwardCompat_KDLFieldAdditionPasses(t *testing.T) {
 	prev := mustSchemaForCapabilityFromDir(t, repoRootCompat(t), "Browser_Page_Read")
 	modifiedDir := writeModifiedCapabilitiesDir(t, func(s string) string {
-		needle := "  returns     \"string\" description=\"Readable page text in markdown format\"\n}"
-		replacement := "  field       \"max_chars\" type=\"int\" required=false default=50000 {\n    description \"Maximum characters to return\"\n    min         1\n  }\n  returns     \"string\" description=\"Readable page text in markdown format\"\n}"
+		needle := "  returns     string description=\"Readable page text in markdown format\"\n}"
+		replacement := "  field       max_chars type=int required=#false default=50000 {\n    description \"Maximum characters to return\"\n    min         1\n  }\n  returns     string description=\"Readable page text in markdown format\"\n}"
 		return strings.Replace(s, needle, replacement, 1)
 	})
 	next := mustSchemaForCapabilityFromDir(t, modifiedDir, "Browser_Page_Read")
