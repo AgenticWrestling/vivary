@@ -141,18 +141,48 @@ func (c *client) cmdStatus() {
 	if err := status.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 		fatal("decode: %v", err)
 	}
+	fmt.Print(formatStatus(status))
+}
 
-	fmt.Printf("keeperd %s  uptime %s\n\n", status.DaemonVersion, fmtDuration(time.Duration(status.UptimeSeconds)*time.Second))
+func formatStatus(status ctl.StatusPayload) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "keeperd %s  uptime %s\n\n", status.DaemonVersion, fmtDuration(time.Duration(status.UptimeSeconds)*time.Second))
 	if len(status.Agents) == 0 {
-		fmt.Println("no agents provisioned")
-		return
+		b.WriteString("no agents provisioned\n")
+		return b.String()
 	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "AGENT\tSTATE\tLAST PROMPT\tLAST EVENT")
+	tw := tabwriter.NewWriter(&b, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "AGENT\tSTATE\tLAST PROMPT\tOUTCOME\tTOKENS\tCOST\tTOOLS\tLAST EVENT")
 	for _, a := range status.Agents {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", a.ID, a.State, a.LastPromptSeq, a.LastEventAt)
+		fmt.Fprintf(
+			tw,
+			"%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\n",
+			a.ID,
+			a.State,
+			a.LastPromptSeq,
+			statusValue(a.LastOutcome),
+			formatTokenSummary(a),
+			statusValue(a.CostUSD),
+			a.ToolCalls,
+			statusValue(a.LastEventAt),
+		)
 	}
-	tw.Flush()
+	_ = tw.Flush()
+	return b.String()
+}
+
+func formatTokenSummary(a ctl.AgentStatus) string {
+	if a.InputTokens == 0 && a.OutputTokens == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("in=%d out=%d", a.InputTokens, a.OutputTokens)
+}
+
+func statusValue(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "-"
+	}
+	return v
 }
 
 func (c *client) cmdAgentList() {

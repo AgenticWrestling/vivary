@@ -24,10 +24,10 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 **Remaining MVP deliverables:**
 
-1. Make the prompt -> tool -> capability response -> completion path fully coherent in Ward.
-2. Make browser mediation obviously correct, including real proxy-layer whitelist enforcement.
-3. Make `keeperd` runtime state authoritative enough for truthful ctl/TUI status.
-4. Finish audit payload policy so stored payload behavior matches capability sensitivity.
+1. Finish Ward-side schema validation and malformed-call failure reporting so the prompt -> tool -> capability response -> completion path is fully coherent.
+2. Close the remaining browser mediation gaps: document/profile isolation clarity and end-to-end allow/deny coverage against the shipped proxy path.
+3. Finish `keeperd` runtime state and CLI/TUI status parity so operator views are fully truthful and consistent.
+4. Finish audit payload sensitivity policy so stored payload behavior matches capability categories beyond the currently wired per-capability hook.
 5. Make provisioning behavior safe and predictable on Linux.
 6. Expand test coverage from unit-level pieces to real MVP end-to-end assertions.
 
@@ -71,8 +71,8 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - Keep `cmd/keeperd` as wiring code only; continue moving runtime-specific logic into internal packages where it improves clarity.
 - Tighten config validation at parse time: required fields, naming conventions, uniqueness, enum validation, and clearer operator-facing errors.
 - Replace the still-manual provider tree walk with a stricter typed validation path.
-- Make `keeperd` runtime state explicit and authoritative: agent status, last prompt seq, last completion, last failure, last event time, and operator-visible cost/token metadata.
-- Build ctl responses directly from that runtime state instead of sparse agent records.
+- Extend the current keeper-owned runtime state from prompt seq / last event / outcome / token / cost summaries to include distinct last-completion and last-failure detail where that materially improves operator debugging.
+- Keep ctl responses sourced from keeper-owned runtime state, not reconstructed from best-effort client-side event history.
 - Keep semantic enforcement in `keeperd`; do not let policy leak into Ward or browser helpers.
 
 ### 1.3 BubbleTea TUI (`viv`)
@@ -85,8 +85,8 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 **Remaining work:**
 
-- Ensure status, last event, token counts, and cost come from keeper-owned state rather than only live event arrival.
-- Make status output and TUI detail views agree on field meanings and fallback behavior.
+- Keep status, last event, token counts, and cost sourced from keeper-owned state rather than only live event arrival.
+- Make CLI status output and TUI detail views agree on field meanings, field coverage, and fallback behavior.
 - Keep the CLI surface as important as the TUI: every MVP operator action should stay available without fullscreen UI.
 - Add tests for richer status snapshots once keeper-owned runtime state is expanded.
 
@@ -156,9 +156,8 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 **Remaining work:**
 
-- Pick one real LLM integration path and make it completely crisp end-to-end.
-- Finish the prompt -> tool call -> capability response -> tool result -> completion path so there is no partially-implemented branch left in normal execution.
-- Remove overlapping or speculative tool-call mechanisms once the chosen path is complete.
+- Keep the current Claude CLI -> Ward tool socket -> keeperd capability path as the single MVP execution path and avoid reintroducing overlapping mechanisms.
+- Finish Ward-side validation/failure handling so the prompt -> tool call -> capability response -> tool result -> completion path has no ambiguous malformed-call branch left in normal execution.
 - Introduce one normalized internal event shape inside Ward so backend-specific parsing stays behind a very small adapter boundary.
 - Add explicit schema validation on every forwarded tool call against the generated schema, with operator-visible failure events for malformed/schema-invalid calls.
 - Keep schema synchronization through `vivgen` as the only source of truth; do not reintroduce hard-coded schema copies.
@@ -211,9 +210,8 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 #### 3.2b Whitelisting Proxy
 
-- Keep capability-layer whitelist checks, but also make whitelist enforcement real in the proxy layer as defence-in-depth.
-- Remove the current effective allow-all fallback in the proxy's local scope check path.
-- Make proxy-layer allow/deny behavior directly testable without relying only on higher-level capability checks.
+- Keep capability-layer whitelist checks and the now-wired proxy-layer whitelist enforcement aligned as defence-in-depth.
+- Expand proxy-layer coverage from unit tests to broader end-to-end assertions so the shipped path stays obviously correct.
 - Emit clear `capability_denied`/security records for blocked browser targets.
 
 #### 3.2c `Browser_Page_Read`
@@ -240,8 +238,8 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 **Remaining work:**
 
-- Replace the current `shouldAuditPayload` stub with real per-capability logic driven by `Capability.AuditPayload()`.
-- Default high-sensitivity capability categories (`Email`, `Messaging`, `Document`, `Database`, `Credential`) to `audit-payload false`.
+- Keep the current keeper-side `Capability.AuditPayload()` hook as the source of truth for whether request payloads are stored.
+- Default high-sensitivity capability categories (`Email`, `Messaging`, `Document`, `Database`, `Credential`) to `audit-payload false` as those capability families land.
 - Keep payload policy small and explicit for MVP; retention/pruning remains post-MVP unless usage forces it sooner.
 - Add tests proving payload omission/storage behavior for both allow and deny paths.
 - Ensure all operator-visible event kinds have stable names and payload shapes.
@@ -259,11 +257,11 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 This is now the most important section of the plan.
 
-- Make browser mediation and whitelist enforcement obviously correct and integration-tested before adding more capability families.
+- Keep browser mediation obviously correct by preserving the proxy whitelist checks already in place and extending integration coverage before adding more capability families.
 - Make provisioning safe and recoverable: cleanup-on-failure, correct runtime registration, predictable Linux behavior.
 - Make ctl/event semantics explicit and stable so the TUI, CLI, and audit log all agree on message behavior.
-- Make `keeperd` status authoritative with real prompt/event/cost state.
-- Finish the Ward execution path so the MVP reads as one clear runtime path, not several partially-overlapping ones.
+- Finish keeper-owned status details and CLI/TUI parity on top of the existing prompt/event/cost state.
+- Finish Ward malformed-call validation/failure handling so the MVP reads as one clear runtime path, not several partially-overlapping ones.
 - Keep the runtime single-agent and boring until these pieces are solid.
 
 ### 3.7 Approval and Policy Gating
@@ -393,16 +391,16 @@ If the goal is to finish the MVP cleanly, work should happen in this order:
    - complete the chosen prompt -> tool -> result -> completion flow
    - remove overlapping or half-implemented execution branches
    - emit explicit schema/failure events for malformed tool calls
-2. Make browser proxy whitelist enforcement real and test it.
-   - enforce whitelist policy in the proxy layer, not only the capability layer
+2. Extend browser mediation validation and test coverage.
+   - keep whitelist policy enforced in both the capability layer and proxy layer
    - make profile/context isolation match the docs or simplify the docs
-   - add explicit allow/deny tests
+   - add broader allow/deny integration tests around the shipped path
 3. Make `keeperd` runtime state/status authoritative.
-   - track last prompt seq, last completion, last failure, last event time, cost, and token counts
-   - return those values consistently to CLI/TUI callers
+   - keep tracking prompt seq, last event, outcome, cost, token counts, and tool-call counts in keeper-owned state
+   - extend/return the remaining status details consistently to CLI/TUI callers
 4. Implement real audit payload policy.
-   - wire `Capability.AuditPayload()` into keeper-side storage decisions
-   - add tests for stored vs omitted payload behavior
+   - keep `Capability.AuditPayload()` wired into keeper-side storage decisions
+   - add coverage for stored vs omitted payload behavior as non-audited capability families land
 5. Harden Linux provisioning behavior and cleanup guarantees.
    - verify create/destroy symmetry on real Linux
    - prove partial-failure cleanup for runtime/network/subvolume setup
