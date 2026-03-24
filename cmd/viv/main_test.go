@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -73,5 +74,35 @@ func TestFormatStatus_UsesFallbacksForMissingRuntimeFields(t *testing.T) {
 	}
 	if !strings.Contains(out, "0") {
 		t.Fatalf("expected zero-value numeric fields to remain visible: %q", out)
+	}
+}
+
+func TestFormatStatus_SnapshotForCompletionFields(t *testing.T) {
+	status := ctl.StatusPayload{
+		DaemonVersion: "0.1.0-test",
+		UptimeSeconds: 125,
+		Agents: []ctl.AgentStatus{{
+			ID:            "agent-a",
+			State:         "running",
+			LastPromptSeq: 23,
+			LastOutcome:   "success",
+			InputTokens:   120,
+			OutputTokens:  55,
+			CostUSD:       "0.002500",
+			ToolCalls:     4,
+			LastEventAt:   "2026-03-24T12:34:56Z",
+		}},
+	}
+
+	want := strings.Join([]string{
+		fmt.Sprintf("keeperd %s  uptime 2m5s", status.DaemonVersion),
+		"",
+		"AGENT    STATE    LAST PROMPT  OUTCOME  TOKENS         COST      TOOLS  LAST EVENT",
+		"agent-a  running  23           success  in=120 out=55  0.002500  4      2026-03-24T12:34:56Z",
+		"",
+	}, "\n")
+
+	if got := formatStatus(status); got != want {
+		t.Fatalf("formatStatus mismatch\nwant:\n%s\n got:\n%s", want, got)
 	}
 }
