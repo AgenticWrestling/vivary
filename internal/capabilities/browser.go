@@ -46,22 +46,17 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 		args.Timeout = 30
 	}
 
-	// Scope check: URL must match one of the whitelist prefixes from the ACL.
-	// Legacy string scope check.
-	scope := ScopeFromContext(ctx)
-	if !urlMatchesScope(args.URL, scope) {
-		// Also check ECS-style constraints.
-		constraints := ConstraintsFromContext(ctx)
-		if !urlMatchesConstraints(args.URL, constraints) {
-			return DeniedResponse(fmt.Sprintf("URL %q not in browser whitelist", args.URL)), nil
-		}
+	// Scope check: URL must match the ECS-style constraints from the ACL.
+	constraints := ConstraintsFromContext(ctx)
+	if !urlMatchesConstraints(args.URL, constraints) {
+		return DeniedResponse(fmt.Sprintf("URL %q not in browser whitelist", args.URL)), nil
 	}
 
 	if b.ChromeProxy == nil {
 		return Response{OK: false, ErrorCode: "unavailable", ErrorDetail: "chrome proxy not initialised"}, nil
 	}
 
-	policy := buildBrowserWhitelistPolicy(scope, ConstraintsFromContext(ctx))
+	policy := buildBrowserWhitelistPolicy(constraints)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(args.Timeout)*time.Second)
 	defer cancel()
@@ -74,16 +69,8 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 	return Response{OK: true, Data: data}, nil
 }
 
-func buildBrowserWhitelistPolicy(scope string, constraints []ScopeConstraint) chromproxy.WhitelistPolicy {
+func buildBrowserWhitelistPolicy(constraints []ScopeConstraint) chromproxy.WhitelistPolicy {
 	policy := chromproxy.WhitelistPolicy{}
-	if scope != "" {
-		for prefix := range strings.SplitSeq(scope, ",") {
-			prefix = strings.TrimSpace(prefix)
-			if prefix != "" {
-				policy.Prefixes = append(policy.Prefixes, prefix)
-			}
-		}
-	}
 	for _, sc := range constraints {
 		if sc.Entity != "Link" {
 			continue
@@ -93,37 +80,6 @@ func buildBrowserWhitelistPolicy(scope string, constraints []ScopeConstraint) ch
 		policy.PathPrefixes = append(policy.PathPrefixes, sc.Constraints["path-prefix"]...)
 	}
 	return policy
-}
-
-// urlMatchesScope returns true if rawURL starts with any of the comma-separated
-// whitelist prefixes in scope.  Both URL and prefix are normalised to lowercase.
-func urlMatchesScope(rawURL, scope string) bool {
-	if scope == "" {
-		return false
-	}
-	// Validate that the supplied URL is well-formed before any prefix match.
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return false
-	}
-	needle := strings.ToLower(rawURL)
-	for prefix := range strings.SplitSeq(scope, ",") {
-		p := strings.TrimSpace(strings.ToLower(prefix))
-		if p == "" || !strings.HasPrefix(needle, p) {
-			continue
-		}
-		// Guard against subdomain confusion: after matching the prefix the
-		// very next character (if any) must be a path/query/fragment separator,
-		// not a continuation of the hostname (e.g. "example.com.evil.com").
-		// If the prefix itself already ends with a separator we are fine.
-		rest := needle[len(p):]
-		lastOfP := p[len(p)-1]
-		if rest == "" || rest[0] == '/' || rest[0] == '?' || rest[0] == '#' ||
-			lastOfP == '/' || lastOfP == '?' || lastOfP == '#' {
-			return true
-		}
-	}
-	return false
 }
 
 // urlMatchesConstraints returns true if rawURL matches any of the ECS-style

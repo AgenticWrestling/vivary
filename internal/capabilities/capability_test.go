@@ -10,16 +10,34 @@ import (
 	"vivary.dev/vivary/internal/chromproxy"
 )
 
+// fsCtx returns a context containing a path-prefix constraint for scope.
+func fsCtx(scope string) context.Context {
+	if scope == "" {
+		return context.Background()
+	}
+	return contextWithConstraints(context.Background(), []ScopeConstraint{{
+		Entity:      "File",
+		Constraints: ConstraintSet{"path-prefix": {scope}},
+	}})
+}
+
 // ---- ACL tests (TestCapabilityACL) -----------------------------------------
 
 func TestCapabilityACL_AllowedCapability(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(&FilesystemFileWrite{})
 
+	scope := t.TempDir()
 	d := NewDispatcher(reg)
 	d.SetACL(&ACL{
 		AgentID: "agent-1",
-		Entries: []ACLEntry{{CapabilityName: FilesystemFileWriteName, Scope: t.TempDir()}},
+		Entries: []ACLEntry{{
+			CapabilityName: FilesystemFileWriteName,
+			Constraints: []ScopeConstraint{{
+				Entity:      "File",
+				Constraints: ConstraintSet{"path-prefix": {scope}},
+			}},
+		}},
 	})
 
 	args, _ := json.Marshal(Filesystem_File_Write{
@@ -80,7 +98,7 @@ func TestCapabilityACL_UnknownAgent(t *testing.T) {
 func TestFilesystemWrite_AllowedWrite(t *testing.T) {
 	scope := t.TempDir()
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "result.txt", Content: "test data"})
 	resp, err := cap.Execute(ctx, Request{
@@ -101,7 +119,7 @@ func TestFilesystemWrite_AllowedWrite(t *testing.T) {
 func TestFilesystemWrite_PathTraversal(t *testing.T) {
 	scope := t.TempDir()
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 
 	for _, badPath := range []string{
 		"../escape.txt",
@@ -124,7 +142,7 @@ func TestFilesystemWrite_PathTraversal(t *testing.T) {
 func TestFilesystemWrite_AbsolutePath(t *testing.T) {
 	scope := t.TempDir()
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "/etc/passwd", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{
@@ -140,7 +158,7 @@ func TestFilesystemWrite_AbsolutePath(t *testing.T) {
 
 func TestFilesystemWrite_NoScope(t *testing.T) {
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), "") // empty scope
+	ctx := context.Background() // no constraints → no scope
 
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "out.txt", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{
@@ -157,7 +175,7 @@ func TestFilesystemWrite_NoScope(t *testing.T) {
 func TestFilesystemWrite_Append(t *testing.T) {
 	scope := t.TempDir()
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 
 	for _, content := range []string{"line1\n", "line2\n"} {
 		args, _ := json.Marshal(Filesystem_File_Write{Path: "log.txt", Content: content, Append: true})
@@ -186,7 +204,7 @@ func TestFilesystemWrite_SymlinkInsideScope(t *testing.T) {
 	}
 
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "link.txt", Content: "via link"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
@@ -206,7 +224,7 @@ func TestFilesystemWrite_SymlinkEscapeScope(t *testing.T) {
 	}
 
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "escape", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
@@ -226,7 +244,7 @@ func TestFilesystemWrite_SymlinkIntermediateDirEscape(t *testing.T) {
 	}
 
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "subdir/file.txt", Content: "x"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
@@ -250,7 +268,7 @@ func TestFilesystemWrite_SymlinkLoop(t *testing.T) {
 	}
 
 	cap := &FilesystemFileWrite{}
-	ctx := contextWithScope(context.Background(), scope)
+	ctx := fsCtx(scope)
 	args, _ := json.Marshal(Filesystem_File_Write{Path: "a", Content: "loop"})
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
@@ -265,7 +283,7 @@ func TestFilesystemWrite_SymlinkLoop(t *testing.T) {
 //
 // These exercise the full Execute path (scope check + proxy call) to verify
 // that both the capability-layer and proxy-layer whitelist checks fire
-// correctly, rather than testing only the urlMatchesScope helper.
+// correctly.
 
 // stubProxy returns a ChromeProxy function whose behaviour is controlled by the
 // test: allow is called on allowed requests, deny signals unexpected calls.
@@ -279,9 +297,9 @@ func stubProxy(t *testing.T, wantAllow bool) func(ctx context.Context, agentID, 
 	}
 }
 
-func TestBrowserPageRead_Execute_EmptyScopeDenies(t *testing.T) {
+func TestBrowserPageRead_Execute_EmptyConstraintsDenies(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
-	ctx := contextWithScope(context.Background(), "")
+	ctx := context.Background() // no constraints
 	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
@@ -289,16 +307,19 @@ func TestBrowserPageRead_Execute_EmptyScopeDenies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resp.OK {
-		t.Fatal("empty scope should deny the request")
+		t.Fatal("empty constraints should deny the request")
 	}
 	if resp.ErrorCode != "capability_denied" {
 		t.Errorf("error_code = %q, want capability_denied", resp.ErrorCode)
 	}
 }
 
-func TestBrowserPageRead_Execute_MatchingScopeAllows(t *testing.T) {
+func TestBrowserPageRead_Execute_DomainConstraintAllows(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, true)}
-	ctx := contextWithScope(context.Background(), "https://example.com")
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{{
+		Entity:      "Link",
+		Constraints: ConstraintSet{"domain": {"example.com"}},
+	}})
 	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
@@ -306,13 +327,16 @@ func TestBrowserPageRead_Execute_MatchingScopeAllows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !resp.OK {
-		t.Fatalf("matching scope should allow: %s %s", resp.ErrorCode, resp.ErrorDetail)
+		t.Fatalf("domain constraint should allow: %s %s", resp.ErrorCode, resp.ErrorDetail)
 	}
 }
 
-func TestBrowserPageRead_Execute_NonMatchingScopeDenies(t *testing.T) {
+func TestBrowserPageRead_Execute_DomainConstraintDeniesOther(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
-	ctx := contextWithScope(context.Background(), "https://other.com")
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{{
+		Entity:      "Link",
+		Constraints: ConstraintSet{"domain": {"other.com"}},
+	}})
 	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
@@ -320,15 +344,13 @@ func TestBrowserPageRead_Execute_NonMatchingScopeDenies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resp.OK {
-		t.Fatal("non-matching scope should deny")
+		t.Fatal("domain mismatch should deny")
 	}
 }
 
 func TestBrowserPageRead_Execute_ECSConstraintAllows(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, true)}
-	// No legacy scope — rely on ECS domain-suffix constraint only.
-	ctx := contextWithScope(context.Background(), "")
-	ctx = contextWithConstraints(ctx, []ScopeConstraint{
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{
 		{Entity: "Link", Constraints: map[string][]string{
 			"domain-suffix": {"wikipedia.org"},
 		}},
@@ -346,8 +368,7 @@ func TestBrowserPageRead_Execute_ECSConstraintAllows(t *testing.T) {
 
 func TestBrowserPageRead_Execute_ECSConstraintDeniesOtherDomain(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
-	ctx := contextWithScope(context.Background(), "")
-	ctx = contextWithConstraints(ctx, []ScopeConstraint{
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{
 		{Entity: "Link", Constraints: map[string][]string{
 			"domain-suffix": {"wikipedia.org"},
 		}},
@@ -365,7 +386,10 @@ func TestBrowserPageRead_Execute_ECSConstraintDeniesOtherDomain(t *testing.T) {
 
 func TestBrowserPageRead_Execute_NilProxyReturnsUnavailable(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: nil}
-	ctx := contextWithScope(context.Background(), "https://example.com")
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{{
+		Entity:      "Link",
+		Constraints: ConstraintSet{"domain": {"example.com"}},
+	}})
 	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
@@ -377,40 +401,82 @@ func TestBrowserPageRead_Execute_NilProxyReturnsUnavailable(t *testing.T) {
 	}
 }
 
-// ---- Browser URL scope tests -----------------------------------------------
+// ---- URL constraint matching tests -----------------------------------------
 
-func TestBrowserPageRead_URLScope(t *testing.T) {
+func TestURLMatchesConstraints(t *testing.T) {
 	cases := []struct {
-		url   string
-		scope string
-		ok    bool
+		name        string
+		url         string
+		constraints []ScopeConstraint
+		ok          bool
 	}{
-		{"https://example.com/page", "https://example.com", true},
-		{"https://example.com/page", "https://other.com", false},
-		{"https://example.com/page", "", false},
-		{"https://a.com", "https://b.com,https://a.com", true},
-		{"not-a-url", "https://example.com", false},
-		{"http://example.com", "https://example.com", false}, // scheme mismatch
-		// Subdomain confusion: prefix-match must not allow hostname extension.
-		{"https://example.com.evil.com/page", "https://example.com", false},
-		// Case insensitivity.
-		{"https://EXAMPLE.COM/page", "https://example.com", true},
-		// Port in both URL and scope.
-		{"https://example.com:8443/page", "https://example.com:8443", true},
-		{"https://example.com:8443/page", "https://example.com", false}, // port mismatch
-		// Whitespace around entries in comma-separated scope.
-		{"https://example.com/page", " https://example.com , https://other.com ", true},
-		// Exact URL matches scope (no trailing slash required).
-		{"https://example.com", "https://example.com", true},
-		// Trailing slash on scope prefix.
-		{"https://example.com/path", "https://example.com/", true},
-		// Query string delimiter is a valid boundary.
-		{"https://example.com?q=1", "https://example.com", true},
+		{
+			name: "domain exact match",
+			url:  "https://example.com/page",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain": {"example.com"},
+			}}},
+			ok: true,
+		},
+		{
+			name: "domain mismatch",
+			url:  "https://other.com/page",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain": {"example.com"},
+			}}},
+			ok: false,
+		},
+		{
+			name: "domain-suffix match subdomain",
+			url:  "https://en.wikipedia.org/wiki/Go",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain-suffix": {"wikipedia.org"},
+			}}},
+			ok: true,
+		},
+		{
+			name: "domain-suffix exact match",
+			url:  "https://wikipedia.org/",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain-suffix": {"wikipedia.org"},
+			}}},
+			ok: true,
+		},
+		{
+			name: "domain-suffix no subdomain confusion",
+			url:  "https://fakewikipedia.org/",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain-suffix": {"wikipedia.org"},
+			}}},
+			ok: false,
+		},
+		{
+			name:        "no constraints denies",
+			url:         "https://example.com/",
+			constraints: nil,
+			ok:          false,
+		},
+		{
+			name:        "malformed url denies",
+			url:         "not-a-url",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{"domain": {"example.com"}}}},
+			ok:          false,
+		},
+		{
+			name: "wrong entity ignored",
+			url:  "https://example.com/",
+			constraints: []ScopeConstraint{{Entity: "File", Constraints: ConstraintSet{
+				"domain": {"example.com"},
+			}}},
+			ok: false,
+		},
 	}
 	for _, tc := range cases {
-		got := urlMatchesScope(tc.url, tc.scope)
-		if got != tc.ok {
-			t.Errorf("urlMatchesScope(%q, %q) = %v, want %v", tc.url, tc.scope, got, tc.ok)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got := urlMatchesConstraints(tc.url, tc.constraints)
+			if got != tc.ok {
+				t.Errorf("urlMatchesConstraints(%q) = %v, want %v", tc.url, got, tc.ok)
+			}
+		})
 	}
 }

@@ -44,15 +44,8 @@ func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Respons
 		return DeniedResponse("path traversal via '..' is not allowed"), nil
 	}
 
-	// Scope check: the ACL scope is the allowed prefix root.
-	// Legacy string scope check.
-	scope := ScopeFromContext(ctx)
-	if scope == "" {
-		// Also check ECS-style constraints.
-		constraints := ConstraintsFromContext(ctx)
-		scope = getPathPrefixFromConstraints(constraints)
-	}
-
+	// Scope check: the ACL constraints supply the allowed path prefix.
+	scope := getPathPrefixFromConstraints(ConstraintsFromContext(ctx))
 	if scope == "" {
 		return DeniedResponse("no filesystem write scope configured for this agent"), nil
 	}
@@ -95,7 +88,7 @@ func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Respons
 
 // containsDotDot returns true if any path element is "..".
 func containsDotDot(p string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+	for part := range strings.SplitSeq(filepath.ToSlash(p), "/") {
 		if part == ".." {
 			return true
 		}

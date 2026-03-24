@@ -217,11 +217,7 @@ type ACLEntry struct {
 	// CapabilityName is the allowed capability, e.g. "Browser_Page_Read".
 	CapabilityName string
 
-	// Scope is the legacy capability-specific scope string (deprecated).
-	Scope string
-
-	// Constraints is the ECS-style scope model.  If present, it takes
-	// precedence over the Scope string.
+	// Constraints is the ECS-style scope model for this grant.
 	Constraints []ScopeConstraint
 }
 
@@ -231,15 +227,14 @@ type ACL struct {
 	Entries []ACLEntry
 }
 
-// Allowed returns true if the agent's ACL permits name.  It returns both the
-// legacy scope string and the new ECS constraints if available.
-func (a *ACL) Allowed(name string) (allowed bool, scope string, constraints []ScopeConstraint) {
+// Allowed returns true if the agent's ACL permits name, along with any scope constraints.
+func (a *ACL) Allowed(name string) (allowed bool, constraints []ScopeConstraint) {
 	for _, e := range a.Entries {
 		if e.CapabilityName == name {
-			return true, e.Scope, e.Constraints
+			return true, e.Constraints
 		}
 	}
-	return false, "", nil
+	return false, nil
 }
 
 // ---- Dispatcher ------------------------------------------------------------
@@ -299,7 +294,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req Request) (Response, error
 	if acl == nil {
 		return DeniedResponse(fmt.Sprintf("no ACL registered for agent %q", req.AgentID)), nil
 	}
-	allowed, scope, constraints := acl.Allowed(req.Name)
+	allowed, constraints := acl.Allowed(req.Name)
 	if !allowed {
 		return DeniedResponse(fmt.Sprintf("capability %q not in agent ACL", req.Name)), nil
 	}
@@ -310,8 +305,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req Request) (Response, error
 		return DeniedResponse(fmt.Sprintf("capability %q not registered", req.Name)), nil
 	}
 
-	// --- Inject scope into context so the capability impl can enforce it ---
-	ctx = contextWithScope(ctx, scope)
+	// --- Inject constraints into context so the capability impl can enforce them ---
 	ctx = contextWithConstraints(ctx, constraints)
 
 	return cap.Execute(ctx, req)
@@ -321,25 +315,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req Request) (Response, error
 
 type contextKey int
 
-const (
-	scopeKey       contextKey = 1
-	constraintsKey contextKey = 2
-)
-
-func contextWithScope(ctx context.Context, scope string) context.Context {
-	return context.WithValue(ctx, scopeKey, scope)
-}
+const constraintsKey contextKey = 1
 
 func contextWithConstraints(ctx context.Context, c []ScopeConstraint) context.Context {
 	return context.WithValue(ctx, constraintsKey, c)
-}
-
-// ScopeFromContext returns the operator-configured legacy scope for the
-// executing capability.  Capability implementations should use this to
-// enforce path or URL prefix constraints for backward compatibility.
-func ScopeFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(scopeKey).(string)
-	return v
 }
 
 // ConstraintsFromContext returns the ECS-style scope constraints for the

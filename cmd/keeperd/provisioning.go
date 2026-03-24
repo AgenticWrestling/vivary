@@ -102,11 +102,17 @@ func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) er
 	acl.Entries = []capabilities.ACLEntry{
 		{
 			CapabilityName: capabilities.FilesystemFileWriteName,
-			Scope:          filepath.Join(subvolPath, "output"),
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "File",
+				Constraints: capabilities.ConstraintSet{"path-prefix": {filepath.Join(subvolPath, "output")}},
+			}},
 		},
 		{
 			CapabilityName: capabilities.BrowserPageReadName,
-			Scope:          "https://en.wikipedia.org,https://github.com",
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "Link",
+				Constraints: capabilities.ConstraintSet{"domain": {"en.wikipedia.org", "github.com"}},
+			}},
 		},
 	}
 	d.dispatcher.SetACL(acl)
