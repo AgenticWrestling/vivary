@@ -128,7 +128,8 @@ func (d *daemon) sendCapabilityDenied(f switchboard.Frame, detail string) {
 	}, respPayload.MarshalMUS())
 }
 
-// handleCompletionEvent records the event and pushes it to ctl subscribers.
+// handleCompletionEvent records the event, updates agent runtime state, and
+// pushes it to ctl subscribers.
 func (d *daemon) handleCompletionEvent(f switchboard.Frame) {
 	ev, err := audit.UnmarshalCompletion(f.Payload)
 	if err != nil {
@@ -140,10 +141,21 @@ func (d *daemon) handleCompletionEvent(f switchboard.Frame) {
 		"outcome", ev.Outcome, "tokens_in", ev.InputTokens, "tokens_out", ev.OutputTokens,
 		"cost_usd", ev.CostUSD,
 	)
+	d.mu.Lock()
+	if a, ok := d.agents[ev.AgentID]; ok {
+		a.lastEventAt = time.Now()
+		a.lastOutcome = ev.Outcome
+		a.inputTokens = ev.InputTokens
+		a.outputTokens = ev.OutputTokens
+		a.costUSD = ev.CostUSD
+		a.toolCalls = ev.ToolCalls
+	}
+	d.mu.Unlock()
 	d.pushToCtlSubscribers(f)
 }
 
-// handleFailureEvent records the event and pushes it to ctl subscribers.
+// handleFailureEvent records the event, updates agent runtime state, and
+// pushes it to ctl subscribers.
 func (d *daemon) handleFailureEvent(f switchboard.Frame) {
 	ev, err := audit.UnmarshalFailure(f.Payload)
 	if err != nil {
@@ -154,6 +166,12 @@ func (d *daemon) handleFailureEvent(f switchboard.Frame) {
 		"agent", ev.AgentID, "seq", ev.PromptSeq,
 		"kind", ev.Kind, "detail", ev.Detail,
 	)
+	d.mu.Lock()
+	if a, ok := d.agents[ev.AgentID]; ok {
+		a.lastEventAt = time.Now()
+		a.lastOutcome = ev.Kind
+	}
+	d.mu.Unlock()
 	d.pushToCtlSubscribers(f)
 }
 

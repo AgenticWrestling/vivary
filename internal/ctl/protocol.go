@@ -170,7 +170,7 @@ func (p *StatusPayload) UnmarshalMUS(r io.Reader) error {
 		return err
 	}
 	p.Agents = make([]AgentStatus, n)
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		if err := p.Agents[i].unmarshalMUS(r); err != nil {
 			return err
 		}
@@ -182,7 +182,12 @@ type AgentStatus struct {
 	ID            string
 	State         string
 	LastPromptSeq uint64
-	LastEventAt   string
+	LastEventAt   string // RFC3339 timestamp of last event; empty if no event yet
+	LastOutcome   string // "success", "loop_detected", "subprocess_crash", etc.
+	InputTokens   uint32
+	OutputTokens  uint32
+	CostUSD       string // formatted float; empty if unknown
+	ToolCalls     uint32
 }
 
 func (a *AgentStatus) marshalMUS() []byte {
@@ -191,6 +196,11 @@ func (a *AgentStatus) marshalMUS() []byte {
 	b = mus.AppendString(b, a.State)
 	b = mus.AppendVarint(b, a.LastPromptSeq)
 	b = mus.AppendString(b, a.LastEventAt)
+	b = mus.AppendString(b, a.LastOutcome)
+	b = mus.AppendVarint(b, uint64(a.InputTokens))
+	b = mus.AppendVarint(b, uint64(a.OutputTokens))
+	b = mus.AppendString(b, a.CostUSD)
+	b = mus.AppendVarint(b, uint64(a.ToolCalls))
 	return b
 }
 
@@ -205,8 +215,29 @@ func (a *AgentStatus) unmarshalMUS(r io.Reader) error {
 	if a.LastPromptSeq, err = mus.ReadVarint(r); err != nil {
 		return err
 	}
-	a.LastEventAt, err = mus.ReadString(r, 64)
-	return err
+	if a.LastEventAt, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	if a.LastOutcome, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	v, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	a.InputTokens = uint32(v)
+	if v, err = mus.ReadVarint(r); err != nil {
+		return err
+	}
+	a.OutputTokens = uint32(v)
+	if a.CostUSD, err = mus.ReadString(r, 32); err != nil {
+		return err
+	}
+	if v, err = mus.ReadVarint(r); err != nil {
+		return err
+	}
+	a.ToolCalls = uint32(v)
+	return nil
 }
 
 type AgentListPayload struct {
@@ -228,7 +259,7 @@ func (p *AgentListPayload) UnmarshalMUS(r io.Reader) error {
 		return err
 	}
 	p.Agents = make([]AgentStatus, n)
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		if err := p.Agents[i].unmarshalMUS(r); err != nil {
 			return err
 		}

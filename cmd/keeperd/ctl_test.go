@@ -246,6 +246,144 @@ func TestCtlSocket_IdentityRejection(t *testing.T) {
 	}
 }
 
+// TestKeeperRuntimeState verifies that CompletionEvent and FailureEvent frames
+// update agentState, and that CtlStatus reflects those values accurately.
+func TestKeeperRuntimeState_CompletionUpdatesStatus(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+
+	// Register a fake agent so handleCompletionEvent can find it.
+	const agentID = "test-agent-01"
+	d.mu.Lock()
+	d.agents[agentID] = &agentState{id: agentID}
+	d.mu.Unlock()
+
+	// Inject a CompletionEvent frame directly into handleFrame (bypassing Ward).
+	ev := audit.CompletionEvent{
+		AgentID:      agentID,
+		PromptSeq:    7,
+		Model:        "claude-sonnet-4-5",
+		InputTokens:  100,
+		OutputTokens: 42,
+		CostUSD:      0.0012,
+		Outcome:      "success",
+		ToolCalls:    3,
+	}
+	payload, err := audit.MarshalEvent(&ev)
+	if err != nil {
+		t.Fatalf("marshal completion event: %v", err)
+	}
+	d.handleFrame(switchboard.Frame{
+		Header: switchboard.SwarmHeader{
+			Type:   switchboard.MsgType_CompletionEvent,
+			FromID: agentID,
+			ToID:   "keeper",
+			SeqNo:  1,
+		},
+		Payload: payload,
+	})
+
+	// Now request CtlStatus and verify the runtime fields match.
+	c := dialCtl(t, sockPath)
+	c.send(t, switchboard.MsgType_CtlStatus, nil)
+	hdr, respPayload := c.recv(t)
+
+	if hdr.Type != switchboard.MsgType_CtlStatus {
+		t.Fatalf("expected CtlStatus, got %v", hdr.Type)
+	}
+	var status ctl.StatusPayload
+	if err := status.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+
+	var found *ctl.AgentStatus
+	for i := range status.Agents {
+		if status.Agents[i].ID == agentID {
+			found = &status.Agents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("agent %q not found in status", agentID)
+	}
+	if found.LastOutcome != "success" {
+		t.Errorf("LastOutcome = %q, want %q", found.LastOutcome, "success")
+	}
+	if found.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", found.InputTokens)
+	}
+	if found.OutputTokens != 42 {
+		t.Errorf("OutputTokens = %d, want 42", found.OutputTokens)
+	}
+	if found.ToolCalls != 3 {
+		t.Errorf("ToolCalls = %d, want 3", found.ToolCalls)
+	}
+	if found.LastEventAt == "" {
+		t.Error("LastEventAt should be non-empty after a completion event")
+	}
+	if found.CostUSD == "" {
+		t.Error("CostUSD should be non-empty after a completion event with non-zero cost")
+	}
+}
+
+func TestKeeperRuntimeState_FailureUpdatesStatus(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+
+	const agentID = "test-agent-02"
+	d.mu.Lock()
+	d.agents[agentID] = &agentState{id: agentID}
+	d.mu.Unlock()
+
+	fev := audit.FailureEvent{
+		AgentID:   agentID,
+		PromptSeq: 3,
+		Kind:      "loop_detected",
+		Detail:    "capability X repeated 5 times",
+	}
+	payload, err := audit.MarshalEvent(&fev)
+	if err != nil {
+		t.Fatalf("marshal failure event: %v", err)
+	}
+	d.handleFrame(switchboard.Frame{
+		Header: switchboard.SwarmHeader{
+			Type:   switchboard.MsgType_FailureEvent,
+			FromID: agentID,
+			ToID:   "keeper",
+			SeqNo:  1,
+		},
+		Payload: payload,
+	})
+
+	c := dialCtl(t, sockPath)
+	c.send(t, switchboard.MsgType_CtlAgentList, nil)
+	hdr, respPayload := c.recv(t)
+	if hdr.Type != switchboard.MsgType_CtlAgentList {
+		t.Fatalf("expected CtlAgentList, got %v", hdr.Type)
+	}
+	var list ctl.AgentListPayload
+	if err := list.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
+		t.Fatalf("unmarshal agent list: %v", err)
+	}
+
+	var found *ctl.AgentStatus
+	for i := range list.Agents {
+		if list.Agents[i].ID == agentID {
+			found = &list.Agents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("agent %q not in list", agentID)
+	}
+	if found.LastOutcome != "loop_detected" {
+		t.Errorf("LastOutcome = %q, want %q", found.LastOutcome, "loop_detected")
+	}
+	if found.LastEventAt == "" {
+		t.Error("LastEventAt should be set after a failure event")
+	}
+}
+
 // TestCtlSocket_MultipleCommands verifies sequential requests on one connection.
 func TestCtlSocket_MultipleCommands(t *testing.T) {
 	_, sockPath, cancel := newTestDaemon(t)

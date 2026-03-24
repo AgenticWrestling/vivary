@@ -122,6 +122,16 @@ type agentState struct {
 	subvolPath string
 	cfg        AgentConfig
 	pipe       *switchboard.Pipe
+
+	// Runtime state — updated on each CompletionEvent or FailureEvent from Ward.
+	// Protected by daemon.mu.
+	lastPromptSeq uint64
+	lastEventAt   time.Time
+	lastOutcome   string // "success", failure kind, etc.
+	inputTokens   uint32
+	outputTokens  uint32
+	costUSD       float64
+	toolCalls     uint32
 }
 
 type daemon struct {
@@ -364,6 +374,13 @@ func (d *daemon) dispatchPrompt(payload []byte) error {
 		return fmt.Errorf("agent %q has no active pipe (not yet spawned)", req.AgentID)
 	}
 
+	// Record the prompt seq in agent state before forwarding.
+	d.mu.Lock()
+	if a, ok := d.agents[req.AgentID]; ok {
+		a.lastPromptSeq = req.Seq
+	}
+	d.mu.Unlock()
+
 	// Forward the prompt to Ward as a CtlPrompt MUS frame.
 	hdr := switchboard.SwarmHeader{
 		Version: 0, Type: switchboard.MsgType_CtlPrompt,
@@ -407,9 +424,23 @@ func (d *daemon) buildAgentStatusList() []ctl.AgentStatus {
 		if a.pipe != nil {
 			state = "running"
 		}
+		var lastEventAt, costUSD string
+		if !a.lastEventAt.IsZero() {
+			lastEventAt = a.lastEventAt.UTC().Format(time.RFC3339)
+		}
+		if a.costUSD != 0 {
+			costUSD = fmt.Sprintf("%f", a.costUSD)
+		}
 		statuses = append(statuses, ctl.AgentStatus{
-			ID:    a.id,
-			State: state,
+			ID:            a.id,
+			State:         state,
+			LastPromptSeq: a.lastPromptSeq,
+			LastEventAt:   lastEventAt,
+			LastOutcome:   a.lastOutcome,
+			InputTokens:   a.inputTokens,
+			OutputTokens:  a.outputTokens,
+			CostUSD:       costUSD,
+			ToolCalls:     a.toolCalls,
 		})
 	}
 	return statuses
