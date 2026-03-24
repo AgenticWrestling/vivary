@@ -119,6 +119,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 
 	var req ToolRequest
 	if err := json.Unmarshal(data, &req); err != nil {
+		s.w.abortActivePrompt("malformed_tool_call")
 		writeToolResponse(conn, ToolResponse{
 			OK: false, ErrorCode: "bad_request",
 			ErrorDetail: "malformed JSON: " + err.Error(),
@@ -126,6 +127,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	if req.Capability == "" {
+		s.w.abortActivePrompt("malformed_tool_call")
 		writeToolResponse(conn, ToolResponse{
 			OK: false, ErrorCode: "bad_request", ErrorDetail: "capability name is required",
 		})
@@ -185,6 +187,11 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 		}
 	}
 
+	if err := validateToolArgs(req.Capability, req.Args); err != nil {
+		w.abortActivePrompt("schema_invalid")
+		return ToolResponse{OK: false, ErrorCode: "schema_invalid", ErrorDetail: err.Error()}
+	}
+
 	// Build the CapabilityRequest payload.
 	reqPayload := capabilities.CapabilityRequestPayload{
 		Capability: req.Capability,
@@ -221,6 +228,16 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 			OK: capResp.OK, Data: jsonData,
 			ErrorCode: capResp.ErrorCode, ErrorDetail: capResp.ErrorDetail,
 		}
+	}
+}
+
+func (w *ward) abortActivePrompt(kind string) {
+	if kind == "" {
+		return
+	}
+	w.activeAbort.Store(&kind)
+	if cmd := w.activeCmd.Load(); cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
 	}
 }
 

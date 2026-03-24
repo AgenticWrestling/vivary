@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +161,72 @@ func TestExecuteTool_LoopDetected(t *testing.T) {
 	abort := w.activeAbort.Load()
 	if abort == nil || *abort != "loop_detected" {
 		t.Errorf("activeAbort = %v, want pointer to \"loop_detected\"", abort)
+	}
+}
+
+func TestExecuteTool_SchemaInvalid_MissingRequiredField(t *testing.T) {
+	w := newTestWardForServer(t)
+	resp := w.executeTool(context.Background(), ToolRequest{
+		Capability: "Browser_Page_Read",
+		Args:       json.RawMessage(`{"wait_for":"networkidle"}`),
+	})
+
+	if resp.OK {
+		t.Fatal("expected OK=false for schema-invalid args")
+	}
+	if resp.ErrorCode != "schema_invalid" {
+		t.Fatalf("error_code = %q, want %q", resp.ErrorCode, "schema_invalid")
+	}
+	if !strings.Contains(resp.ErrorDetail, `missing required field "url"`) {
+		t.Fatalf("unexpected error detail: %q", resp.ErrorDetail)
+	}
+	abort := w.activeAbort.Load()
+	if abort == nil || *abort != "schema_invalid" {
+		t.Fatalf("activeAbort = %v, want pointer to \"schema_invalid\"", abort)
+	}
+}
+
+func TestExecuteTool_SchemaInvalid_UnknownField(t *testing.T) {
+	w := newTestWardForServer(t)
+	resp := w.executeTool(context.Background(), ToolRequest{
+		Capability: "Filesystem_File_Write",
+		Args:       json.RawMessage(`{"path":"out.txt","content":"ok","extra":true}`),
+	})
+
+	if resp.OK {
+		t.Fatal("expected OK=false for unknown field")
+	}
+	if resp.ErrorCode != "schema_invalid" {
+		t.Fatalf("error_code = %q, want %q", resp.ErrorCode, "schema_invalid")
+	}
+	if !strings.Contains(resp.ErrorDetail, `unknown field "extra"`) {
+		t.Fatalf("unexpected error detail: %q", resp.ErrorDetail)
+	}
+}
+
+func TestToolServer_MalformedJSON_SetsAbortKind(t *testing.T) {
+	w := newTestWardForServer(t)
+	sockPath := startTestToolServer(t, w)
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	conn.Write([]byte("this is not json"))
+	conn.(*net.UnixConn).CloseWrite()
+
+	var resp ToolResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.OK {
+		t.Error("expected OK=false for malformed JSON")
+	}
+	abort := w.activeAbort.Load()
+	if abort == nil || *abort != "malformed_tool_call" {
+		t.Fatalf("activeAbort = %v, want pointer to \"malformed_tool_call\"", abort)
 	}
 }
 
