@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -11,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/internal/ctl"
+	"vivary.dev/vivary/internal/switchboard"
 )
 
 // ---- Helpers ---------------------------------------------------------------
@@ -227,6 +231,51 @@ func TestToolServer_MalformedJSON_SetsAbortKind(t *testing.T) {
 	abort := w.activeAbort.Load()
 	if abort == nil || *abort != "malformed_tool_call" {
 		t.Fatalf("activeAbort = %v, want pointer to \"malformed_tool_call\"", abort)
+	}
+}
+
+func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
+	tmp := t.TempDir()
+	claudePath := filepath.Join(tmp, "claude")
+	if err := os.WriteFile(claudePath, []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	w := newTestWardForServer(t)
+	w.pipe = &musPipe{w: &out, agentID: w.agentID, log: w.log}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if w.activeCmd.Load() != nil {
+				w.abortActivePrompt("schema_invalid")
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 42, Text: "test prompt"}
+	w.handlePrompt(context.Background(), prompt.MarshalMUS())
+
+	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		t.Fatalf("read emitted frame: %v", err)
+	}
+	if hdr.Type != switchboard.MsgType_FailureEvent {
+		t.Fatalf("frame type = %v, want FailureEvent", hdr.Type)
+	}
+	ev, err := audit.UnmarshalFailure(payload)
+	if err != nil {
+		t.Fatalf("decode failure event: %v", err)
+	}
+	if ev.Kind != "schema_invalid" {
+		t.Fatalf("failure kind = %q, want %q", ev.Kind, "schema_invalid")
+	}
+	if ev.PromptSeq != 42 {
+		t.Fatalf("prompt seq = %d, want 42", ev.PromptSeq)
 	}
 }
 
