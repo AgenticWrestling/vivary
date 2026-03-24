@@ -3,9 +3,16 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 
 	"github.com/sblinch/kdl-go"
+)
+
+var (
+	validLogLevels     = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+	capNameRe          = regexp.MustCompile(`^[A-Z][A-Za-z]+_[A-Z][A-Za-z]+_[A-Z][A-Za-z]+$`)
 )
 
 // OrchestratorConfig is parsed from orchestrator.kdl in the workspace root.
@@ -76,6 +83,10 @@ func LoadOrchestratorConfig(workspaceRoot string) (OrchestratorConfig, error) {
 		return cfg, fmt.Errorf("config: unmarshal %q: %w", path, err)
 	}
 
+	if err := ValidateOrchestratorConfig(cfg); err != nil {
+		return cfg, err
+	}
+
 	return cfg, nil
 }
 
@@ -138,6 +149,58 @@ func ParseAgentKDL(data []byte) (AgentConfig, error) {
 		return cfg, fmt.Errorf("agent config: unmarshal: %w", err)
 	}
 	return cfg, nil
+}
+
+// ValidateOrchestratorConfig checks for required fields and valid enum values.
+func ValidateOrchestratorConfig(cfg OrchestratorConfig) error {
+	if cfg.SocketPath == "" {
+		return fmt.Errorf("config: socket-path is required")
+	}
+	if cfg.LogLevel != "" && !validLogLevels[cfg.LogLevel] {
+		return fmt.Errorf("config: log-level %q is not valid (must be one of: debug, info, warn, error)", cfg.LogLevel)
+	}
+	if cfg.MaxAgentPipeBytesPerSec == 0 {
+		return fmt.Errorf("config: max-pipe-bytes-per-sec must be > 0")
+	}
+	return nil
+}
+
+// ValidateProviderConfig checks that each provider has a non-empty, well-formed api-url.
+func ValidateProviderConfig(providers map[string]ProviderConfig) error {
+	for name, p := range providers {
+		if p.APIURL == "" {
+			return fmt.Errorf("provider %q: api-url is required", name)
+		}
+		u, err := url.Parse(p.APIURL)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("provider %q: api-url %q is not a valid URL", name, p.APIURL)
+		}
+		if u.Scheme != "https" {
+			return fmt.Errorf("provider %q: api-url must use https, got %q", name, u.Scheme)
+		}
+	}
+	return nil
+}
+
+// ValidateAgentConfig checks required fields and naming conventions.
+func ValidateAgentConfig(cfg AgentConfig) error {
+	if err := ValidateAgentID(cfg.ID); err != nil {
+		return err
+	}
+	for _, cap := range cfg.Capabilities {
+		if !capNameRe.MatchString(cap.Name) {
+			return fmt.Errorf("capability name %q does not follow Namespace_Noun_Verb convention", cap.Name)
+		}
+	}
+	return nil
+}
+
+// ValidateCapabilityName returns an error if name does not follow Namespace_Noun_Verb.
+func ValidateCapabilityName(name string) error {
+	if !capNameRe.MatchString(name) {
+		return fmt.Errorf("capability name %q does not follow Namespace_Noun_Verb convention", name)
+	}
+	return nil
 }
 
 // ValidateAgentID returns an error if id is invalid.
