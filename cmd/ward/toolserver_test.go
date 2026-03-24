@@ -120,6 +120,49 @@ func TestParentDir(t *testing.T) {
 	}
 }
 
+// ---- Loop detection via executeTool ----------------------------------------
+
+// TestExecuteTool_LoopDetected verifies that executeTool returns loop_detected
+// and sets activeAbort when the loop detector fires.
+//
+// We pre-populate the detector to threshold-1 via direct ld.check() calls so
+// the single executeTool call trips the threshold without needing a real pipe.
+func TestExecuteTool_LoopDetected(t *testing.T) {
+	const threshold = 3
+	w := newTestWardForServer(t)
+	w.loopThreshold = threshold
+
+	ld := newLoopDetector(threshold)
+	w.activeLoop.Store(ld)
+	// No activeCmd — executeTool handles a nil cmd gracefully.
+
+	args := json.RawMessage(`{"url":"https://example.com"}`)
+
+	// Warm the detector to threshold-1 without going through executeTool.
+	for range threshold - 1 {
+		ld.check("Browser_Page_Read", args)
+	}
+
+	// This executeTool call should now trigger loop detection immediately,
+	// before any attempt to reach keeperd via the (nil) pipe.
+	resp := w.executeTool(context.Background(), ToolRequest{
+		Capability: "Browser_Page_Read",
+		Args:       args,
+	})
+
+	if resp.OK {
+		t.Fatal("expected OK=false on loop_detected")
+	}
+	if resp.ErrorCode != "loop_detected" {
+		t.Errorf("error_code = %q, want %q", resp.ErrorCode, "loop_detected")
+	}
+	// activeAbort must be set so runLLMSubprocess emits the right failure kind.
+	abort := w.activeAbort.Load()
+	if abort == nil || *abort != "loop_detected" {
+		t.Errorf("activeAbort = %v, want pointer to \"loop_detected\"", abort)
+	}
+}
+
 // ---- toolServer integration tests ------------------------------------------
 
 func TestToolServer_MalformedJSON(t *testing.T) {

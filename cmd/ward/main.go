@@ -27,7 +27,6 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
@@ -147,6 +146,14 @@ type ward struct {
 	log           *slog.Logger
 
 	promptSeq atomic.Uint64
+
+	// Per-run state set during runLLMSubprocess and read by executeTool.
+	// activeLoop is the loop detector for the current prompt run.
+	// activeCmd is the LLM subprocess; executeTool kills it on loop abort.
+	// activeAbort carries the failure kind when executeTool aborts the run.
+	activeLoop  atomic.Pointer[loopDetector]
+	activeCmd   atomic.Pointer[exec.Cmd]
+	activeAbort atomic.Pointer[string]
 }
 
 func (w *ward) run(ctx context.Context) error {
@@ -302,12 +309,27 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 		return llmOutcome{}, "subprocess_crash", fmt.Errorf("start LLM subprocess: %w", err)
 	}
 
+	// Publish per-run state so executeTool (called from the toolServer on a
+	// separate goroutine) can perform loop detection and kill the subprocess.
+	loop := newLoopDetector(w.loopThreshold)
+	w.activeLoop.Store(loop)
+	w.activeCmd.Store(cmd)
+	w.activeAbort.Store(nil)
+	defer func() {
+		w.activeLoop.Store(nil)
+		w.activeCmd.Store(nil)
+	}()
+
 	// Drain stderr asynchronously (Claude uses it for status messages).
 	go io.Copy(io.Discard, stderrPipe) //nolint:errcheck
 
-	loop := newLoopDetector(w.loopThreshold)
+	// Scan stream-json output for monitoring events only.
+	// Capability execution happens via cap-cli → toolServer → executeTool →
+	// keeperd.  The tool_use events here are emitted by Claude Code after it
+	// has already dispatched the tool; we read them only to count tool calls
+	// and extract usage/model metadata.  Loop detection and capability
+	// dispatch both live in executeTool where they fire before keeperd is hit.
 	var outcome llmOutcome
-
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -315,46 +337,41 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 			continue
 		}
 
-		// Claude --output-format stream-json emits one JSON object per line.
 		var event map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			w.log.Debug("ward: non-JSON line from subprocess", "line", line)
 			continue
 		}
 
-		// Handle tool_use blocks.
-		if typeVal, ok := event["type"]; ok {
-			var evType string
-			_ = json.Unmarshal(typeVal, &evType)
+		typeVal, ok := event["type"]
+		if !ok {
+			continue
+		}
+		var evType string
+		_ = json.Unmarshal(typeVal, &evType)
 
-			switch evType {
-			case "tool_use":
-				outcome.toolCalls++
-				// TODO(Phase 2): inject toolResp back into claude subprocess via
-				// the MCP tool-result protocol once stream-json bidirectional
-				// tool-call flow is implemented.
-				_, fkind, ferr := w.handleToolUse(ctx, event, loop)
-				if ferr != nil {
-					_ = cmd.Process.Kill()
-					return llmOutcome{}, fkind, ferr
-				}
+		switch evType {
+		case "tool_use":
+			outcome.toolCalls++
 
-			case "message_stop":
-				// Extract usage stats if present.
-				if usage, ok := event["usage"]; ok {
-					var u struct {
-						InputTokens  int `json:"input_tokens"`
-						OutputTokens int `json:"output_tokens"`
-					}
-					_ = json.Unmarshal(usage, &u)
-					outcome.inputTokens = u.InputTokens
-					outcome.outputTokens = u.OutputTokens
+		case "message_stop":
+			if usage, ok := event["usage"]; ok {
+				var u struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
 				}
+				_ = json.Unmarshal(usage, &u)
+				outcome.inputTokens = u.InputTokens
+				outcome.outputTokens = u.OutputTokens
 			}
 		}
 	}
 
 	if err := cmd.Wait(); err != nil {
+		// Check whether executeTool aborted the run (e.g. loop_detected).
+		if kind := w.activeAbort.Swap(nil); kind != nil {
+			return llmOutcome{}, *kind, fmt.Errorf("prompt aborted: %s", *kind)
+		}
 		if ctx.Err() != nil {
 			return llmOutcome{}, "timeout", ctx.Err()
 		}
@@ -364,61 +381,6 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	return outcome, "", nil
 }
 
-// handleToolUse processes a single tool_use event from the LLM subprocess.
-// It validates the call schema, detects loops, forwards to keeperd, and
-// returns the capability response payload.
-func (w *ward) handleToolUse(
-	ctx context.Context,
-	event map[string]json.RawMessage,
-	loop *loopDetector,
-) ([]byte, string, error) {
-	var toolName string
-	var inputArgs json.RawMessage
-	_ = json.Unmarshal(event["name"], &toolName)
-	if raw, ok := event["input"]; ok {
-		inputArgs = raw
-	}
-
-	// Loop detection: hash (toolName, args).
-	if loop.check(toolName, inputArgs) {
-		return nil, "loop_detected", fmt.Errorf(
-			"tool %q called with identical args %d times (threshold %d)",
-			toolName, w.loopThreshold, w.loopThreshold,
-		)
-	}
-
-	// Build CapabilityRequest payload.
-	type capReqPayload struct {
-		Name    string          `json:"name"`
-		AgentID string          `json:"agent_id"`
-		Args    json.RawMessage `json:"args"`
-	}
-	reqPayload, _ := json.Marshal(capReqPayload{
-		Name:    toolName,
-		AgentID: w.agentID,
-		Args:    inputArgs,
-	})
-
-	// Allocate seqNo and register the response channel before sending to
-	// avoid a race where keeperd responds before we've registered the slot.
-	seqNo := w.pipe.seq.Next()
-	respCh := w.registerPending(seqNo)
-	defer w.removePending(seqNo)
-
-	if err := w.pipe.sendWithSeq(seqNo, reqPayload); err != nil {
-		return nil, "subprocess_crash", fmt.Errorf("send capability request: %w", err)
-	}
-
-	const capabilityTimeout = 30 * time.Second
-	select {
-	case <-ctx.Done():
-		return nil, "timeout", ctx.Err()
-	case <-time.After(capabilityTimeout):
-		return nil, "timeout", fmt.Errorf("capability %q timed out after %v", toolName, capabilityTimeout)
-	case resp := <-respCh:
-		return resp.payload, "", nil
-	}
-}
 
 // ---- Loop detector ---------------------------------------------------------
 

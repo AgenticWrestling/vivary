@@ -159,9 +159,30 @@ func writeToolResponse(conn net.Conn, resp ToolResponse) {
 
 // executeTool validates args and forwards the capability request to keeperd
 // via the MUS pipe.  It blocks until keeperd responds or the context expires.
+//
+// Loop detection fires here, before keeperd is hit, so a repeated call is
+// rejected immediately.  When a loop is detected, the active LLM subprocess
+// is killed and activeAbort is set so runLLMSubprocess can emit the correct
+// FailureEvent kind.
 func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	if req.Args == nil {
 		req.Args = json.RawMessage(`{}`)
+	}
+
+	// Loop detection: check before dispatching to keeperd.
+	if ld := w.activeLoop.Load(); ld != nil {
+		if ld.check(req.Capability, req.Args) {
+			kind := "loop_detected"
+			w.activeAbort.Store(&kind)
+			if cmd := w.activeCmd.Load(); cmd != nil {
+				_ = cmd.Process.Kill()
+			}
+			return ToolResponse{
+				OK:          false,
+				ErrorCode:   "loop_detected",
+				ErrorDetail: fmt.Sprintf("capability %q repeated with identical args above threshold", req.Capability),
+			}
+		}
 	}
 
 	// Build the CapabilityRequest payload.
