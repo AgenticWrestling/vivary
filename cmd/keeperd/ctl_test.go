@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -384,6 +385,93 @@ func TestKeeperRuntimeState_FailureUpdatesStatus(t *testing.T) {
 	}
 }
 
+func TestKeeperWardPipe_FailureEventUpdatesCtlStatus(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+
+	const agentID = "test-agent-pipe"
+	pr, pw := io.Pipe()
+	pipe := &switchboard.Pipe{
+		AgentID: agentID,
+		Reader:  pr,
+		Writer:  io.Discard,
+		Limiter: switchboard.NewByteRateLimiter(1 << 20),
+	}
+
+	d.mu.Lock()
+	d.agents[agentID] = &agentState{id: agentID, pipe: pipe}
+	d.mu.Unlock()
+	d.router.AddPipe(context.Background(), pipe)
+	t.Cleanup(func() {
+		_ = pw.Close()
+		d.router.RemovePipe(agentID)
+	})
+
+	fev := audit.FailureEvent{
+		AgentID:   agentID,
+		PromptSeq: 17,
+		Kind:      "malformed_tool_call",
+		Detail:    "malformed JSON: invalid character 'x' looking for beginning of value",
+	}
+	payload, err := audit.MarshalEvent(&fev)
+	if err != nil {
+		t.Fatalf("marshal failure event: %v", err)
+	}
+	hdr := switchboard.SwarmHeader{
+		Version: 0,
+		Type:    switchboard.MsgType_FailureEvent,
+		FromID:  agentID,
+		ToID:    "keeper",
+		SeqNo:   1,
+	}
+	if err := switchboard.WriteFrame(pw, hdr, payload); err != nil {
+		t.Fatalf("write failure frame: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		d.mu.RLock()
+		state := d.agents[agentID]
+		updated := state != nil && state.lastOutcome == "malformed_tool_call" && !state.lastEventAt.IsZero()
+		d.mu.RUnlock()
+		if updated {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	c := dialCtl(t, sockPath)
+	c.send(t, switchboard.MsgType_CtlStatus, nil)
+	hdrResp, respPayload := c.recv(t)
+	if hdrResp.Type != switchboard.MsgType_CtlStatus {
+		t.Fatalf("expected CtlStatus, got %v", hdrResp.Type)
+	}
+	var status ctl.StatusPayload
+	if err := status.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+
+	var found *ctl.AgentStatus
+	for i := range status.Agents {
+		if status.Agents[i].ID == agentID {
+			found = &status.Agents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("agent %q not found in status", agentID)
+	}
+	if found.State != "running" {
+		t.Fatalf("State = %q, want running", found.State)
+	}
+	if found.LastOutcome != "malformed_tool_call" {
+		t.Fatalf("LastOutcome = %q, want malformed_tool_call", found.LastOutcome)
+	}
+	if found.LastEventAt == "" {
+		t.Fatal("LastEventAt should be set after failure event from ward pipe")
+	}
+}
+
 // TestAuditPayloadPolicy verifies that shouldAuditPayload correctly delegates
 // to the Capability.AuditPayload() method for CapabilityRequest frames.
 func TestAuditPayloadPolicy_KnownCapabilityTrue(t *testing.T) {
@@ -464,9 +552,9 @@ func TestAuditPayloadPolicy_SuppressedCapability(t *testing.T) {
 // suppressedCap is a test-only capability with AuditPayload()==false.
 type suppressedCap struct{}
 
-func (s *suppressedCap) Name() string                                              { return "Test_Sensitive_Read" }
-func (s *suppressedCap) Explain() string                                           { return "{}" }
-func (s *suppressedCap) AuditPayload() bool                                        { return false }
+func (s *suppressedCap) Name() string       { return "Test_Sensitive_Read" }
+func (s *suppressedCap) Explain() string    { return "{}" }
+func (s *suppressedCap) AuditPayload() bool { return false }
 func (s *suppressedCap) Execute(_ context.Context, _ capabilities.Request) (capabilities.Response, error) {
 	return capabilities.Response{OK: true}, nil
 }
