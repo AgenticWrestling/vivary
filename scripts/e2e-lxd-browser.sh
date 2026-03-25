@@ -57,6 +57,12 @@ lxc exec "$CONTAINER" -- test -S "$WORKSPACE/keeper.sock"
 
 printf 'Preparing browser e2e template in %s...\n' "$CONTAINER"
 lxc exec "$CONTAINER" -- sh -lc "rm -rf '$TEMPLATE_ROOT' && mkdir -p '$TEMPLATE_ROOT/output' '$TEMPLATE_ROOT/usr/bin' '$TEMPLATE_ROOT/usr/lib/vivary'"
+lxc exec "$CONTAINER" -- sh -lc "cat > '$TEMPLATE_ROOT/agent.kdl' <<'EOF'
+id \"template-browser-e2e\"
+browser {
+    headless true
+}
+EOF"
 lxc file push "$FAKE_CLAUDE_BIN" "$CONTAINER$TEMPLATE_ROOT/usr/bin/claude"
 systemd_bin_dir="$(lxc exec "$CONTAINER" -- sh -lc 'dirname "$(readlink -f /run/current-system/sw/bin/systemd)"')"
 lxc exec "$CONTAINER" -- sh -lc "mkdir -p '$TEMPLATE_ROOT$systemd_bin_dir' '$TEMPLATE_ROOT/run/current-system/sw/bin' && cp /run/current-system/sw/bin/capwrap '$TEMPLATE_ROOT/usr/lib/vivary/capwrap' && cp '$TEMPLATE_ROOT/usr/bin/claude' '$TEMPLATE_ROOT$systemd_bin_dir/claude' && cp '$TEMPLATE_ROOT/usr/bin/claude' '$TEMPLATE_ROOT/run/current-system/sw/bin/claude' && chmod 755 '$TEMPLATE_ROOT/usr/bin/claude' '$TEMPLATE_ROOT$systemd_bin_dir/claude' '$TEMPLATE_ROOT/run/current-system/sw/bin/claude' '$TEMPLATE_ROOT/usr/lib/vivary/capwrap'"

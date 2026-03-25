@@ -93,6 +93,31 @@ func TestManagerAcquireStatusRelease(t *testing.T) {
 	}
 }
 
+func TestManagerAcquirePassesHeadlessFlagAndUsesAgentProfileDir(t *testing.T) {
+	mgr, proc := newTestManager(t)
+	var got launchSpec
+	mgr.start = func(_ context.Context, spec launchSpec) (managedProcess, error) {
+		got = spec
+		return proc, nil
+	}
+
+	_, err := mgr.Acquire(context.Background(), chromedapi.AcquireRequest{
+		AgentID:     "agent-visible",
+		ProxyServer: "http://127.0.0.1:7777",
+		TimeoutSec:  1,
+		Headless:    false,
+	})
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if got.Headless {
+		t.Fatal("Headless = true, want false")
+	}
+	if !strings.HasSuffix(got.ProfileDir, filepath.Join("agent-visible")) {
+		t.Fatalf("ProfileDir = %q, want suffix %q", got.ProfileDir, filepath.Join("agent-visible"))
+	}
+}
+
 func TestManagerAcquireReadyFailureKillsProcess(t *testing.T) {
 	mgr, proc := newTestManager(t)
 	mgr.waitReady = func(context.Context, string) error { return errors.New("not ready") }

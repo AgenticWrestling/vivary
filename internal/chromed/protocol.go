@@ -24,6 +24,7 @@ type AcquireRequest struct {
 	AgentID     string
 	ProxyServer string
 	TimeoutSec  uint32
+	Headless    bool
 }
 
 func (p *AcquireRequest) MarshalMUS() []byte {
@@ -31,6 +32,11 @@ func (p *AcquireRequest) MarshalMUS() []byte {
 	b = mus.AppendString(b, p.AgentID)
 	b = mus.AppendString(b, p.ProxyServer)
 	b = mus.AppendVarint(b, uint64(p.TimeoutSec))
+	if p.Headless {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
 	return b
 }
 
@@ -47,6 +53,11 @@ func (p *AcquireRequest) UnmarshalMUS(r io.Reader) error {
 		return err
 	}
 	p.TimeoutSec = uint32(v)
+	var fixed [1]byte
+	if _, err := io.ReadFull(r, fixed[:]); err != nil {
+		return err
+	}
+	p.Headless = fixed[0] != 0
 	return nil
 }
 

@@ -403,16 +403,16 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 }
 
 func resolveClaudePath() (string, error) {
+	path, err := exec.LookPath("claude")
+	if err == nil {
+		return path, nil
+	}
 	for _, candidate := range []string{"/usr/local/bin/claude", "/usr/bin/claude", "/bin/claude"} {
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
 		}
 	}
-	path, err := exec.LookPath("claude")
-	if err != nil {
-		return "", err
-	}
-	return path, nil
+	return "", err
 }
 
 func withPreferredPATH(env []string) []string {

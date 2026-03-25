@@ -80,8 +80,11 @@ func TestLoadProvidersConfig_EmptyFile(t *testing.T) {
 
 func TestParseAgentKDL_Provider(t *testing.T) {
 	kdl := `id "test-agent"
-provider anthropic
+provider "anthropic"
 cpu-shares 2048
+browser {
+    headless true
+}
 `
 	cfg, err := ParseAgentKDL([]byte(kdl))
 	if err != nil {
@@ -95,6 +98,9 @@ cpu-shares 2048
 	}
 	if cfg.CPUShares != 2048 {
 		t.Errorf("cpu-shares = %d, want 2048", cfg.CPUShares)
+	}
+	if !cfg.Browser.Headless {
+		t.Fatal("browser.headless = false, want true")
 	}
 }
 

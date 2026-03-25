@@ -56,6 +56,7 @@ type launchSpec struct {
 	ProfileDir       string
 	ProxyServer      string
 	ChromeBinaryPath string
+	Headless         bool
 }
 
 type instance struct {
@@ -65,6 +66,7 @@ type instance struct {
 	forwardPath string
 	profileDir  string
 	proxyServer string
+	headless    bool
 	proc        managedProcess
 	running     bool
 }
@@ -147,6 +149,7 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 		ProfileDir:       profileDir,
 		ProxyServer:      req.ProxyServer,
 		ChromeBinaryPath: m.chromeBinary,
+		Headless:         req.Headless,
 	}
 	proc, err := m.start(ctx, spec)
 	if err != nil {
@@ -174,6 +177,7 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 		forwardPath: forwardPath,
 		profileDir:  profileDir,
 		proxyServer: req.ProxyServer,
+		headless:    req.Headless,
 		proc:        proc,
 		running:     true,
 	}
@@ -183,7 +187,7 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 
 	go m.reap(req.AgentID, proc)
 	if m.log != nil {
-		m.log.Info("chrome profile acquired", "agent", req.AgentID, "debug_addr", publicDebugAddr, "pid", proc.Pid())
+		m.log.Info("chrome profile acquired", "agent", req.AgentID, "debug_addr", publicDebugAddr, "pid", proc.Pid(), "headless", req.Headless)
 	}
 	return chromedapi.AcquireResponse{OK: true, DebugAddr: publicDebugAddr, ProfileDir: profileDir}, nil
 }
@@ -361,7 +365,6 @@ func startChromeProcess(ctx context.Context, spec launchSpec) (managedProcess, e
 		return nil, fmt.Errorf("split debug addr: %w", err)
 	}
 	args := []string{
-		"--headless=new",
 		"--disable-gpu",
 		"--no-sandbox",
 		"--disable-dev-shm-usage",
@@ -375,6 +378,11 @@ func startChromeProcess(ctx context.Context, spec launchSpec) (managedProcess, e
 		"--user-data-dir=" + spec.ProfileDir,
 		"--proxy-server=" + spec.ProxyServer,
 		"about:blank",
+	}
+	if spec.Headless {
+		args = append([]string{"--headless=new"}, args...)
+	} else {
+		args = append(args[:len(args)-1], append([]string{"--new-window"}, args[len(args)-1:]...)...)
 	}
 	cmd := exec.CommandContext(ctx, spec.ChromeBinaryPath, args...)
 	cmd.Stdout = io.Discard

@@ -83,6 +83,11 @@ func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) er
 	cleanup = append(cleanup, func() {
 		_ = d.runtime.DestroySubvolume(req.ID, subvolPath)
 	})
+	if browserCfg, err := loadTemplateBrowserConfig(subvolPath); err != nil {
+		return fmt.Errorf("load template browser config: %w", err)
+	} else {
+		agentCfg.Browser = browserCfg
+	}
 
 	// Write agent.kdl into the subvolume.
 	if err := writeAgentKDL(subvolPath, agentCfg); err != nil {
@@ -93,6 +98,12 @@ func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) er
 	// reachable under each capability name.
 	if err := d.runtime.InstallCapabilityCLIs(subvolPath, d.dispatcher.Names()); err != nil {
 		return fmt.Errorf("install capability CLIs: %w", err)
+	}
+	if d.browserMgr != nil {
+		d.browserMgr.SetHeadless(req.ID, agentCfg.Browser.Headless)
+		cleanup = append(cleanup, func() {
+			_ = d.browserMgr.Release(context.Background(), req.ID)
+		})
 	}
 
 	// Install capability ACL.
@@ -211,6 +222,9 @@ func writeAgentKDL(subvolPath string, cfg AgentConfig) error {
 	if cfg.MemoryMaxBytes > 0 {
 		fmt.Fprintf(&sb, "memory-max-bytes %d\n", cfg.MemoryMaxBytes)
 	}
+	sb.WriteString("browser {\n")
+	fmt.Fprintf(&sb, "    headless %t\n", cfg.Browser.Headless)
+	sb.WriteString("}\n")
 	if len(cfg.Capabilities) > 0 {
 		sb.WriteString("\ncapabilities {\n")
 		for _, c := range cfg.Capabilities {
@@ -223,6 +237,21 @@ func writeAgentKDL(subvolPath string, cfg AgentConfig) error {
 		sb.WriteString("}\n")
 	}
 	return os.WriteFile(filepath.Join(subvolPath, "agent.kdl"), []byte(sb.String()), 0o640)
+}
+
+func loadTemplateBrowserConfig(subvolPath string) (AgentBrowserConfig, error) {
+	data, err := os.ReadFile(filepath.Join(subvolPath, "agent.kdl"))
+	if os.IsNotExist(err) {
+		return AgentBrowserConfig{}, nil
+	}
+	if err != nil {
+		return AgentBrowserConfig{}, err
+	}
+	cfg, err := ParseAgentKDL(data)
+	if err != nil {
+		return AgentBrowserConfig{}, err
+	}
+	return cfg.Browser, nil
 }
 
 // agentDestroy is fully implemented — tears down nspawn, removes the subvolume.

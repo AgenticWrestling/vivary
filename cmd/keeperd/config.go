@@ -16,6 +16,9 @@ type AgentConfig = config.AgentConfig
 // AgentCapabilityEntry is an alias for internal/config.AgentCapabilityEntry.
 type AgentCapabilityEntry = config.AgentCapabilityEntry
 
+// AgentBrowserConfig is an alias for internal/config.AgentBrowserConfig.
+type AgentBrowserConfig = config.AgentBrowserConfig
+
 // DefaultOrchestratorConfig returns the config with all defaults populated.
 func DefaultOrchestratorConfig(workspaceRoot string) OrchestratorConfig {
 	return config.DefaultOrchestratorConfig(workspaceRoot)

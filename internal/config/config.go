@@ -43,7 +43,12 @@ type AgentConfig struct {
 	Provider       string                 `kdl:"provider"`
 	CPUShares      uint32                 `kdl:"cpu-shares"`
 	MemoryMaxBytes uint64                 `kdl:"memory-max-bytes"`
+	Browser        AgentBrowserConfig     `kdl:"browser,child"`
 	Capabilities   []AgentCapabilityEntry `kdl:"capabilities,child"`
+}
+
+type AgentBrowserConfig struct {
+	Headless bool `kdl:"headless"`
 }
 
 // AgentCapabilityEntry is one entry in agent.kdl's capabilities block.

@@ -24,6 +24,7 @@ type chromedClient interface {
 type browserManager struct {
 	mu        sync.Mutex
 	client    chromedClient
+	headless  map[string]bool
 	proxyByID map[string]pageReader
 	newProxy  func(string) pageReader
 	proxies   *proxyAllocator
@@ -31,7 +32,13 @@ type browserManager struct {
 }
 
 func newBrowserManager(client chromedClient, proxies *proxyAllocator, log *slog.Logger) *browserManager {
-	return &browserManager{client: client, proxyByID: make(map[string]pageReader), newProxy: func(addr string) pageReader { return chromproxy.New(addr) }, proxies: proxies, log: log}
+	return &browserManager{client: client, headless: make(map[string]bool), proxyByID: make(map[string]pageReader), newProxy: func(addr string) pageReader { return chromproxy.New(addr) }, proxies: proxies, log: log}
+}
+
+func (m *browserManager) SetHeadless(agentID string, headless bool) {
+	m.mu.Lock()
+	m.headless[agentID] = headless
+	m.mu.Unlock()
 }
 
 func (m *browserManager) ReadPage(ctx context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error) {
@@ -42,6 +49,7 @@ func (m *browserManager) ReadPage(ctx context.Context, agentID, targetURL string
 		return "", fmt.Errorf("browser proxy allocator not configured")
 	}
 	m.mu.Lock()
+	headless := m.headless[agentID]
 	proxy := m.proxyByID[agentID]
 	m.mu.Unlock()
 	if proxy == nil {
@@ -51,7 +59,7 @@ func (m *browserManager) ReadPage(ctx context.Context, agentID, targetURL string
 		}
 		acqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		resp, err := m.client.Acquire(acqCtx, chromedapi.AcquireRequest{AgentID: agentID, ProxyServer: proxyInst.url, TimeoutSec: 10})
+		resp, err := m.client.Acquire(acqCtx, chromedapi.AcquireRequest{AgentID: agentID, ProxyServer: proxyInst.url, TimeoutSec: 10, Headless: headless})
 		if err != nil {
 			_ = m.proxies.Release(agentID)
 			return "", fmt.Errorf("acquire browser session: %w", err)
@@ -73,6 +81,7 @@ func (m *browserManager) Release(ctx context.Context, agentID string) error {
 	}
 	m.mu.Lock()
 	delete(m.proxyByID, agentID)
+	delete(m.headless, agentID)
 	m.mu.Unlock()
 	if m.proxies != nil {
 		_ = m.proxies.Release(agentID)

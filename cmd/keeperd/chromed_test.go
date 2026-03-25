@@ -38,6 +38,7 @@ type fakeChromedClient struct {
 	acquireCount int
 	releaseCount int
 	lastProxyURL string
+	lastHeadless bool
 	acquireResp  chromedapi.AcquireResponse
 	acquireErr   error
 	releaseErr   error
@@ -106,6 +107,7 @@ func startFakeChromedSocketServer(t *testing.T, acquireResp chromedapi.AcquireRe
 func (f *fakeChromedClient) Acquire(_ context.Context, req chromedapi.AcquireRequest) (chromedapi.AcquireResponse, error) {
 	f.acquireCount++
 	f.lastProxyURL = req.ProxyServer
+	f.lastHeadless = req.Headless
 	if f.acquireErr != nil {
 		return chromedapi.AcquireResponse{}, f.acquireErr
 	}
@@ -175,8 +177,27 @@ func TestBrowserManagerReadPage_AcquiresAndCachesProxy(t *testing.T) {
 	if !strings.HasPrefix(fake.lastProxyURL, "http://127.0.0.1:87") {
 		t.Fatalf("proxy URL = %q", fake.lastProxyURL)
 	}
+	if fake.lastHeadless {
+		t.Fatal("Headless = true, want false by default")
+	}
 	if reader.callCount != 2 {
 		t.Fatalf("reader call count = %d, want 2", reader.callCount)
+	}
+}
+
+func TestBrowserManagerReadPage_PassesHeadlessSetting(t *testing.T) {
+	fake := &fakeChromedClient{acquireResp: chromedapi.AcquireResponse{OK: true, DebugAddr: "127.0.0.1:45555", ProfileDir: "/tmp/agent1"}}
+	reader := &fakePageReader{text: "page text"}
+	mgr := newBrowserManager(fake, newProxyAllocator("127.0.0.1", nil), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	mgr.SetHeadless("agent1", true)
+	mgr.newProxy = func(string) pageReader { return reader }
+
+	_, err := mgr.ReadPage(context.Background(), "agent1", "https://example.com/page", chromproxy.WhitelistPolicy{Domains: []string{"example.com"}}, "networkidle", 1024)
+	if err != nil {
+		t.Fatalf("ReadPage: %v", err)
+	}
+	if !fake.lastHeadless {
+		t.Fatal("expected AcquireRequest.Headless to be true")
 	}
 }
 

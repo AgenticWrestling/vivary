@@ -136,6 +136,7 @@ func TestValidateAgentConfig_Valid(t *testing.T) {
 	cfg := AgentConfig{
 		ID:       "my-agent",
 		Provider: "anthropic",
+		Browser:  AgentBrowserConfig{Headless: true},
 		Capabilities: []AgentCapabilityEntry{
 			{Name: "Browser_Page_Read"},
 			{Name: "Filesystem_File_Write"},
@@ -143,6 +144,16 @@ func TestValidateAgentConfig_Valid(t *testing.T) {
 	}
 	if err := ValidateAgentConfig(cfg); err != nil {
 		t.Fatalf("valid config should pass: %v", err)
+	}
+}
+
+func TestParseAgentKDL_BrowserHeadless(t *testing.T) {
+	cfg, err := ParseAgentKDL([]byte("id \"test-agent\"\nbrowser {\n    headless true\n}\n"))
+	if err != nil {
+		t.Fatalf("ParseAgentKDL: %v", err)
+	}
+	if !cfg.Browser.Headless {
+		t.Fatal("Browser.Headless = false, want true")
 	}
 }
 

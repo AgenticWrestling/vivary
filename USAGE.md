@@ -124,10 +124,23 @@ task distro:chromed:status
 
 That mount exposes the host-side MUS socket at `/run/vivary/chromed-host/chromed.sock`, which is how `keeperd` asks `chromed` to create or release per-agent Chrome sessions.
 
-Chrome sessions stay headless in the shipped path, so you should not expect a
+The browser e2e path runs headless by default, so you should not expect a
 visible desktop Chrome window or profile switcher to pop up on the host while
-browser e2e tests run. Host-side profile state is still created under the
-matching `chromed` profile root, one directory per agent ID.
+those tests run. Host-side profile state is still created under the matching
+`chromed` profile root, one directory per agent ID.
+
+Each agent's generated `agent.kdl` also carries a browser setting:
+
+```kdl
+browser {
+    headless false
+}
+```
+
+`headless` defaults to `false`. When set to `true`, `chromed` launches Chrome
+with `--headless=new`. When left `false`, `chromed` attempts a normal visible
+Chrome window for that agent profile instead. In practice, visible windows only
+work when the host-side `chromed` process has access to a graphical session.
 
 Inside the runtime container:
 
@@ -184,7 +197,8 @@ task distro:test:browser-e2e CONTAINER=vivary-static
 
 That task provisions one allow-path agent and one deny-path agent, drives both
 through the LXD + `chromed` path, and asserts that only the allow-path agent
-acquires a live browser session.
+acquires a live browser session. The test template forces `browser.headless true`
+so it remains deterministic in non-interactive environments.
 
 ---
 

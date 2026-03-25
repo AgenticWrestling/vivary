@@ -121,6 +121,34 @@ func (r *recordingRuntime) Terminate(agentID string) error {
 	return nil
 }
 
+func TestLoadTemplateBrowserConfig(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "agent.kdl"), []byte("id \"template-agent\"\nbrowser {\n    headless true\n}\n"), 0o644); err != nil {
+		t.Fatalf("write agent.kdl: %v", err)
+	}
+	browserCfg, err := loadTemplateBrowserConfig(root)
+	if err != nil {
+		t.Fatalf("loadTemplateBrowserConfig: %v", err)
+	}
+	if !browserCfg.Headless {
+		t.Fatal("Headless = false, want true")
+	}
+}
+
+func TestWriteAgentKDL_WritesBrowserSettings(t *testing.T) {
+	root := t.TempDir()
+	if err := writeAgentKDL(root, AgentConfig{ID: "agent-browser", Browser: AgentBrowserConfig{Headless: true}, CPUShares: 1024}); err != nil {
+		t.Fatalf("writeAgentKDL: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "agent.kdl"))
+	if err != nil {
+		t.Fatalf("read agent.kdl: %v", err)
+	}
+	if !strings.Contains(string(data), "browser {") || !strings.Contains(string(data), "headless true") {
+		t.Fatalf("agent.kdl missing browser headless block:\n%s", string(data))
+	}
+}
+
 // noopWard returns a SpawnFunc that spawns a subprocess which exits immediately.
 // On all POSIX systems "true" exits 0; on test environments without it, we
 // use "sh -c exit 0" as fallback — but "true" is always available in CI.
