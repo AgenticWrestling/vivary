@@ -105,6 +105,11 @@ tasks:
     cmds:
       - ./scripts/distro-lxd.sh import runtime {{.CLI_ARGS}}
 
+  distro:launch:
+    desc: Launch the default runtime LXD container
+    cmds:
+      - ./scripts/distro-lxd.sh launch vivary-runtime {{.CONTAINER}}
+
   distro:export:
     desc: Export an LXD image alias to tarballs
     cmds:
@@ -126,6 +131,11 @@ tasks:
     desc: Restart keeperd inside a running LXD container
     cmds:
       - lxc exec {{.CONTAINER}} -- sh -lc 'mkdir -p /var/log/vivary {{.KEEPERD_WORKSPACE}} && pkill -f "/usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}}" || true; nohup /usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}} >/var/log/vivary/keeperd.log 2>&1 &'
+
+  distro:connect:
+    desc: Launch the viv TUI against keeperd inside a running LXD container
+    cmds:
+      - lxc exec {{.CONTAINER}} -- /usr/local/bin/viv --socket {{.KEEPERD_WORKSPACE}}/keeper.sock tui
 
   distro:push:restart:
     desc: Push runtime binaries and restart keeperd inside the LXD container
