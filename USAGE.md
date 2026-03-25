@@ -9,8 +9,17 @@ Multi-agent routing remains deferred; the CLI, TUI, and Nix/LXD packaging path a
 
 - Go 1.23+
 - [`task`](https://taskfile.dev) (optional but recommended)
-- Linux with `systemd-nspawn` + `btrfs-progs` for full container isolation
-  (macOS / WSL2: Ward runs as a plain subprocess — isolation is not enforced)
+
+Platform-specific requirements:
+
+- Linux:
+  - `systemd-nspawn` + `btrfs-progs` for keeperd-managed agent isolation
+  - `lxc` / LXD for the `distro*` image build, import, launch, push, and connect workflows
+  - `nix` with flakes enabled for `task distro` and `task distro:runtime`
+- macOS / WSL2:
+  - CLI and daemon development work, builds, and most tests work
+  - Ward runs as a plain subprocess; Linux isolation features are not enforced
+  - `systemd-nspawn`, nftables isolation, and the LXD runtime image workflow are Linux-only
 
 ---
 
@@ -66,6 +75,11 @@ Passing test suites:
 
 ## LXD / distrobuild
 
+This section is Linux-only. It assumes:
+
+- `lxc` is installed and connected to a working LXD daemon
+- `nix` is installed with flakes enabled
+
 The repo ships two LXD-importable Nix images:
 
 - `vivary-base`: minimal immutable-ish OS image, no VIVARY binaries
@@ -82,7 +96,10 @@ task distro:runtime
 task distro:import
 task distro:import:runtime
 
-# Launch the runtime image into a container named "vivary"
+# Launch the default runtime image into the default container name
+task distro:launch
+
+# Or launch explicitly
 ./scripts/distro-lxd.sh launch vivary-runtime vivary
 ```
 
@@ -110,13 +127,21 @@ task distro:push CONTAINER=my-vivary-dev
 # Push and restart keeperd inside the default container
 task distro:push:restart
 
+# Launch the TUI against keeperd inside the default container
+task distro:connect
+
 # Or just restart keeperd inside a running container
 task distro:restart:keeperd CONTAINER=my-vivary-dev
+
+# Or launch the TUI in a different running container
+task distro:connect CONTAINER=my-vivary-dev
 ```
 
 `distro:push` is a dev convenience and mutates the running container. The cleaner full-image path is still to rebuild/import/launch a fresh `vivary-runtime` image.
 
 `distro:restart:keeperd` starts `keeperd` in the container with `--workspace /var/lib/vivary/workspace` by default and writes logs to `/var/log/vivary/keeperd.log`. Override with `KEEPERD_WORKSPACE=/some/path` if your container uses a different workspace.
+
+`distro:connect` uses `lxc exec` from the host to launch `viv tui` inside the running container against `$KEEPERD_WORKSPACE/keeper.sock` (default `/var/lib/vivary/workspace/keeper.sock`).
 
 ---
 
@@ -272,6 +297,7 @@ bin/vivgen --dir capabilities --pkg capabilities --output internal/capabilities/
 ```
 
 The generator enforces:
+
 - Capability name must be `Namespace_Noun_Verb` (two underscores, each segment
   starts with an uppercase letter, no vendor-specific terms).
 - Field metadata in KDL (description, examples, enums).
