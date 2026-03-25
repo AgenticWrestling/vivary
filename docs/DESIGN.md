@@ -10,7 +10,8 @@ flowchart TD
         TUI[viv TUI/CLI]
         SOCK((keeper.sock))
         DAEMON[keeperd Go Daemon]
-        CHROME[Chrome Headless Host-side]
+        CHROMED[chromed Host Service]
+        CHROME[Per-agent Chrome Host-side]
         VAULT[(Credential Vault AES-256-GCM)]
         LOGS[(SQLite WAL Audit Log)]
 
@@ -18,7 +19,9 @@ flowchart TD
         SOCK <--> DAEMON
         DAEMON <--> VAULT
         DAEMON <--> LOGS
-        DAEMON <-->|CDP Proxy| CHROME
+        DAEMON <-->|MUS over bind-mounted socket| CHROMED
+        CHROMED <-->|launch/track CDP| CHROME
+        CHROME <-->|HTTP proxy| DAEMON
 
         subgraph "nspawn Agent"
             WA["Ward (Go)"]
@@ -272,18 +275,28 @@ An agent sending to `group:researchers` must have each member of that group in i
 
 Agents interact with the outside world exclusively through MUS capability requests validated by `keeperd`. Agents never hold credentials or open raw network sockets.
 
-#### 6a. Browser (Chrome Sidecar)
+#### 6a. Browser (Host `chromed` + Per-Agent Chrome)
 
 A host-side `chromed` service runs on the **host OS** (outside all nspawn containers) and manages per-agent headless Chrome instances with dedicated profile directories. `keeperd` requests sessions from `chromed` over a local MUS socket and receives the per-agent CDP address to use.
 
 - Agents emit MUS-wrapped CDP verbs (e.g., `Browser_Page_Read`).
 - `keeperd` validates the verb against the agent's ACL in `agent.kdl`.
+- `keeperd` asks `chromed` to `Acquire(agent_id, proxy_server)` the first time an agent needs a browser session.
+- `chromed` creates `<profile_root>/<agent_id>` on the host if needed, starts `/usr/bin/google-chrome-beta` with that profile, and returns the CDP address for that agent session.
 - Validated requests are translated to Chrome DevTools Protocol JSON-RPC and forwarded to the per-agent CDP endpoint returned by `chromed`.
 - The runtime now enforces browser whitelist policy in two places: first in the capability layer during ACL/scope validation, then again in the Chrome proxy before any CDP traffic is sent. This defence-in-depth behavior is part of the MVP runtime and should remain testable at both layers.
-- Host Chrome is configured to use a small per-agent HTTP proxy served by `keeperd` inside the LXC guest. The proxy binds on the container network address (not `127.0.0.1`) so the host browser can reach it; the default port range is `8700-8800`.
+- Host Chrome is configured to use a small per-agent HTTP proxy served by `keeperd` inside the LXC guest. The proxy binds on the container network address (not `127.0.0.1`) so the host browser can reach it; the default port range is `8700-8800`, and keeperd selects the next free port when one is already in use.
+- The `chromed` MUS socket is exposed into the container by bind-mounting the host runtime directory at `/run/vivary/chromed-host`.
 - Current tests cover browser allow/deny behavior at the proxy layer, capability-to-proxy handoff layer, keeperd response/audit layer, and prompt-run boundary. What is still missing is live-Chrome verification against the real sidecar process.
 - The current implementation uses one host-managed Chrome process per active agent session, with a dedicated `--user-data-dir` profile per agent managed by `chromed`.
 - Because Chrome runs on the host OS, the nspawn container image requires no display server, window manager, or GPU drivers.
+
+**Session lifecycle:**
+
+- `task distro:launch` starts both the LXD runtime container and the matching host `chromed@<container>.service` unit.
+- `keeperd` acquires browser sessions lazily on first use, rather than at agent-create time.
+- `keeperd` releases the matching `chromed` session when the agent is destroyed.
+- `task distro:stop` and `task distro:delete` stop the matching `chromed` unit with the container lifecycle.
 
 **Scaling note:** The current path prefers clearer per-agent profile/process ownership over the lowest possible browser footprint. If this becomes too heavy, a later phase can evaluate explicit browser contexts or pooled browser workers without weakening `keeperd` policy authority.
 

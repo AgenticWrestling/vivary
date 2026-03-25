@@ -79,6 +79,8 @@ This section is Linux-only. It assumes:
 
 - `lxc` is installed and connected to a working LXD daemon
 - `nix` is installed with flakes enabled
+- `/usr/bin/google-chrome-beta` exists on the host for browser-backed agent sessions
+- `chromed@.service` is installed on the host (`task distro:chromed:install`)
 
 The repo ships two LXD-importable Nix images:
 
@@ -96,12 +98,26 @@ task distro:runtime
 task distro:import
 task distro:import:runtime
 
+# Install the host-side chromed service and unit
+task distro:chromed:install
+
 # Launch the default runtime image into the default container name
 task distro:launch
+
+# Inspect the matching host chromed instance
+task distro:chromed:status
 
 # Or launch explicitly
 ./scripts/distro-lxd.sh launch vivary-runtime vivary
 ```
+
+`task distro:launch` now does three things together:
+
+- launches the LXD container
+- starts the matching host `chromed@<container>.service` systemd unit
+- bind-mounts the host chromed runtime directory into the container at `/run/vivary/chromed-host`
+
+That mount exposes the host-side MUS socket at `/run/vivary/chromed-host/chromed.sock`, which is how `keeperd` asks `chromed` to create or release per-agent Chrome sessions.
 
 Inside the runtime container:
 
@@ -143,6 +159,8 @@ task distro:connect CONTAINER=my-vivary-dev
 
 `distro:connect` uses `lxc exec` from the host to launch `viv tui` inside the running container against `$KEEPERD_WORKSPACE/keeper.sock` (default `/var/lib/vivary/workspace/keeper.sock`).
 
+`task distro:stop` and `task distro:delete` stop the matching host `chromed@<container>.service` unit as part of the same lifecycle.
+
 ---
 
 ## Running keeperd
@@ -172,7 +190,17 @@ log-level      "info"   // debug | info | warn | error
 providers-file "./providers.kdl"
 ```
 
-For host-browser mode, `keeperd` asks the host-side `chromed` service for a per-agent Chrome instance. `keeperd` also starts a per-agent HTTP proxy inside the container on ports `8700-8800` and passes that proxy URL to `chromed` so host Chrome reaches the network through `keeperd`. If `chrome-proxy-server` is empty, `keeperd` advertises the first non-loopback container IPv4 address.
+For host-browser mode:
+
+- `keeperd` talks to the host-side `chromed` service over the MUS socket at `chromed-socket-path`
+- on first browser use for an agent, `keeperd` requests a dedicated Chrome session from `chromed`
+- `chromed` creates a per-agent profile directory on the host and starts `/usr/bin/google-chrome-beta` with that profile
+- `keeperd` starts a per-agent HTTP proxy inside the container and passes its URL to `chromed` as Chrome's `--proxy-server`
+- the proxy binds on the container network address, not `127.0.0.1`, because host Chrome cannot reach container loopback
+- the default proxy port range is `8700-8800`; if a port is already taken, `keeperd` uses the next free port in the range
+- if `chrome-proxy-server` is empty, `keeperd` advertises the first non-loopback container IPv4 address automatically
+
+This means browser traffic stays mediated by `keeperd` even though Chrome itself runs on the host OS.
 
 keeperd also reads `providers.kdl` (see `providers.kdl` at the project root for
 the built-in registry).  Each provider entry maps a name to a canonical API URL:
