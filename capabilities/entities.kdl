@@ -6,344 +6,344 @@
 //
 // Scope constraint syntax in agent.kdl:
 //
-//   allow "Email_Message_Send" {
-//       entity "EmailMessage" {
-//           to-domain "example.com"     // Addressed.to must end with this domain
+//   allow Email_Message_Send {
+//       entity EmailMessage {
+//           to-domain example.com     // Addressed.to must end with this domain
 //       }
 //       schedule {
-//           days "mon"-"fri"
-//           hours "09:00"-"17:00" timezone="Europe/London"
+//           days mon-fri
+//           hours "09:00"-"17:00" timezone=Europe/London
 //       }
-//       rate { max 20 per="day" }
+//       rate { max 20 per=day }
 //   }
 
 // ─── Filesystem ───────────────────────────────────────────────────────────────
 
-entity "File" {
+entity File {
     description "A regular file in the agent's workspace filesystem"
-    components "Located" "Timestamped" "Sized"
+    components Located Timestamped Sized
     scope-constraints {
-        "path-prefix"  field="Located.path"      description="Restrict to paths starting with this prefix"
-        "extension"    field="Located.extension" description="Restrict to files with this extension"
-        "max-size"     field="Sized.size_bytes"  description="Reject files larger than this many bytes"
+        path-prefix  field=Located.path      description="Restrict to paths starting with this prefix"
+        extension    field=Located.extension description="Restrict to files with this extension"
+        max-size     field=Sized.size_bytes  description="Reject files larger than this many bytes"
     }
 }
 
-entity "Folder" {
+entity Folder {
     description "A directory in the agent's workspace filesystem"
-    components "Located" "Timestamped"
+    components Located Timestamped
     scope-constraints {
-        "path-prefix"  field="Located.path" description="Restrict to folders under this path"
+        path-prefix  field=Located.path description="Restrict to folders under this path"
     }
 }
 
 // ─── Web ──────────────────────────────────────────────────────────────────────
 
-entity "Link" {
+entity Link {
     description "A URL or hyperlink reference"
-    components "Addressable"
+    components Addressable
     scope-constraints {
-        "domain"       field="Addressable.domain" description="Restrict to this exact domain"
-        "domain-suffix" field="Addressable.domain" description="Restrict to domains ending with this suffix"
-        "scheme"       field="Addressable.scheme"  description="Restrict to this URL scheme (e.g. https)"
-        "path-prefix"  field="Addressable.path"    description="Restrict to URLs whose path starts with this prefix"
+        domain       field=Addressable.domain description="Restrict to this exact domain"
+        domain-suffix field=Addressable.domain description="Restrict to domains ending with this suffix"
+        scheme       field=Addressable.scheme  description="Restrict to this URL scheme (e.g. https)"
+        path-prefix  field=Addressable.path    description="Restrict to URLs whose path starts with this prefix"
     }
 }
 
 // ─── Email ────────────────────────────────────────────────────────────────────
 
-entity "EmailMessage" {
+entity EmailMessage {
     description "A received or sent email message"
-    components "Identified" "Owned" "Addressed" "Timestamped"
+    components Identified Owned Addressed Timestamped
     scope-constraints {
-        "from-domain"  field="Addressed.from"    description="Restrict to messages from this sender domain"
-        "to-domain"    field="Addressed.to"      description="Restrict to messages addressed to this domain"
-        "to-address"   field="Addressed.to"      description="Restrict to messages addressed to this exact address"
-        "subject-contains" field="Addressed.subject" description="Restrict to messages whose subject contains this string"
+        from-domain  field=Addressed.from    description="Restrict to messages from this sender domain"
+        to-domain    field=Addressed.to      description="Restrict to messages addressed to this domain"
+        to-address   field=Addressed.to      description="Restrict to messages addressed to this exact address"
+        subject-contains field=Addressed.subject description="Restrict to messages whose subject contains this string"
     }
 }
 
-entity "EmailDraft" {
+entity EmailDraft {
     description "An unsent email draft"
-    components "Identified" "Owned" "Addressed" "Timestamped"
+    components Identified Owned Addressed Timestamped
     scope-constraints {
-        "to-domain"    field="Addressed.to"  description="Restrict drafts to recipients on this domain"
-        "to-address"   field="Addressed.to"  description="Restrict drafts to this exact recipient address"
+        to-domain    field=Addressed.to  description="Restrict drafts to recipients on this domain"
+        to-address   field=Addressed.to  description="Restrict drafts to this exact recipient address"
     }
 }
 
-entity "Contact" {
+entity Contact {
     description "An entry in an address book or contacts directory"
-    components "Identified" "Owned"
+    components Identified Owned
     fields {
-        field "name"         type="string"
-        field "email"        type="string"
-        field "phone"        type="string"
-        field "organization" type="string"
+        field name         type=string
+        field email        type=string
+        field phone        type=string
+        field organization type=string
     }
     scope-constraints {
-        "organization" field="organization" description="Restrict to contacts at this organisation"
-        "domain"       field="email"        description="Restrict to contacts with email addresses on this domain"
+        organization field=organization description="Restrict to contacts at this organisation"
+        domain       field=email        description="Restrict to contacts with email addresses on this domain"
     }
 }
 
 // ─── Calendar ─────────────────────────────────────────────────────────────────
 
-entity "CalendarEvent" {
+entity CalendarEvent {
     description "A scheduled event on a calendar"
-    components "Identified" "Owned" "Scheduled" "Shared"
+    components Identified Owned Scheduled Shared
     fields {
-        field "title"       type="string"
-        field "location"    type="string"
-        field "description" type="string"
-        field "status"      type="string" // confirmed | tentative | cancelled
+        field title       type=string
+        field location    type=string
+        field description type=string
+        field status      type=string // confirmed | tentative | cancelled
     }
     scope-constraints {
-        "calendar-id"  field="Identified.id"     description="Restrict to events on this calendar"
-        "organizer"    field="Owned.owner_email"  description="Restrict to events organised by this address"
-        "attendee"     field="Shared.members"     description="Restrict to events where this address is an attendee"
+        calendar-id  field=Identified.id     description="Restrict to events on this calendar"
+        organizer    field=Owned.owner_email  description="Restrict to events organised by this address"
+        attendee     field=Shared.members     description="Restrict to events where this address is an attendee"
     }
 }
 
 // ─── Spreadsheet ──────────────────────────────────────────────────────────────
 
-entity "Spreadsheet" {
+entity Spreadsheet {
     description "A spreadsheet workbook"
-    components "Identified" "Owned" "Timestamped" "Shared"
+    components Identified Owned Timestamped Shared
     fields {
-        field "title" type="string"
+        field title type=string
     }
     scope-constraints {
-        "spreadsheet-id" field="Identified.id" description="Restrict to this specific spreadsheet"
+        spreadsheet-id field=Identified.id description="Restrict to this specific spreadsheet"
     }
 }
 
-entity "SpreadsheetRange" {
+entity SpreadsheetRange {
     description "A cell range within a spreadsheet"
-    components "Identified"
+    components Identified
     fields {
-        field "spreadsheet_id" type="string"
-        field "sheet_name"     type="string"
-        field "range"          type="string" // A1 notation
+        field spreadsheet_id type=string
+        field sheet_name     type=string
+        field range          type=string // A1 notation
     }
     scope-constraints {
-        "spreadsheet-id" field="spreadsheet_id" description="Restrict to ranges in this spreadsheet"
-        "sheet-name"     field="sheet_name"     description="Restrict to this named sheet tab"
+        spreadsheet-id field=spreadsheet_id description="Restrict to ranges in this spreadsheet"
+        sheet-name     field=sheet_name     description="Restrict to this named sheet tab"
     }
 }
 
 // ─── Document ─────────────────────────────────────────────────────────────────
 
-entity "Document" {
+entity Document {
     description "A long-form text document"
-    components "Identified" "Owned" "Timestamped" "Shared"
+    components Identified Owned Timestamped Shared
     fields {
-        field "title" type="string"
+        field title type=string
     }
     scope-constraints {
-        "document-id" field="Identified.id"    description="Restrict to this specific document"
-        "owner"       field="Owned.owner_email" description="Restrict to documents owned by this address"
+        document-id field=Identified.id    description="Restrict to this specific document"
+        owner       field=Owned.owner_email description="Restrict to documents owned by this address"
     }
 }
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
-entity "Message" {
+entity Message {
     description "A chat message in a channel or thread"
-    components "Identified" "Owned" "Timestamped"
+    components Identified Owned Timestamped
     fields {
-        field "channel"   type="string"
-        field "text"      type="string"
-        field "thread_ts" type="string"
+        field channel   type=string
+        field text      type=string
+        field thread_ts type=string
     }
     scope-constraints {
-        "channel" field="channel" description="Restrict to messages in this channel"
-        "user"    field="Owned.owner_email" description="Restrict to messages from this user"
+        channel field=channel description="Restrict to messages in this channel"
+        user    field=Owned.owner_email description="Restrict to messages from this user"
     }
 }
 
-entity "Channel" {
+entity Channel {
     description "A chat channel or room"
-    components "Identified" "Shared"
+    components Identified Shared
     fields {
-        field "name"       type="string"
-        field "is_private" type="bool"
-        field "topic"      type="string"
+        field name       type=string
+        field is_private type=bool
+        field topic      type=string
     }
     scope-constraints {
-        "channel" field="name" description="Restrict to this channel by name"
-        "channel-id" field="Identified.id" description="Restrict to this channel by ID"
+        channel field=name description="Restrict to this channel by name"
+        channel-id field=Identified.id description="Restrict to this channel by ID"
     }
 }
 
 // ─── Commerce ─────────────────────────────────────────────────────────────────
 
-entity "Order" {
+entity Order {
     description "A purchase order or transaction request"
-    components "Identified" "Owned" "Timestamped"
+    components Identified Owned Timestamped
     fields {
-        field "sku" type="string"
-        field "quantity" type="int"
-        field "status" type="string"
+        field sku type=string
+        field quantity type=int
+        field status type=string
     }
     scope-constraints {
-        "source-id" field="Identified.id" description="Restrict to this commerce source or account"
-        "owner"     field="Owned.owner_email" description="Restrict to orders owned by this account"
+        source-id field=Identified.id description="Restrict to this commerce source or account"
+        owner     field=Owned.owner_email description="Restrict to orders owned by this account"
     }
 }
 
 // ─── Smart Home / IoT ─────────────────────────────────────────────────────────
 
-entity "Device" {
+entity Device {
     description "A controllable smart home or IoT device"
-    components "Identified" "Owned"
+    components Identified Owned
     fields {
-        field "device_type" type="string"
-        field "location"    type="string"
-        field "state"       type="string"
+        field device_type type=string
+        field location    type=string
+        field state       type=string
     }
     scope-constraints {
-        "device-id" field="Identified.id" description="Restrict to this specific device"
-        "owner"     field="Owned.owner_email" description="Restrict to devices owned by this account"
+        device-id field=Identified.id description="Restrict to this specific device"
+        owner     field=Owned.owner_email description="Restrict to devices owned by this account"
     }
 }
 
 // ─── Version Control ──────────────────────────────────────────────────────────
 
-entity "Repository" {
+entity Repository {
     description "A version control repository"
-    components "Identified" "Addressable"
+    components Identified Addressable
     fields {
-        field "remote" type="string"
-        field "branch" type="string"
+        field remote type=string
+        field branch type=string
     }
     scope-constraints {
-        "remote-domain" field="Addressable.domain" description="Restrict to remotes on this hosting domain (e.g. github.com)"
-        "remote-org"    field="Addressable.path"   description="Restrict to repos under this organisation path"
+        remote-domain field=Addressable.domain description="Restrict to remotes on this hosting domain (e.g. github.com)"
+        remote-org    field=Addressable.path   description="Restrict to repos under this organisation path"
     }
 }
 
-entity "Commit" {
+entity Commit {
     description "A version control commit"
-    components "Identified" "Timestamped"
+    components Identified Timestamped
     fields {
-        field "hash"    type="string"
-        field "author"  type="string"
-        field "subject" type="string"
-        field "branch"  type="string"
+        field hash    type=string
+        field author  type=string
+        field subject type=string
+        field branch  type=string
     }
     scope-constraints {
-        "author" field="author" description="Restrict to commits by this author"
-        "branch" field="branch" description="Restrict to commits on this branch"
+        author field=author description="Restrict to commits by this author"
+        branch field=branch description="Restrict to commits on this branch"
     }
 }
 
-entity "Branch" {
+entity Branch {
     description "A version control branch"
-    components "Identified"
+    components Identified
     fields {
-        field "name"       type="string"
-        field "is_current" type="bool"
+        field name       type=string
+        field is_current type=bool
     }
     scope-constraints {
-        "name-prefix" field="name" description="Restrict to branches whose name starts with this prefix"
+        name-prefix field=name description="Restrict to branches whose name starts with this prefix"
     }
 }
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 
-entity "DatabaseTable" {
+entity DatabaseTable {
     description "A table or collection in a data source"
-    components "Identified"
+    components Identified
     fields {
-        field "source_id"  type="string"
-        field "table_name" type="string"
-        field "row_count"  type="int"
+        field source_id  type=string
+        field table_name type=string
+        field row_count  type=int
     }
     scope-constraints {
-        "source-id"  field="source_id"  description="Restrict to this data source"
-        "table-name" field="table_name" description="Restrict to this specific table"
+        source-id  field=source_id  description="Restrict to this data source"
+        table-name field=table_name description="Restrict to this specific table"
     }
 }
 
 // ─── System ───────────────────────────────────────────────────────────────────
 
-entity "Process" {
+entity Process {
     description "A running process inside the agent nspawn jail"
-    components "Timestamped"
+    components Timestamped
     fields {
-        field "pid"     type="int"
-        field "name"    type="string"
-        field "command" type="string"
+        field pid     type=int
+        field name    type=string
+        field command type=string
     }
     scope-constraints {
-        "name-prefix" field="name" description="Restrict to processes whose name starts with this prefix"
+        name-prefix field=name description="Restrict to processes whose name starts with this prefix"
     }
 }
 
 // ─── Media ────────────────────────────────────────────────────────────────────
 
-entity "ImageFile" {
+entity ImageFile {
     description "An image file in the agent workspace or returned by a browser screenshot"
-    components "Located" "Sized" "Timestamped"
+    components Located Sized Timestamped
     scope-constraints {
-        "path-prefix" field="Located.path" description="Restrict to images under this path"
+        path-prefix field=Located.path description="Restrict to images under this path"
     }
 }
 
-entity "AudioFile" {
+entity AudioFile {
     description "An audio file in the agent workspace"
-    components "Located" "Sized" "Timestamped"
+    components Located Sized Timestamped
     fields {
-        field "duration_seconds" type="int"
-        field "language"         type="string"
+        field duration_seconds type=int
+        field language         type=string
     }
     scope-constraints {
-        "path-prefix" field="Located.path" description="Restrict to audio files under this path"
+        path-prefix field=Located.path description="Restrict to audio files under this path"
     }
 }
 
 // ─── Swarm ────────────────────────────────────────────────────────────────────
 
-entity "AgentMessage" {
+entity AgentMessage {
     description "A MUS message routed between agents via the keeperd switchboard"
-    components "Timestamped"
+    components Timestamped
     fields {
-        field "from_id"  type="string"
-        field "to_id"    type="string"
-        field "msg_type" type="string"
-        field "seq_no"   type="int"
+        field from_id  type=string
+        field to_id    type=string
+        field msg_type type=string
+        field seq_no   type=int
     }
     scope-constraints {
-        "to-id"      field="to_id"    description="Restrict to messages addressed to this agent"
-        "from-id"    field="from_id"  description="Restrict to messages originating from this agent"
-        "msg-type"   field="msg_type" description="Restrict to this message type"
+        to-id      field=to_id    description="Restrict to messages addressed to this agent"
+        from-id    field=from_id  description="Restrict to messages originating from this agent"
+        msg-type   field=msg_type description="Restrict to this message type"
     }
 }
 
-entity "Agent" {
+entity Agent {
     description "A registered agent instance in keeperd"
-    components "Identified" "Timestamped"
+    components Identified Timestamped
     fields {
-        field "status" type="string" // running | stopped | evolving
-        field "groups" type="list<string>"
+        field status type=string // running | stopped | evolving
+        field groups type=list<string>
     }
     scope-constraints {
-        "group" field="groups" description="Restrict to agents that are members of this group"
+        group field=groups description="Restrict to agents that are members of this group"
     }
 }
 
 // ─── Memory ───────────────────────────────────────────────────────────────────
 
-entity "Memory" {
+entity Memory {
     description "A persisted fact or note in the agent's memory store"
-    components "Timestamped"
+    components Timestamped
     fields {
-        field "key"   type="string"
-        field "value" type="string"
-        field "tags"  type="list<string>"
+        field key   type=string
+        field value type=string
+        field tags  type=list<string>
     }
     scope-constraints {
-        "tag" field="tags" description="Restrict to memories that have this tag"
+        tag field=tags description="Restrict to memories that have this tag"
     }
 }

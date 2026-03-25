@@ -6,88 +6,90 @@
 // Web — Chrome CDP Firewall
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Browser_Page_Read {
-  category    Browser
+  category Browser
   description "Fetch the readable text content of a web page, stripped of markup, scripts, and boilerplate"
-  risk        low
-  reads       entity=Link
-  field       url type=string required=#true {
+  risk low
+  reads entity=Link
+  field url type=string required=true {
     description "Fully-qualified URL of the page to fetch"
-    example     "https://en.wikipedia.org/wiki/Go_(programming_language)"
+    example "https://en.wikipedia.org/wiki/Go_(programming_language)"
   }
-  field       timeout type=int required=#false default=30 {
+  field timeout type=int required=false default=30 {
     description "Maximum seconds to wait for page load before aborting"
-    min         1
-    max         120
+    min 1
+    max 120
   }
-  field       wait_for type=string required=#false default=networkidle {
+  field wait_for type=string required=false default=networkidle {
     description "Page load event to wait for before extracting content"
-    enum        load domcontentloaded networkidle
+    enum load domcontentloaded networkidle
   }
-  returns     string description="Readable page text in markdown format"
+  returns string description="Readable page text in markdown format"
 }
-// testing
+
+
+// Testing
 capability Browser_Page_Screenshot {
-  category    Browser
+  category Browser
   description "Capture a screenshot of a web page or a specific element"
-  risk        low
-  reads       entity=Link
-  writes      entity=ImageFile
-  field       url type=string required=#true {
+  risk low
+  reads entity=Link
+  writes entity=ImageFile
+  field url type=string required=true {
     description "Fully-qualified URL to navigate to before capturing"
-    example     "https://example.com/dashboard"
+    example "https://example.com/dashboard"
   }
-  field       selector type=string required=#false {
+  field selector type=string required=false {
     description "CSS selector of the element to capture; omit for full page"
-    example     "#main-chart"
+    example "#main-chart"
   }
-  field       full_page type=bool required=#false default=#false {
+  field full_page type=bool required=false default=false {
     description "Capture the full scrollable page, not just the visible viewport"
   }
-  returns     bytes description="PNG image data"
+  returns bytes description="PNG image data"
 }
 capability Browser_Page_GetTitle {
-  category    Browser
+  category Browser
   description "Return the page title, meta description, and canonical URL without full content extraction"
-  risk        low
-  reads       entity=Link
-  field       url type=string required=#true {
+  risk low
+  reads entity=Link
+  field url type=string required=true {
     description "Fully-qualified URL to inspect"
-    example     "https://example.com"
+    example "https://example.com"
   }
-  returns     object description="Object with fields: title, description, canonical_url, status_code"
+  returns object description="Object with fields: title, description, canonical_url, status_code"
 }
 capability Browser_Form_Submit {
-  category    Browser
+  category Browser
   description "Fill fields in an HTML form and submit it"
-  risk        high
-  reads       entity=Link
-  field       url type=string required=#true {
+  risk high
+  reads entity=Link
+  field url type=string required=true {
     description "URL of the page containing the form"
-    example     "https://example.com/login"
+    example "https://example.com/login"
   }
-  field       fields type="list<object>" required=#true {
+  field fields type=list<object> required=true {
     description "List of {selector, value} pairs to fill before submitting"
-    example     "[{\"selector\": \"#email\", \"value\": \"user@example.com\"}]"
+    example "[{\"selector\": \"#email\", \"value\": \"user@example.com\"}]"
   }
-  field       submit_selector type=string required=#false {
+  field submit_selector type=string required=false {
     description "CSS selector of the submit button; omits native form submit if absent"
-    example     "button[type=submit]"
+    example "button[type=submit]"
   }
-  returns     object description="Object with fields: final_url, status_code, page_text"
+  returns object description="Object with fields: final_url, status_code, page_text"
 }
 capability Browser_Link_List {
-  category    Browser
+  category Browser
   description "Extract all hyperlinks from the current page or a specified URL"
-  risk        low
-  reads       entity=Link
-  field       url type=string required=#true {
+  risk low
+  reads entity=Link
+  field url type=string required=true {
     description "Fully-qualified URL to extract links from"
-    example     "https://example.com/blog"
+    example "https://example.com/blog"
   }
-  field       same_domain_only type=bool required=#false default=#true {
+  field same_domain_only type=bool required=false default=true {
     description "Filter results to links sharing the same domain as the source URL"
   }
-  returns     "list<object>" description="List of {text, href, rel} objects"
+  returns list<object> description="List of {text, href, rel} objects"
 }
 
 
@@ -95,44 +97,44 @@ capability Browser_Link_List {
 // Search — Information Retrieval
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Search_Web_Query {
-  category    Search
+  category Search
   description "Execute a web search and return ranked result summaries; does not load full pages"
-  risk        low
-  reads       entity=Link
-  field       query type=string required=#true {
+  risk low
+  reads entity=Link
+  field query type=string required=true {
     description "Natural language or keyword search query"
-    example     "systemd-nspawn user namespacing security"
+    example "systemd-nspawn user namespacing security"
   }
-  field       max_results type=int required=#false default=10 {
+  field max_results type=int required=false default=10 {
     description "Maximum number of results to return"
-    min         1
-    max         50
+    min 1
+    max 50
   }
-  field       date_after type=string required=#false {
+  field date_after type=string required=false {
     description "Restrict results to pages published after this date (ISO8601)"
-    example     "2025-01-01"
+    example 2025-01-01
   }
-  returns     "list<object>" description="List of {title, url, snippet, published_date} objects"
+  returns list<object> description="List of {title, url, snippet, published_date} objects"
 }
 capability Search_Corpus_Query {
-  category    Search
+  category Search
   description "Semantic similarity search over an indexed document corpus"
-  risk        low
-  reads       entity=Document
-  field       query type=string required=#true {
+  risk low
+  reads entity=Document
+  field query type=string required=true {
     description "Natural language query to search for semantically similar content"
-    example     "agent credential isolation patterns"
+    example "agent credential isolation patterns"
   }
-  field       corpus_id type=string required=#true {
+  field corpus_id type=string required=true {
     description "Identifier of the indexed corpus to search"
-    example     "internal-docs-2025"
+    example internal-docs-2025
   }
-  field       max_results type=int required=#false default=5 {
+  field max_results type=int required=false default=5 {
     description "Maximum number of results to return"
-    min         1
-    max         20
+    min 1
+    max 20
   }
-  returns     "list<object>" description="List of {content, source, score} objects"
+  returns list<object> description="List of {content, source, score} objects"
 }
 
 
@@ -140,90 +142,90 @@ capability Search_Corpus_Query {
 // Fs — Agent Workspace Filesystem
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Filesystem_File_Read {
-  category    Filesystem
+  category Filesystem
   description "Read the contents of a file in the agent workspace"
-  risk        low
-  reads       entity=File
-  field       path type=string required=#true {
+  risk low
+  reads entity=File
+  field path type=string required=true {
     description "Workspace-relative path to the file"
-    example     "output/report.md"
+    example output/report.md
   }
-  field       encoding type=string required=#false default=utf-8 {
+  field encoding type=string required=false default=utf-8 {
     description "Text encoding; use 'base64' for binary files"
-    enum        utf-8 base64
-  }
-  returns     string description="File contents"
-}
-capability Filesystem_File_Write {
-  category    Filesystem
-  description "Write or overwrite a file in the agent workspace"
-  risk        medium
-  writes      entity=File
-  field       path type=string required=#true {
-    description "Workspace-relative path; intermediate directories are created if absent"
-    example     "output/report.md"
-  }
-  field       content type=string required=#true {
-    description "Content to write; use base64 encoding for binary data"
-  }
-  field       append type=bool required=#false default=#false {
-    description "If true, append to the file instead of overwriting"
-  }
-  field       encoding type=string required=#false default=utf-8 {
     enum utf-8 base64
   }
-  returns     object description="Object with fields: path, bytes_written"
+  returns string description="File contents"
+}
+capability Filesystem_File_Write {
+  category Filesystem
+  description "Write or overwrite a file in the agent workspace"
+  risk medium
+  writes entity=File
+  field path type=string required=true {
+    description "Workspace-relative path; intermediate directories are created if absent"
+    example output/report.md
+  }
+  field content type=string required=true {
+    description "Content to write; use base64 encoding for binary data"
+  }
+  field append type=bool required=false default=false {
+    description "If true, append to the file instead of overwriting"
+  }
+  field encoding type=string required=false default=utf-8 {
+    enum utf-8 base64
+  }
+  returns object description="Object with fields: path, bytes_written"
 }
 capability Filesystem_File_Delete {
-  category    Filesystem
+  category Filesystem
   description "Delete a file from the agent workspace"
-  risk        medium
-  writes      entity=File
-  field       path type=string required=#true {
+  risk medium
+  writes entity=File
+  field path type=string required=true {
     description "Workspace-relative path of the file to delete"
-    example     "tmp/scratch.txt"
+    example tmp/scratch.txt
   }
-  returns     bool description="true if the file was deleted"
+  returns bool description="true if the file was deleted"
 }
 capability Filesystem_File_Move {
-  category    Filesystem
+  category Filesystem
   description "Move or rename a file within the agent workspace"
-  risk        medium
-  writes      entity=File
-  field       src type=string required=#true {
+  risk medium
+  writes entity=File
+  field src type=string required=true {
     description "Workspace-relative source path"
-    example     "draft/report.md"
+    example draft/report.md
   }
-  field       dst type=string required=#true {
+  field dst type=string required=true {
     description "Workspace-relative destination path"
-    example     "output/report.md"
+    example output/report.md
   }
-  returns     bool description="true if the move succeeded"
+  returns bool description="true if the move succeeded"
 }
 capability Filesystem_Dir_List {
-  category    Filesystem
+  category Filesystem
   description "List the contents of a directory in the agent workspace"
-  risk        low
-  reads       entity=Folder
-  field       path type=string required=#false default="." {
+  risk low
+  reads entity=Folder
+  field path type=string required=false default=. {
     description "Workspace-relative directory path to list"
-    example     "output"
+    example output
   }
-  field       recursive type=bool required=#false default=#false {
+  field recursive type=bool required=false default=false {
     description "Recurse into subdirectories"
   }
-  returns     "list<object>" description="List of {name, type, size_bytes, modified_at} objects"
+  returns list<object> description="List of {name, type, size_bytes, modified_at} objects"
 }
 capability Filesystem_Dir_Create {
-  category    Filesystem
+  category Filesystem
   description "Create a directory (and any missing parents) in the agent workspace"
-  risk        low
-  writes      entity=Folder
-  field       path type=string required=#true {
+  risk low
+  writes entity=Folder
+  field path type=string required=true {
     description "Workspace-relative directory path to create"
-    example     "output/charts"
+    example output/charts
   }
-  returns     bool description="true if the directory was created or already existed"
+  returns bool description="true if the directory was created or already existed"
 }
 
 
@@ -231,57 +233,57 @@ capability Filesystem_Dir_Create {
 // Code — Execution within the nspawn jail
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Code_Script_Exec {
-  category    Execution
+  category Execution
   description "Execute a script or shell command inside the agent jail and return its output"
-  risk        high
-  writes      entity=Process
-  field       interpreter type=string required=#true {
+  risk high
+  writes entity=Process
+  field interpreter type=string required=true {
     description "The interpreter to use"
-    enum        bash python3 node ruby
+    enum bash python3 node ruby
   }
-  field       script type=string required=#true {
+  field script type=string required=true {
     description "The script body to execute"
-    example     "echo hello && ls -la"
+    example "echo hello && ls -la"
   }
-  field       timeout type=int required=#false default=30 {
+  field timeout type=int required=false default=30 {
     description "Maximum execution time in seconds"
-    min         1
-    max         300
+    min 1
+    max 300
   }
-  returns     object description="Object with fields: stdout, stderr, exit_code, duration_ms"
+  returns object description="Object with fields: stdout, stderr, exit_code, duration_ms"
 }
 capability Code_Test_Run {
-  category    Execution
+  category Execution
   description "Run a project's test suite and return results"
-  risk        high
-  reads       entity=File
-  writes      entity=Process
-  field       framework type=string required=#true {
+  risk high
+  reads entity=File
+  writes entity=Process
+  field framework type=string required=true {
     description "Test framework to invoke"
-    enum        go-test pytest jest rspec cargo-test
+    enum go-test pytest jest rspec cargo-test
   }
-  field       path type=string required=#false default="." {
+  field path type=string required=false default=. {
     description "Workspace-relative path to run tests from"
   }
-  field       filter type=string required=#false {
+  field filter type=string required=false {
     description "Pattern to filter which tests run"
-    example     "TestSwitchboard"
+    example TestSwitchboard
   }
-  returns     object description="Object with fields: passed, failed, skipped, output"
+  returns object description="Object with fields: passed, failed, skipped, output"
 }
 capability Code_Lint_Run {
-  category    Execution
+  category Execution
   description "Run a linter and return findings"
-  risk        low
-  reads       entity=File
-  field       linter type=string required=#true {
+  risk low
+  reads entity=File
+  field linter type=string required=true {
     description "Linter to invoke"
-    enum        golangci-lint ruff eslint rubocop clippy
+    enum golangci-lint ruff eslint rubocop clippy
   }
-  field       path type=string required=#false default="." {
+  field path type=string required=false default=. {
     description "Workspace-relative path to lint"
   }
-  returns     "list<object>" description="List of {file, line, severity, message, rule} objects"
+  returns list<object> description="List of {file, line, severity, message, rule} objects"
 }
 
 
@@ -289,71 +291,71 @@ capability Code_Lint_Run {
 // Mail — Provider-neutral Email
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Email_Message_List {
-  category    Email
+  category Email
   description "List email messages matching a filter; returns metadata only, not bodies"
-  risk        low
-  reads       entity=EmailMessage
-  field       folder type=string required=#false default=inbox {
+  risk low
+  reads entity=EmailMessage
+  field folder type=string required=false default=inbox {
     description "Folder to list messages from"
-    example     "inbox"
+    example inbox
   }
-  field       unread_only type=bool required=#false default=#false {
+  field unread_only type=bool required=false default=false {
     description "Return only unread messages"
   }
-  field       max_results type=int required=#false default=20 {
+  field max_results type=int required=false default=20 {
     description "Maximum messages to return"
-    min         1
-    max         100
+    min 1
+    max 100
   }
-  field       query type=string required=#false {
+  field query type=string required=false {
     description "Provider search query to filter results"
-    example     "from:boss@example.com subject:urgent"
+    example "from:boss@example.com subject:urgent"
   }
-  returns     "list<object>" description="List of {id, from, subject, date, unread, has_attachments} objects"
+  returns list<object> description="List of {id, from, subject, date, unread, has_attachments} objects"
 }
 capability Email_Message_Read {
-  category    Email
+  category Email
   description "Read the body and headers of a specific email message"
-  risk        low
-  reads       entity=EmailMessage
-  field       message_id type=string required=#true {
+  risk low
+  reads entity=EmailMessage
+  field message_id type=string required=true {
     description "Provider message ID from Mail_Message_List"
   }
-  field       strip_tracking type=bool required=#false default=#true {
+  field strip_tracking type=bool required=false default=true {
     description "Remove tracking pixels and link redirects from the body"
   }
-  returns     object description="Object with fields: from, to, cc, subject, date, body_markdown, attachments"
+  returns object description="Object with fields: from, to, cc, subject, date, body_markdown, attachments"
 }
 capability Email_Message_Create {
-  category    Email
+  category Email
   description "Create an email draft without sending it"
-  risk        medium
-  writes      entity=EmailDraft
-  field       to type="list<string>" required=#true {
+  risk medium
+  writes entity=EmailDraft
+  field to type=list<string> required=true {
     description "Recipient email addresses"
-    example     "[\"colleague@example.com\"]"
+    example "[\"colleague@example.com\"]"
   }
-  field       subject type=string required=#true {
+  field subject type=string required=true {
     description "Email subject line"
   }
-  field       body type=string required=#true {
+  field body type=string required=true {
     description "Email body in plain text or markdown"
   }
-  field       cc type="list<string>" required=#false {
+  field cc type=list<string> required=false {
     description "CC recipient addresses"
   }
-  returns     object description="Object with fields: draft_id, created_at"
+  returns object description="Object with fields: draft_id, created_at"
 }
 capability Email_Message_Send {
-  category    Email
+  category Email
   description "Send an existing draft message"
-  risk        critical
-  reads       entity=EmailDraft
-  writes      entity=EmailMessage
-  field       draft_id type=string required=#true {
+  risk critical
+  reads entity=EmailDraft
+  writes entity=EmailMessage
+  field draft_id type=string required=true {
     description "Draft ID from Mail_Message_Create"
   }
-  returns     object description="Object with fields: message_id, sent_at"
+  returns object description="Object with fields: message_id, sent_at"
 }
 
 
@@ -361,85 +363,85 @@ capability Email_Message_Send {
 // Calendar — Provider-neutral Scheduling
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Calendar_Event_List {
-  category    Calendar
+  category Calendar
   description "List calendar events within a time range"
-  risk        low
-  reads       entity=CalendarEvent
-  field       start type=string required=#true {
+  risk low
+  reads entity=CalendarEvent
+  field start type=string required=true {
     description "Range start datetime in ISO8601 format"
-    example     "2026-03-20T09:00:00Z"
+    example 2026-03-20T09:00:00Z
   }
-  field       end type=string required=#true {
+  field end type=string required=true {
     description "Range end datetime in ISO8601 format"
-    example     "2026-03-27T17:00:00Z"
+    example 2026-03-27T17:00:00Z
   }
-  field       calendar_id type=string required=#false default=primary {
+  field calendar_id type=string required=false default=primary {
     description "Calendar identifier; defaults to the primary calendar"
   }
-  returns     "list<object>" description="List of {id, title, start, end, location, attendees, organizer} objects"
+  returns list<object> description="List of {id, title, start, end, location, attendees, organizer} objects"
 }
 capability Calendar_Event_Read {
-  category    Calendar
+  category Calendar
   description "Read full details of a single calendar event"
-  risk        low
-  reads       entity=CalendarEvent
-  field       event_id type=string required=#true {
+  risk low
+  reads entity=CalendarEvent
+  field event_id type=string required=true {
     description "Event ID from Calendar_Event_List"
   }
-  returns     object description="Object with fields: id, title, start, end, location, description, attendees, status"
+  returns object description="Object with fields: id, title, start, end, location, description, attendees, status"
 }
 capability Calendar_Event_Create {
-  category    Calendar
+  category Calendar
   description "Create a new calendar event"
-  risk        high
-  writes      entity=CalendarEvent
-  field       title type=string required=#true {
+  risk high
+  writes entity=CalendarEvent
+  field title type=string required=true {
     description "Event title"
-    example     "Sprint planning"
+    example "Sprint planning"
   }
-  field       start type=string required=#true {
+  field start type=string required=true {
     description "Start datetime in ISO8601 format with timezone"
-    example     "2026-03-25T10:00:00+01:00"
+    example 2026-03-25T10:00:00+01:00
   }
-  field       end type=string required=#true {
+  field end type=string required=true {
     description "End datetime in ISO8601 format with timezone"
-    example     "2026-03-25T11:00:00+01:00"
+    example 2026-03-25T11:00:00+01:00
   }
-  field       attendees type="list<string>" required=#false {
+  field attendees type=list<string> required=false {
     description "Email addresses of attendees to invite"
   }
-  field       location type=string required=#false {
+  field location type=string required=false {
     description "Location or video call link"
   }
-  field       description type=string required=#false {
+  field description type=string required=false {
     description "Event body / agenda"
   }
-  returns     object description="Object with fields: event_id, html_link"
+  returns object description="Object with fields: event_id, html_link"
 }
 capability Calendar_Slot_Find {
-  category    Calendar
+  category Calendar
   description "Find free time slots across one or more attendees' calendars"
-  risk        low
-  reads       entity=CalendarEvent
-  field       attendees type="list<string>" required=#true {
+  risk low
+  reads entity=CalendarEvent
+  field attendees type=list<string> required=true {
     description "Email addresses to check availability for"
   }
-  field       duration_minutes type=int required=#true {
+  field duration_minutes type=int required=true {
     description "Required meeting duration in minutes"
-    example     "60"
+    example 60
   }
-  field       window_start type=string required=#true {
+  field window_start type=string required=true {
     description "Start of the search window in ISO8601"
-    example     "2026-03-24T00:00:00Z"
+    example 2026-03-24T00:00:00Z
   }
-  field       window_end type=string required=#true {
+  field window_end type=string required=true {
     description "End of the search window in ISO8601"
-    example     "2026-03-28T00:00:00Z"
+    example 2026-03-28T00:00:00Z
   }
-  field       working_hours_only type=bool required=#false default=#true {
+  field working_hours_only type=bool required=false default=true {
     description "Restrict results to 09:00–18:00 local time of the organiser"
   }
-  returns     "list<object>" description="List of {start, end} free slot objects, sorted by start time"
+  returns list<object> description="List of {start, end} free slot objects, sorted by start time"
 }
 
 
@@ -447,63 +449,63 @@ capability Calendar_Slot_Find {
 // Sheet — Provider-neutral Spreadsheets
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Spreadsheet_Range_Read {
-  category    Spreadsheet
+  category Spreadsheet
   description "Read a cell range from a spreadsheet; returns raw values only, no formatting"
-  risk        low
-  reads       entity=SpreadsheetRange
-  field       spreadsheet_id type=string required=#true {
+  risk low
+  reads entity=SpreadsheetRange
+  field spreadsheet_id type=string required=true {
     description "Provider spreadsheet identifier"
-    example     "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+    example 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
   }
-  field       range type=string required=#true {
+  field range type=string required=true {
     description "A1 notation range to read"
-    example     "Sheet1!A1:D20"
+    example Sheet1!A1:D20
   }
-  returns     "list<list<string>>" description="2D array of cell values as strings"
+  returns list<list<string>> description="2D array of cell values as strings"
 }
 capability Spreadsheet_Range_Update {
-  category    Spreadsheet
+  category Spreadsheet
   description "Write values to a cell range in a spreadsheet"
-  risk        high
-  writes      entity=SpreadsheetRange
-  field       spreadsheet_id type=string required=#true {
+  risk high
+  writes entity=SpreadsheetRange
+  field spreadsheet_id type=string required=true {
     description "Provider spreadsheet identifier"
   }
-  field       range type=string required=#true {
+  field range type=string required=true {
     description "A1 notation range to update"
-    example     "Sheet1!A2:C2"
+    example Sheet1!A2:C2
   }
-  field       values type="list<list<string>>" required=#true {
+  field values type=list<list<string>> required=true {
     description "2D array of values to write"
   }
-  returns     object description="Object with fields: updated_range, updated_cells"
+  returns object description="Object with fields: updated_range, updated_cells"
 }
 capability Spreadsheet_Row_Create {
-  category    Spreadsheet
+  category Spreadsheet
   description "Append a row to the end of a sheet"
-  risk        high
-  writes      entity=SpreadsheetRange
-  field       spreadsheet_id type=string required=#true {
+  risk high
+  writes entity=SpreadsheetRange
+  field spreadsheet_id type=string required=true {
     description "Provider spreadsheet identifier"
   }
-  field       sheet_name type=string required=#true {
+  field sheet_name type=string required=true {
     description "Name of the sheet tab to append to"
-    example     "Leads"
+    example Leads
   }
-  field       values type="list<string>" required=#true {
+  field values type=list<string> required=true {
     description "Ordered list of cell values for the new row"
   }
-  returns     object description="Object with fields: range, updated_rows"
+  returns object description="Object with fields: range, updated_rows"
 }
 capability Spreadsheet_Sheet_List {
-  category    Spreadsheet
+  category Spreadsheet
   description "List all sheet tabs within a spreadsheet"
-  risk        low
-  reads       entity=Spreadsheet
-  field       spreadsheet_id type=string required=#true {
+  risk low
+  reads entity=Spreadsheet
+  field spreadsheet_id type=string required=true {
     description "Provider spreadsheet identifier"
   }
-  returns     "list<object>" description="List of {sheet_id, title, row_count, col_count} objects"
+  returns list<object> description="List of {sheet_id, title, row_count, col_count} objects"
 }
 
 
@@ -511,59 +513,59 @@ capability Spreadsheet_Sheet_List {
 // Doc — Provider-neutral Documents
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Document_Content_Read {
-  category    Document
+  category Document
   description "Read a document's full content as clean markdown; strips comments and change history"
-  risk        low
-  reads       entity=Document
-  field       document_id type=string required=#true {
+  risk low
+  reads entity=Document
+  field document_id type=string required=true {
     description "Provider document identifier"
   }
-  returns     string description="Document content in markdown format"
+  returns string description="Document content in markdown format"
 }
 capability Document_Content_Append {
-  category    Document
+  category Document
   description "Append text to the end of a document"
-  risk        high
-  writes      entity=Document
-  field       document_id type=string required=#true {
+  risk high
+  writes entity=Document
+  field document_id type=string required=true {
     description "Provider document identifier"
   }
-  field       content type=string required=#true {
+  field content type=string required=true {
     description "Markdown text to append"
   }
-  returns     object description="Object with fields: document_id, revision_id"
+  returns object description="Object with fields: document_id, revision_id"
 }
 capability Document_Content_Replace {
-  category    Document
+  category Document
   description "Replace a specific section of a document identified by a heading"
-  risk        high
-  writes      entity=Document
-  field       document_id type=string required=#true {
+  risk high
+  writes entity=Document
+  field document_id type=string required=true {
     description "Provider document identifier"
   }
-  field       heading type=string required=#true {
+  field heading type=string required=true {
     description "Exact text of the heading whose section should be replaced"
-    example     "## Summary"
+    example "## Summary"
   }
-  field       content type=string required=#true {
+  field content type=string required=true {
     description "Replacement markdown content"
   }
-  returns     object description="Object with fields: document_id, revision_id, replaced_chars"
+  returns object description="Object with fields: document_id, revision_id, replaced_chars"
 }
 capability Document_Doc_List {
-  category    Document
+  category Document
   description "List documents accessible to the agent's credential"
-  risk        low
-  reads       entity=Document
-  field       query type=string required=#false {
+  risk low
+  reads entity=Document
+  field query type=string required=false {
     description "Title or full-text search filter"
-    example     "Q1 report"
+    example "Q1 report"
   }
-  field       max_results type=int required=#false default=20 {
+  field max_results type=int required=false default=20 {
     min 1
     max 100
   }
-  returns     "list<object>" description="List of {id, title, modified_at, owner} objects"
+  returns list<object> description="List of {id, title, modified_at, owner} objects"
 }
 
 
@@ -571,61 +573,61 @@ capability Document_Doc_List {
 // Memory — Persistent Agent Knowledge
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Memory_Fact_Store {
-  category    Memory
+  category Memory
   description "Store a fact or note in the agent's persistent memory"
-  risk        low
-  writes      entity=Memory
-  field       key type=string required=#true {
+  risk low
+  writes entity=Memory
+  field key type=string required=true {
     description "Unique key for retrieval; use a descriptive slug"
-    example     "user-preferred-language"
+    example user-preferred-language
   }
-  field       value type=string required=#true {
+  field value type=string required=true {
     description "The fact or content to remember"
   }
-  field       tags type="list<string>" required=#false {
+  field tags type=list<string> required=false {
     description "Categorical tags for filtered retrieval"
-    example     "[\"preference\", \"user\"]"
+    example "[\"preference\", \"user\"]"
   }
-  returns     object description="Object with fields: key, stored_at"
+  returns object description="Object with fields: key, stored_at"
 }
 capability Memory_Fact_Search {
-  category    Memory
+  category Memory
   description "Semantic search over the agent's stored memories"
-  risk        low
-  reads       entity=Memory
-  field       query type=string required=#true {
+  risk low
+  reads entity=Memory
+  field query type=string required=true {
     description "Natural language query to find relevant memories"
-    example     "what does the user prefer for code style?"
+    example "what does the user prefer for code style?"
   }
-  field       max_results type=int required=#false default=5 {
+  field max_results type=int required=false default=5 {
     min 1
     max 20
   }
-  returns     "list<object>" description="List of {key, value, tags, score, stored_at} objects"
+  returns list<object> description="List of {key, value, tags, score, stored_at} objects"
 }
 capability Memory_Fact_Delete {
-  category    Memory
+  category Memory
   description "Delete a stored memory by key"
-  risk        low
-  writes      entity=Memory
-  field       key type=string required=#true {
+  risk low
+  writes entity=Memory
+  field key type=string required=true {
     description "Key of the memory to delete"
   }
-  returns     bool description="true if the memory existed and was deleted"
+  returns bool description="true if the memory existed and was deleted"
 }
 capability Memory_Fact_List {
-  category    Memory
+  category Memory
   description "List all stored memories, optionally filtered by tag"
-  risk        low
-  reads       entity=Memory
-  field       tag type=string required=#false {
+  risk low
+  reads entity=Memory
+  field tag type=string required=false {
     description "Filter by this tag; omit to list all"
   }
-  field       max_results type=int required=#false default=50 {
+  field max_results type=int required=false default=50 {
     min 1
     max 200
   }
-  returns     "list<object>" description="List of {key, value, tags, stored_at} objects"
+  returns list<object> description="List of {key, value, tags, stored_at} objects"
 }
 
 
@@ -633,112 +635,112 @@ capability Memory_Fact_List {
 // Git — Version Control
 // ═══════════════════════════════════════════════════════════════════════════════
 capability VersionControl_Status_Read {
-  category    VersionControl
+  category VersionControl
   description "Read the working tree status of a repository in the agent workspace"
-  risk        low
-  reads       entity=Repository
-  field       path type=string required=#false default="." {
+  risk low
+  reads entity=Repository
+  field path type=string required=false default=. {
     description "Workspace-relative path to the repository root"
   }
-  returns     object description="Object with fields: branch, staged, unstaged, untracked"
+  returns object description="Object with fields: branch, staged, unstaged, untracked"
 }
 capability VersionControl_Diff_Read {
-  category    VersionControl
+  category VersionControl
   description "Read the diff for staged changes, unstaged changes, or between refs"
-  risk        low
-  reads       entity=Repository
-  field       path type=string required=#false default="." {
+  risk low
+  reads entity=Repository
+  field path type=string required=false default=. {
     description "Workspace-relative repository root"
   }
-  field       base type=string required=#false {
+  field base type=string required=false {
     description "Base ref for comparison; omit for working-tree diff"
-    example     "main"
+    example main
   }
-  field       head type=string required=#false {
+  field head type=string required=false {
     description "Head ref for comparison; omit for working-tree diff"
-    example     "feature/my-branch"
+    example feature/my-branch
   }
-  returns     string description="Unified diff output"
+  returns string description="Unified diff output"
 }
 capability VersionControl_Log_List {
-  category    VersionControl
+  category VersionControl
   description "List recent commits on the current or specified branch"
-  risk        low
-  reads       entity=Commit
-  field       path type=string required=#false default="." {
+  risk low
+  reads entity=Commit
+  field path type=string required=false default=. {
     description "Workspace-relative repository root"
   }
-  field       max_results type=int required=#false default=20 {
+  field max_results type=int required=false default=20 {
     min 1
     max 200
   }
-  field       branch type=string required=#false {
+  field branch type=string required=false {
     description "Branch to list commits from; defaults to current branch"
   }
-  returns     "list<object>" description="List of {hash, author, date, subject} objects"
+  returns list<object> description="List of {hash, author, date, subject} objects"
 }
 capability VersionControl_Branch_List {
-  category    VersionControl
+  category VersionControl
   description "List branches in a repository"
-  risk        low
-  reads       entity=Branch
-  field       path type=string required=#false default="." {
+  risk low
+  reads entity=Branch
+  field path type=string required=false default=. {
     description "Workspace-relative repository root"
   }
-  field       remote type=bool required=#false default=#false {
+  field remote type=bool required=false default=false {
     description "Include remote-tracking branches"
   }
-  returns     "list<object>" description="List of {name, is_current, last_commit_hash, last_commit_date} objects"
+  returns list<object> description="List of {name, is_current, last_commit_hash, last_commit_date} objects"
 }
 capability VersionControl_Branch_Create {
-  category    VersionControl
+  category VersionControl
   description "Create and check out a new branch"
-  risk        medium
-  writes      entity=Branch
-  field       path type=string required=#false default="." {
+  risk medium
+  writes entity=Branch
+  field path type=string required=false default=. {
     description "Workspace-relative repository root"
   }
-  field       name type=string required=#true {
+  field name type=string required=true {
     description "Name of the new branch"
-    example     "feature/add-oauth"
+    example feature/add-oauth
   }
-  field       from type=string required=#false default=HEAD {
+  field from type=string required=false default=HEAD {
     description "Ref to branch from"
   }
-  returns     object description="Object with fields: name, from_hash"
+  returns object description="Object with fields: name, from_hash"
 }
 capability VersionControl_Commit_Create {
-  category    VersionControl
+  category VersionControl
   description "Stage specified files and create a commit"
-  risk        medium
-  writes      entity=Commit
-  field       path type=string required=#false default="." {
+  risk medium
+  writes entity=Commit
+  field path type=string required=false default=. {
     description "Workspace-relative repository root"
   }
-  field       message type=string required=#true {
+  field message type=string required=true {
     description "Commit message"
-    example     "feat: add OAuth token refresh"
+    example "feat: add OAuth token refresh"
   }
-  field       files type="list<string>" required=#true {
+  field files type=list<string> required=true {
     description "Workspace-relative file paths to stage; use [\".\"] to stage all changes"
   }
-  returns     object description="Object with fields: hash, branch, files_changed"
+  returns object description="Object with fields: hash, branch, files_changed"
 }
 capability VersionControl_Remote_Push {
-  category    VersionControl
+  category VersionControl
   description "Push the current branch to a permitted remote"
-  risk        high
-  writes      entity=Repository
-  field       path type=string required=#false default="." {
+  risk high
+  writes entity=Repository
+  field path type=string required=false default=. {
     description "Workspace-relative repository root"
   }
-  field       remote type=string required=#false default=origin {
+  field remote type=string required=false default=origin {
     description "Remote name to push to"
   }
-  field       force type=bool required=#false default=#false {
+  field force type=bool required=false default=false {
     description "Force push; only permitted if agent.kdl explicitly allows it"
   }
-  returns     object description="Object with fields: remote, branch, commits_pushed"
+  returns object description="Object with fields: remote, branch, commits_pushed"
 }
 
 
@@ -746,48 +748,48 @@ capability VersionControl_Remote_Push {
 // Data — Structured Data Sources
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Database_Query_Exec {
-  category    Database
+  category Database
   description "Execute a read-only SQL query against a permitted data source"
-  risk        medium
-  reads       entity=DatabaseTable
-  field       source_id type=string required=#true {
+  risk medium
+  reads entity=DatabaseTable
+  field source_id type=string required=true {
     description "Data source identifier from agent.kdl data.sources"
-    example     "analytics-db"
+    example analytics-db
   }
-  field       query type=string required=#true {
+  field query type=string required=true {
     description "SQL SELECT statement to execute; INSERT/UPDATE/DELETE are rejected"
-    example     "SELECT user_id, count(*) FROM events GROUP BY user_id LIMIT 100"
+    example "SELECT user_id, count(*) FROM events GROUP BY user_id LIMIT 100"
   }
-  field       max_rows type=int required=#false default=100 {
+  field max_rows type=int required=false default=100 {
     description "Maximum rows to return"
-    min         1
-    max         5000
+    min 1
+    max 5000
   }
-  returns     object description="Object with fields: columns, rows, row_count, truncated"
+  returns object description="Object with fields: columns, rows, row_count, truncated"
 }
 capability Database_Table_List {
-  category    Database
+  category Database
   description "List tables or collections in a data source"
-  risk        low
-  reads       entity=DatabaseTable
-  field       source_id type=string required=#true {
+  risk low
+  reads entity=DatabaseTable
+  field source_id type=string required=true {
     description "Data source identifier from agent.kdl data.sources"
   }
-  returns     "list<object>" description="List of {name, row_count, size_bytes} objects"
+  returns list<object> description="List of {name, row_count, size_bytes} objects"
 }
 capability Database_Schema_Read {
-  category    Database
+  category Database
   description "Read the schema of a specific table or collection"
-  risk        low
-  reads       entity=DatabaseTable
-  field       source_id type=string required=#true {
+  risk low
+  reads entity=DatabaseTable
+  field source_id type=string required=true {
     description "Data source identifier from agent.kdl data.sources"
   }
-  field       table type=string required=#true {
+  field table type=string required=true {
     description "Table or collection name"
-    example     "events"
+    example events
   }
-  returns     "list<object>" description="List of {column, type, nullable, default} objects"
+  returns list<object> description="List of {column, type, nullable, default} objects"
 }
 
 
@@ -795,47 +797,47 @@ capability Database_Schema_Read {
 // Sys — System / Process (within nspawn jail)
 // ═══════════════════════════════════════════════════════════════════════════════
 capability System_Process_Exec {
-  category    System
+  category System
   description "Execute a process in the agent jail and capture its output"
-  risk        high
-  writes      entity=Process
-  field       command type=string required=#true {
+  risk high
+  writes entity=Process
+  field command type=string required=true {
     description "Command and arguments as a single string"
-    example     "go build ./..."
+    example "go build ./..."
   }
-  field       workdir type=string required=#false default="." {
+  field workdir type=string required=false default=. {
     description "Workspace-relative working directory for the process"
   }
-  field       timeout type=int required=#false default=60 {
+  field timeout type=int required=false default=60 {
     description "Maximum execution time in seconds"
-    min         1
-    max         600
+    min 1
+    max 600
   }
-  field       env type="list<object>" required=#false {
+  field env type=list<object> required=false {
     description "Additional environment variables as {key, value} objects"
   }
-  returns     object description="Object with fields: stdout, stderr, exit_code, duration_ms"
+  returns object description="Object with fields: stdout, stderr, exit_code, duration_ms"
 }
 capability System_Process_List {
-  category    System
+  category System
   description "List running processes in the agent jail"
-  risk        low
-  reads       entity=Process
-  returns     "list<object>" description="List of {pid, name, cpu_pct, mem_mb, started_at} objects"
+  risk low
+  reads entity=Process
+  returns list<object> description="List of {pid, name, cpu_pct, mem_mb, started_at} objects"
 }
 capability System_Process_Kill {
-  category    System
+  category System
   description "Send a signal to a process in the agent jail"
-  risk        high
-  writes      entity=Process
-  field       pid type=int required=#true {
+  risk high
+  writes entity=Process
+  field pid type=int required=true {
     description "PID of the process to signal"
   }
-  field       signal type=string required=#false default=SIGTERM {
+  field signal type=string required=false default=SIGTERM {
     description "Signal to send"
-    enum        SIGTERM SIGKILL SIGINT SIGHUP
+    enum SIGTERM SIGKILL SIGINT SIGHUP
   }
-  returns     bool description="true if the signal was delivered"
+  returns bool description="true if the signal was delivered"
 }
 
 
@@ -843,34 +845,34 @@ capability System_Process_Kill {
 // Media — Image, Audio, Video Analysis
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Media_Image_Analyze {
-  category    Media
+  category Media
   description "Describe or answer questions about an image using a vision model"
-  risk        low
-  reads       entity=ImageFile
-  field       source type=string required=#true {
+  risk low
+  reads entity=ImageFile
+  field source type=string required=true {
     description "Workspace-relative file path or a data URI (base64 PNG/JPEG)"
-    example     "output/chart.png"
+    example output/chart.png
   }
-  field       prompt type=string required=#false default="Describe this image in detail" {
+  field prompt type=string required=false default="Describe this image in detail" {
     description "Instruction to the vision model"
-    example     "What is the trend shown in this chart?"
+    example "What is the trend shown in this chart?"
   }
-  returns     string description="Vision model response text"
+  returns string description="Vision model response text"
 }
 capability Media_Audio_Transcribe {
-  category    Media
+  category Media
   description "Transcribe an audio file to text"
-  risk        low
-  reads       entity=AudioFile
-  field       path type=string required=#true {
+  risk low
+  reads entity=AudioFile
+  field path type=string required=true {
     description "Workspace-relative path to the audio file (mp3, wav, m4a)"
-    example     "recordings/meeting.mp3"
+    example recordings/meeting.mp3
   }
-  field       language type=string required=#false {
+  field language type=string required=false {
     description "BCP-47 language code hint; omit for auto-detection"
-    example     "en-US"
+    example en-US
   }
-  returns     object description="Object with fields: text, language, duration_seconds"
+  returns object description="Object with fields: text, language, duration_seconds"
 }
 
 
@@ -878,46 +880,44 @@ capability Media_Audio_Transcribe {
 // Swarm — Agent-to-Agent Coordination
 // ═══════════════════════════════════════════════════════════════════════════════
 capability Swarm_Message_Send {
-  category    Swarm
+  category Swarm
   description "Send a unicast MUS message to a specific agent via the keeperd switchboard"
-  risk        medium
-  writes      entity=AgentMessage
-  field       to_id type=string required=#true {
+  risk medium
+  writes entity=AgentMessage
+  field to_id type=string required=true {
     description "Target agent ID as registered in keeperd"
-    example     "researcher-02"
+    example researcher-02
   }
-  field       payload type=string required=#true {
+  field payload type=string required=true {
     description "Message body; typically a JSON task description or result"
   }
-  field       msg_type type=string required=#false default=task {
+  field msg_type type=string required=false default=task {
     description "Semantic message type for the receiver to route on"
-    enum        task result query ack error
-  }
-  returns     object description="Object with fields: seq_no, delivered_at"
-}
-capability Swarm_Group_Send {
-  category    Swarm
-  description "Send a multicast MUS message to all agents in a named group"
-  risk        medium
-  writes      entity=AgentMessage
-  field       group type=string required=#true {
-    description "Group name as defined in orchestrator.kdl swarm.groups"
-    example     "researchers"
-  }
-  field       payload type=string required=#true {
-    description "Message body to deliver to all group members"
-  }
-  field       msg_type type=string required=#false default=task {
     enum task result query ack error
   }
-  returns     object description="Object with fields: seq_no, delivered_to_count"
+  returns object description="Object with fields: seq_no, delivered_at"
+}
+capability Swarm_Group_Send {
+  category Swarm
+  description "Send a multicast MUS message to all agents in a named group"
+  risk medium
+  writes entity=AgentMessage
+  field group type=string required=true {
+    description "Group name as defined in orchestrator.kdl swarm.groups"
+    example researchers
+  }
+  field payload type=string required=true {
+    description "Message body to deliver to all group members"
+  }
+  field msg_type type=string required=false default=task {
+    enum task result query ack error
+  }
+  returns object description="Object with fields: seq_no, delivered_to_count"
 }
 capability Swarm_Agent_List {
-  category    Swarm
+  category Swarm
   description "List agents currently registered with keeperd"
-  risk        low
-  reads       entity=Agent
-  returns     "list<object>" description="List of {id, status, groups, last_seen} objects"
+  risk low
+  reads entity=Agent
+  returns list<object> description="List of {id, status, groups, last_seen} objects"
 }
-
-

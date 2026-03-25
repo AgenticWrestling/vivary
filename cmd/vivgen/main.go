@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"go/format"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -200,8 +202,12 @@ func loadCapabilities(dir string) ([]kdlCapability, error) {
 		return nil, err
 	}
 	defer f.Close()
+	raw, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
 
-	doc, err := kdl.ParseWithOptions(f, kdl.ParseOptions{RelaxedNonCompliant: relaxed.NGINXSyntax})
+	doc, err := kdl.ParseWithOptions(bytes.NewReader(normalizeKDLGenerics(raw)), kdl.ParseOptions{RelaxedNonCompliant: relaxed.NGINXSyntax})
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +280,18 @@ func loadCapabilities(dir string) ([]kdlCapability, error) {
 	})
 
 	return caps, nil
+}
+
+var (
+	kdlTypeGenericRE    = regexp.MustCompile(`type=([A-Za-z_][A-Za-z0-9_]*<[^\s{}]+>)`)
+	kdlReturnsGenericRE = regexp.MustCompile(`returns\s+([A-Za-z_][A-Za-z0-9_]*<[^\s{}]+>)`)
+)
+
+func normalizeKDLGenerics(src []byte) []byte {
+	text := string(src)
+	text = kdlTypeGenericRE.ReplaceAllString(text, `type="$1"`)
+	text = kdlReturnsGenericRE.ReplaceAllString(text, `returns "$1"`)
+	return []byte(text)
 }
 
 func generateSchemaForCapability(c kdlCapability) *JSONSchema {

@@ -9,29 +9,29 @@
 // orchestrator.kdl).  Override with providers-file in orchestrator.kdl.
 //
 // Agents reference a provider by name in their agent.kdl:
-//   provider "anthropic"
+//   provider anthropic
 
-provider "anthropic" {
-    api-url     "https://api.anthropic.com"
+provider anthropic {
+    api-url     https://api.anthropic.com
     description "Anthropic Claude API"
 }
 
-provider "openai" {
-    api-url     "https://api.openai.com"
+provider openai {
+    api-url     https://api.openai.com
     description "OpenAI GPT-4 / ChatGPT API"
 }
 
-provider "google" {
-    api-url     "https://generativelanguage.googleapis.com"
+provider google {
+    api-url     https://generativelanguage.googleapis.com
     description "Google Gemini API"
 }
 
-provider "mistral" {
-    api-url     "https://api.mistral.ai"
+provider mistral {
+    api-url     https://api.mistral.ai
     description "Mistral AI API"
 }
 
-provider "groq" {
-    api-url     "https://api.groq.com"
+provider groq {
+    api-url     https://api.groq.com
     description "Groq inference API"
 }

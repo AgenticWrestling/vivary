@@ -6,14 +6,14 @@ capability Messaging_Chat_Send {
   description "Send a message to a channel or user"
   risk        critical
   writes      entity=Message
-  field       destination type=string required=#true {
+  field       destination type=string required=true {
     description "Channel name (#channel) or user handle (@user)"
-    example     "#engineering"
+    example     #engineering
   }
-  field       text type=string required=#true {
+  field       text type=string required=true {
     description "Message body in plain text or provider markdown"
   }
-  field       thread_ts type=string required=#false {
+  field       thread_ts type=string required=false {
     description "Thread timestamp to reply in a thread rather than the main channel"
   }
   returns     object description="Object with fields: message_id, timestamp, permalink"
@@ -23,28 +23,28 @@ capability Messaging_Message_List {
   description "List recent messages from a channel"
   risk        low
   reads       entity=Message
-  field       channel type=string required=#true {
+  field       channel type=string required=true {
     description "Channel identifier or name"
-    example     "#engineering"
+    example     #engineering
   }
-  field       max_results type=int required=#false default=20 {
+  field       max_results type=int required=false default=20 {
     min 1
     max 100
   }
-  field       since type=string required=#false {
+  field       since type=string required=false {
     description "Return only messages after this ISO8601 timestamp"
   }
-  returns     "list<object>" description="List of {id, user, text, timestamp, thread_ts} objects"
+  returns     list<object> description="List of {id, user, text, timestamp, thread_ts} objects"
 }
 capability Messaging_Channel_List {
   category    Messaging
   description "List channels the credential has access to"
   risk        low
   reads       entity=Channel
-  field       include_private type=bool required=#false default=#false {
+  field       include_private type=bool required=false default=false {
     description "Include private channels the credential is a member of"
   }
-  returns     "list<object>" description="List of {id, name, is_private, member_count, topic} objects"
+  returns     list<object> description="List of {id, name, is_private, member_count, topic} objects"
 }
 
 
@@ -56,20 +56,20 @@ capability Commerce_Order_Create {
   description "Place an order with a configured commerce provider (e.g. Shopify, Amazon). Requires explicit operator approval by default due to critical risk level."
   risk        critical
   writes      entity=Order
-  field       sku type=string required=#true {
+  field       sku type=string required=true {
     description "Product SKU or provider item ID to purchase"
-    example     "B08N5WRWNW"
+    example     B08N5WRWNW
   }
-  field       quantity type=int required=#true {
+  field       quantity type=int required=true {
     description "Number of units to order"
     min         1
     max         100
   }
-  field       shipping_address_id type=string required=#true {
+  field       shipping_address_id type=string required=true {
     description "ID of a pre-registered shipping address in the operator vault"
-    example     "addr_home"
+    example     addr_home
   }
-  field       confirm type=bool required=#true default=#false {
+  field       confirm type=bool required=true default=false {
     description "Must be explicitly set to true; prevents accidental order placement"
   }
   returns     object description="Object with fields: order_id, total_amount, currency, estimated_delivery"
@@ -84,15 +84,15 @@ capability SmartHome_Device_Invoke {
   description "Invoke an action on a smart home device via the configured hub (e.g. Home Assistant, Google Home)"
   risk        medium
   writes      entity=Device
-  field       device_id type=string required=#true {
+  field       device_id type=string required=true {
     description "Hub-assigned device identifier"
-    example     "light.living_room_main"
+    example     light.living_room_main
   }
-  field       action type=string required=#true {
+  field       action type=string required=true {
     description "Action to invoke on the device"
     enum        on off toggle set
   }
-  field       value type=string required=#false {
+  field       value type=string required=false {
     description "Parameter for 'set' actions, e.g. brightness percentage or target temperature"
     example     "72"
   }
@@ -108,17 +108,16 @@ capability Messaging_Sms_Send {
   description "Send a message to a contact via the configured messaging provider (e.g. WhatsApp, SMS, Signal)"
   risk        high
   writes      entity=Message
-  field       to type=string required=#true {
+  field       to type=string required=true {
     description "Recipient phone number (E.164) or provider contact ID"
     example     "+14155552671"
   }
-  field       body type=string required=#true {
+  field       body type=string required=true {
     description "Plain-text message body"
   }
-  field       provider type=string required=#false default=whatsapp {
+  field       provider type=string required=false default=whatsapp {
     description "Messaging provider to use"
     enum        whatsapp sms signal
   }
   returns     object description="Object with fields: message_id, status, sent_at"
 }
-

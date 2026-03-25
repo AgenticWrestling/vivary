@@ -10,15 +10,15 @@ func TestLoadProvidersConfig_Basic(t *testing.T) {
 	dir := t.TempDir()
 	content := `
 // providers.kdl test fixture
-provider "anthropic" {
-    api-url     "https://api.anthropic.com"
-    description "Anthropic Claude API"
-}
+ provider anthropic {
+     api-url     "https://api.anthropic.com"
+     description "Anthropic Claude API"
+ }
 
-provider "openai" {
-    api-url     "https://api.openai.com"
-    description "OpenAI API"
-}
+ provider openai {
+     api-url     "https://api.openai.com"
+     description "OpenAI API"
+ }
 `
 	path := filepath.Join(dir, "providers.kdl")
 	if err := os.WriteFile(path, []byte(content), 0o640); err != nil {
@@ -80,7 +80,7 @@ func TestLoadProvidersConfig_EmptyFile(t *testing.T) {
 
 func TestParseAgentKDL_Provider(t *testing.T) {
 	kdl := `id "test-agent"
-provider "anthropic"
+provider anthropic
 cpu-shares 2048
 `
 	cfg, err := ParseAgentKDL([]byte(kdl))
