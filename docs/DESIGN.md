@@ -5,7 +5,7 @@
 VIVARY centers on a Go daemon, `keeperd`, that acts as the policy authority, message router, and security firewall for isolated AI agents. The MVP is deliberately single-agent; the swarm topology described later in this document is a follow-on phase built on the same runtime core.
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Host OS (NixOS LXD Container)"
         TUI[viv TUI/CLI]
         SOCK((keeper.sock))
@@ -474,6 +474,7 @@ The generator/linter enforces: Namespace_Noun_Verb naming, complete field metada
 When migrating from systems like OpenClaw, executable plugin code (JS/TS) is considered **Unsupported**. This is a design choice to maintain VIVARY's Go-based, isolated runtime core.
 
 To bridge this gap, the migration TUI provides a **Capability Stub Generator**:
+
 - **Inputs:** Legacy plugin name, identified category (Memory, Search, etc.), and configuration keys.
 - **Outputs:** A boilerplate Go project, `main.go` using `SwarmCapability`, and a `capability.kdl` definition.
 - **Goal:** Minimize the boilerplate required for an operator to manually re-implement the plugin's logic as a native VIVARY Go CLI tool.

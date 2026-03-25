@@ -328,7 +328,6 @@ The frame codec is shared, but the routing path is not yet unified.
 
 If `docs/DESIGN.md` is meant to describe current reality rather than target architecture, these are the main updates to make:
 
-- say explicitly that current MUS usage is `binary header + JSON payload`
 - say explicitly that current MUS usage is `binary header + MUS payload structs`, with JSON still embedded in some capability args/result byte blobs
 - replace `MsgType_CtlEvent` with direct pushed `CompletionEvent` and `FailureEvent`, or mark `CtlEvent` as planned
 - mark approval message families as planned, not implemented
