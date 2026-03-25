@@ -11,6 +11,12 @@ import (
 	"vivary.dev/vivary/internal/chromproxy"
 )
 
+type browserScope struct {
+	domains        []string
+	domainSuffixes []string
+	pathPrefixes   []string
+}
+
 // Browser_Page_Read navigates headless Chrome to a URL and returns the page's
 // readable text via the accessibility tree (not raw HTML).
 //
@@ -46,9 +52,9 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 		args.Timeout = 30
 	}
 
-	// Scope check: URL must match the ECS-style constraints from the ACL.
 	constraints := ConstraintsFromContext(ctx)
-	if !urlMatchesConstraints(args.URL, constraints) {
+	scope := normalizeBrowserScope(constraints)
+	if !scope.allowsURL(args.URL) {
 		return DeniedResponse(fmt.Sprintf("URL %q not in browser whitelist", args.URL)), nil
 	}
 
@@ -56,7 +62,7 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 		return Response{OK: false, ErrorCode: "unavailable", ErrorDetail: "chrome proxy not initialised"}, nil
 	}
 
-	policy := buildBrowserWhitelistPolicy(constraints)
+	policy := scope.whitelistPolicy()
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(args.Timeout)*time.Second)
 	defer cancel()
@@ -69,23 +75,39 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 	return Response{OK: true, Data: data}, nil
 }
 
-func buildBrowserWhitelistPolicy(constraints []ScopeConstraint) chromproxy.WhitelistPolicy {
-	policy := chromproxy.WhitelistPolicy{}
+func normalizeBrowserScope(constraints []ScopeConstraint) browserScope {
+	scope := browserScope{}
 	for _, sc := range constraints {
 		if sc.Entity != "Link" {
 			continue
 		}
-		policy.Domains = append(policy.Domains, sc.Constraints["domain"]...)
-		policy.DomainSuffixes = append(policy.DomainSuffixes, sc.Constraints["domain-suffix"]...)
-		policy.PathPrefixes = append(policy.PathPrefixes, sc.Constraints["path-prefix"]...)
+		scope.domains = append(scope.domains, sc.Constraints["domain"]...)
+		scope.domainSuffixes = append(scope.domainSuffixes, sc.Constraints["domain-suffix"]...)
+		scope.pathPrefixes = append(scope.pathPrefixes, sc.Constraints["path-prefix"]...)
 	}
-	return policy
+	return scope
+}
+
+func buildBrowserWhitelistPolicy(constraints []ScopeConstraint) chromproxy.WhitelistPolicy {
+	return normalizeBrowserScope(constraints).whitelistPolicy()
+}
+
+func (s browserScope) whitelistPolicy() chromproxy.WhitelistPolicy {
+	return chromproxy.WhitelistPolicy{
+		Domains:        append([]string(nil), s.domains...),
+		DomainSuffixes: append([]string(nil), s.domainSuffixes...),
+		PathPrefixes:   append([]string(nil), s.pathPrefixes...),
+	}
 }
 
 // urlMatchesConstraints returns true if rawURL matches any of the ECS-style
 // scope constraints.
 func urlMatchesConstraints(rawURL string, constraints []ScopeConstraint) bool {
-	if len(constraints) == 0 {
+	return normalizeBrowserScope(constraints).allowsURL(rawURL)
+}
+
+func (s browserScope) allowsURL(rawURL string) bool {
+	if len(s.domains) == 0 && len(s.domainSuffixes) == 0 && len(s.pathPrefixes) == 0 {
 		return false
 	}
 	u, err := url.Parse(rawURL)
@@ -95,34 +117,20 @@ func urlMatchesConstraints(rawURL string, constraints []ScopeConstraint) bool {
 	domain := strings.ToLower(u.Host)
 	path := u.Path
 
-	for _, sc := range constraints {
-		if sc.Entity != "Link" {
-			continue
+	for _, d := range s.domains {
+		if domain == strings.ToLower(d) {
+			return true
 		}
-		// Check 'domain' constraint.
-		if ds, ok := sc.Constraints["domain"]; ok {
-			for _, d := range ds {
-				if domain == strings.ToLower(d) {
-					return true
-				}
-			}
+	}
+	for _, suffixValue := range s.domainSuffixes {
+		suffix := strings.ToLower(suffixValue)
+		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
+			return true
 		}
-		// Check 'domain-suffix' constraint.
-		if ds, ok := sc.Constraints["domain-suffix"]; ok {
-			for _, s := range ds {
-				suffix := strings.ToLower(s)
-				if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
-					return true
-				}
-			}
-		}
-		// Check 'path-prefix' constraint.
-		if ps, ok := sc.Constraints["path-prefix"]; ok {
-			for _, p := range ps {
-				if strings.HasPrefix(path, p) {
-					return true
-				}
-			}
+	}
+	for _, prefix := range s.pathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
 		}
 	}
 	return false

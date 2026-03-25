@@ -30,20 +30,7 @@ import (
 // handleFrame is registered as the Router handler.  It is called for every
 // validated frame from any pipe (Ward or ctl-originated agent prompts).
 func (d *daemon) handleFrame(f switchboard.Frame) {
-	// Audit: record every frame.  Omit payload for high-sensitivity types.
-	auditPayload := d.shouldAuditPayload(f)
-	var stored []byte
-	if auditPayload {
-		stored = f.Payload
-	}
-	_ = d.auditDB.WriteFrame(
-		time.Now(),
-		f.Header.Type.String(),
-		f.Header.FromID,
-		f.Header.ToID,
-		f.Header.SeqNo,
-		stored,
-	)
+	d.auditFrame(f)
 
 	switch f.Header.Type {
 	case switchboard.MsgType_CapabilityRequest:
@@ -63,15 +50,42 @@ func (d *daemon) handleFrame(f switchboard.Frame) {
 	}
 }
 
+func (d *daemon) auditFrame(f switchboard.Frame) {
+	var stored []byte
+	if d.shouldAuditPayload(f) {
+		stored = f.Payload
+	}
+	_ = d.auditDB.WriteFrame(
+		time.Now(),
+		f.Header.Type.String(),
+		f.Header.FromID,
+		f.Header.ToID,
+		f.Header.SeqNo,
+		stored,
+	)
+}
+
 // handleCapabilityRequest dispatches a CapabilityRequest from a Ward and writes
 // the CapabilityResponse back to the same agent pipe.
 func (d *daemon) handleCapabilityRequest(f switchboard.Frame) {
-	var payload capabilities.CapabilityRequestPayload
-	if err := payload.UnmarshalMUS(bytes.NewReader(f.Payload)); err != nil {
+	payload, err := decodeCapabilityRequest(f.Payload)
+	if err != nil {
 		d.sendCapabilityDenied(f, "malformed request: "+err.Error())
 		return
 	}
 
+	resp := d.dispatchCapabilityRequest(f, payload)
+	d.auditCapabilityDenial(f.Header.FromID, payload.Capability, resp)
+	d.sendCapabilityResponse(f, resp)
+}
+
+func decodeCapabilityRequest(payload []byte) (capabilities.CapabilityRequestPayload, error) {
+	var req capabilities.CapabilityRequestPayload
+	err := req.UnmarshalMUS(bytes.NewReader(payload))
+	return req, err
+}
+
+func (d *daemon) dispatchCapabilityRequest(f switchboard.Frame, payload capabilities.CapabilityRequestPayload) capabilities.Response {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
@@ -87,17 +101,21 @@ func (d *daemon) handleCapabilityRequest(f switchboard.Frame) {
 	})
 	if err != nil {
 		d.log.Error("capability execution error", "cap", payload.Capability, "agent", f.Header.FromID, "err", err)
-		resp = capabilities.DeniedResponse(fmt.Sprintf("internal error: %v", err))
+		return capabilities.DeniedResponse(fmt.Sprintf("internal error: %v", err))
 	}
+	return resp
+}
 
-	// Audit capability denials as security events.
+func (d *daemon) auditCapabilityDenial(agentID, capability string, resp capabilities.Response) {
 	if !resp.OK && resp.ErrorCode == "capability_denied" {
 		_ = d.auditDB.WriteSecurityEvent(
-			time.Now(), f.Header.FromID, "capability_denied",
-			fmt.Sprintf("cap=%s detail=%s", payload.Capability, resp.ErrorDetail),
+			time.Now(), agentID, "capability_denied",
+			fmt.Sprintf("cap=%s detail=%s", capability, resp.ErrorDetail),
 		)
 	}
+}
 
+func (d *daemon) sendCapabilityResponse(f switchboard.Frame, resp capabilities.Response) {
 	respPayload := capabilities.CapabilityResponsePayload{
 		OK:          resp.OK,
 		Data:        resp.Data, // bridge JSON Data for now
@@ -141,16 +159,7 @@ func (d *daemon) handleCompletionEvent(f switchboard.Frame) {
 		"outcome", ev.Outcome, "tokens_in", ev.InputTokens, "tokens_out", ev.OutputTokens,
 		"cost_usd", ev.CostUSD,
 	)
-	d.mu.Lock()
-	if a, ok := d.agents[ev.AgentID]; ok {
-		a.lastEventAt = time.Now()
-		a.lastOutcome = ev.Outcome
-		a.inputTokens = ev.InputTokens
-		a.outputTokens = ev.OutputTokens
-		a.costUSD = ev.CostUSD
-		a.toolCalls = ev.ToolCalls
-	}
-	d.mu.Unlock()
+	d.updateAgentCompletionState(ev)
 	d.pushToCtlSubscribers(f)
 }
 
@@ -166,13 +175,30 @@ func (d *daemon) handleFailureEvent(f switchboard.Frame) {
 		"agent", ev.AgentID, "seq", ev.PromptSeq,
 		"kind", ev.Kind, "detail", ev.Detail,
 	)
+	d.updateAgentFailureState(ev)
+	d.pushToCtlSubscribers(f)
+}
+
+func (d *daemon) updateAgentCompletionState(ev audit.CompletionEvent) {
+	d.mu.Lock()
+	if a, ok := d.agents[ev.AgentID]; ok {
+		a.lastEventAt = time.Now()
+		a.lastOutcome = ev.Outcome
+		a.inputTokens = ev.InputTokens
+		a.outputTokens = ev.OutputTokens
+		a.costUSD = ev.CostUSD
+		a.toolCalls = ev.ToolCalls
+	}
+	d.mu.Unlock()
+}
+
+func (d *daemon) updateAgentFailureState(ev audit.FailureEvent) {
 	d.mu.Lock()
 	if a, ok := d.agents[ev.AgentID]; ok {
 		a.lastEventAt = time.Now()
 		a.lastOutcome = ev.Kind
 	}
 	d.mu.Unlock()
-	d.pushToCtlSubscribers(f)
 }
 
 // shouldAuditPayload returns true if f's payload should be written to the

@@ -21,7 +21,7 @@ The main gaps are:
 
 - the implemented `SwarmHeader` is smaller than the design header
 - ctl event and approval message families in `docs/DESIGN.md` are not implemented yet
-- current ctl payloads and capability payloads are JSON inside MUS payload bytes
+- capability args/data still carry JSON in a few places even though the frame/header and most top-level payload structs are now MUS
 - ctl subscription pushes raw `CompletionEvent` and `FailureEvent` frames, not a separate `MsgType_CtlEvent`
 
 ## Implemented Wire Format
@@ -91,70 +91,59 @@ From `internal/switchboard/msgtype.go`:
 
 ## Payload Encoding by Path
 
-The MUS header is binary, but most payloads are JSON.
+The MUS header is binary, and the current implementation now uses MUS for the top-level payload structs on the control plane, capability path, and telemetry path. JSON still appears mainly inside capability args/results where the concrete capability implementations still consume or return JSON blobs.
 
 ### `vivary` <-> `keeperd`
 
-Ctl payloads are JSON by design in `internal/ctl/protocol.go`.
+Ctl payloads are binary MUS structs from `internal/ctl/protocol.go`.
 
 Implemented request payloads:
 
 - `CtlSubscribe`: empty payload
 - `CtlStatus`: empty payload
-- `CtlAgentCreate`: JSON `AgentCreatePayload`
-- `CtlAgentDestroy`: JSON `AgentDestroyPayload`
+- `CtlAgentCreate`: MUS `AgentCreatePayload`
+- `CtlAgentDestroy`: MUS `AgentDestroyPayload`
 - `CtlAgentList`: empty payload
-- `CtlPrompt`: JSON `PromptPayload`
+- `CtlPrompt`: MUS `PromptPayload`
 - `Ping`: empty payload
 
 Implemented response payloads:
 
-- `CtlSubscribe`: JSON `{"ok":true}` ack
-- `CtlStatus`: JSON `StatusPayload`
-- `CtlAgentCreate`: JSON `{"ok":true}` or `{"ok":false,"error":"..."}`
-- `CtlAgentDestroy`: same ack/error shape
-- `CtlAgentList`: JSON `AgentListPayload`
-- `CtlPrompt`: same ack/error shape
+- `CtlSubscribe`: 1-byte MUS ack payload (`1 = ok`)
+- `CtlStatus`: MUS `StatusPayload`
+- `CtlAgentCreate`: 1-byte MUS ack payload (`1 = ok`, `0 = error`) with optional error text on failure paths where implemented
+- `CtlAgentDestroy`: same ack/error convention
+- `CtlAgentList`: MUS `AgentListPayload`
+- `CtlPrompt`: 1-byte MUS ack payload (`1 = ok`, `0 = error`) with optional error text on failure paths where implemented
 - `Pong`: empty payload
 
 Pushed event payloads to subscribed ctl clients:
 
-- `CompletionEvent`: JSON `audit.CompletionEvent`
-- `FailureEvent`: JSON `audit.FailureEvent`
+- `CompletionEvent`: MUS `audit.CompletionEvent` / `ctl.CompletionEventPayload`
+- `FailureEvent`: MUS `audit.FailureEvent` / `ctl.FailureEventPayload`
 
 ### `keeperd` <-> `ward`
 
 Prompt path:
 
-- `keeperd -> ward`: `MsgType_CtlPrompt` carrying the same JSON `ctl.PromptPayload`
+- `keeperd -> ward`: `MsgType_CtlPrompt` carrying the same MUS `ctl.PromptPayload`
 
 Capability path:
 
-- `ward -> keeperd`: `MsgType_CapabilityRequest` carrying JSON:
+- `ward -> keeperd`: `MsgType_CapabilityRequest` carrying MUS `capabilities.CapabilityRequestPayload`
+  - `Capability`: MUS string
+  - `Args`: length-prefixed bytes; today these bytes are still typically JSON for the concrete capability args object
 
-```json
-{
-  "name": "Browser_Page_Read",
-  "agent_id": "agent-1",
-  "args": { ... }
-}
-```
-
-- `keeperd -> ward`: `MsgType_CapabilityResponse` carrying JSON `capabilities.Response`
-
-```json
-{
-  "ok": true,
-  "data": ...,
-  "error_code": "capability_denied",
-  "error_detail": "..."
-}
-```
+- `keeperd -> ward`: `MsgType_CapabilityResponse` carrying MUS `capabilities.CapabilityResponsePayload`
+  - `OK`: 1 byte
+  - `Data`: length-prefixed bytes; today these bytes are still typically JSON for capability-specific result data
+  - `ErrorCode`: MUS string
+  - `ErrorDetail`: MUS string
 
 Telemetry path:
 
-- `ward -> keeperd`: `MsgType_CompletionEvent` with JSON `audit.CompletionEvent`
-- `ward -> keeperd`: `MsgType_FailureEvent` with JSON `audit.FailureEvent`
+- `ward -> keeperd`: `MsgType_CompletionEvent` with MUS `audit.CompletionEvent`
+- `ward -> keeperd`: `MsgType_FailureEvent` with MUS `audit.FailureEvent`
 
 Liveness path:
 
@@ -310,18 +299,19 @@ The implementation requires:
 
 That is close, but not the same handshake.
 
-#### 6. ctl and capability payloads are JSON, not MUS structs
+#### 6. Capability args/results still bridge through JSON blobs in places
 
 The design sometimes reads as if typed MUS payload structs exist end-to-end.
 
 The implementation today is:
 
 - MUS for framing/header
-- JSON for ctl payloads
-- JSON for capability request/response payloads
-- JSON for completion/failure payloads
+- MUS for ctl payload structs
+- MUS for capability request/response envelopes
+- MUS for completion/failure payloads
+- JSON still inside some capability `Args` / `Data` byte blobs while concrete capabilities continue to use JSON objects internally
 
-This is fully workable, but it should be described explicitly.
+This is fully workable, but the remaining JSON-at-the-edges should be described explicitly.
 
 #### 7. ctl traffic is codec-compatible with agent traffic, but not routed by the same router path
 
@@ -339,6 +329,7 @@ The frame codec is shared, but the routing path is not yet unified.
 If `docs/DESIGN.md` is meant to describe current reality rather than target architecture, these are the main updates to make:
 
 - say explicitly that current MUS usage is `binary header + JSON payload`
+- say explicitly that current MUS usage is `binary header + MUS payload structs`, with JSON still embedded in some capability args/result byte blobs
 - replace `MsgType_CtlEvent` with direct pushed `CompletionEvent` and `FailureEvent`, or mark `CtlEvent` as planned
 - mark approval message families as planned, not implemented
 - note that `ctl` uses the same frame format but not yet the same router implementation
@@ -373,8 +364,14 @@ If `docs/DESIGN.md` is meant to describe current reality rather than target arch
 - Ward frames are written by the switchboard/dispatch path
 - completion and failure events are always stored
 
+### Remaining JSON bridges
+
+- `CapabilityRequestPayload.Args` is MUS length-prefixed bytes, but those bytes are still decoded as JSON by `keeperd` before capability dispatch
+- `CapabilityResponsePayload.Data` is MUS length-prefixed bytes, but many capabilities still return JSON result blobs inside it
+- capability implementations such as `Browser_Page_Read` and `Filesystem_File_Write` still consume JSON args structs internally
+
 ## Conclusion
 
 The current implementation is directionally aligned with `docs/DESIGN.md`, especially around the single framed control plane, identity handling, capability routing, and telemetry flow.
 
-But it is still a narrower MVP protocol than the design document describes. The biggest differences are the reduced header, JSON payloads inside MUS frames, direct event pushes instead of a ctl event wrapper, and the absence of the approval and unified ctl-router layers.
+But it is still a narrower MVP protocol than the design document describes. The biggest differences are the reduced header, the remaining JSON bridges inside capability args/result byte blobs, direct event pushes instead of a ctl event wrapper, and the absence of the approval and unified ctl-router layers.

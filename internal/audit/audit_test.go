@@ -111,6 +111,16 @@ func TestVivaryLog_SecurityEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteSecurityEvent: %v", err)
 	}
+	records, err := db.QuerySecurityEvents(SecurityEventFilter{Agent: "agent-1", Kind: "capability_denied"})
+	if err != nil {
+		t.Fatalf("QuerySecurityEvents: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("want 1 security event, got %d", len(records))
+	}
+	if records[0].Detail != "cap=Browser_Page_Read url=http://evil.com" {
+		t.Fatalf("detail = %q", records[0].Detail)
+	}
 }
 
 func TestCompletionEventRoundTrip(t *testing.T) {

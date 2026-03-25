@@ -121,18 +121,24 @@ Current MVP implementation status: subscribe/status/prompt/agent lifecycle/ping 
 | MsgType | Direction | Purpose |
 |---|---|---|
 | `MsgType_CtlSubscribe` | viv → keeperd | Subscribe to live Completion and Failure event push stream. |
-| `MsgType_CtlEvent` | keeperd → viv | Pushed on each Completion or Failure event; carries the structured log payload. |
+| `MsgType_CompletionEvent` | keeperd → viv | Pushed directly to subscribed ctl clients when a prompt run completes. |
+| `MsgType_FailureEvent` | keeperd → viv | Pushed directly to subscribed ctl clients when a prompt run fails. |
 | `MsgType_CtlAgentCreate` | viv → keeperd | Provision a new agent workspace from a template. |
-| `MsgType_CtlAgentStop` | viv → keeperd | Terminate a running agent nspawn container. |
-| `MsgType_CtlVaultAdd` | viv → keeperd | Add or rotate a credential in the vault. |
+| `MsgType_CtlAgentDestroy` | viv → keeperd | Destroy an agent workspace and tear down its runtime state. |
 | `MsgType_CtlStatus` | viv → keeperd | Request a full snapshot of current agent states (used on startup). |
-| `MsgType_CtlApprovalRequired` | keeperd → viv | Pushed when a capability is awaiting approval; includes full request detail. |
-| `MsgType_CtlApprovalGrant` | viv → keeperd | Operator approves the pending request. |
-| `MsgType_CtlApprovalDeny` | viv → keeperd | Operator denies the pending request. |
+| `MsgType_CtlApproval` | reserved | Approval remains designed-but-not-implemented in the current MVP runtime. |
 
-`viv` connects at startup, sends `MsgType_CtlSubscribe`, then receives an initial `MsgType_CtlStatus` followed by a live stream of `MsgType_CtlEvent` pushes. In the MVP this primarily drives a single-agent detail view and CLI status commands; a matrix or fleet view comes with the later multi-agent phase.
+`viv` connects at startup, sends `MsgType_CtlSubscribe`, then explicitly requests `MsgType_CtlStatus`, and finally receives a live stream of raw `MsgType_CompletionEvent` / `MsgType_FailureEvent` pushes. In the MVP this primarily drives a single-agent detail view and CLI status commands; a matrix or fleet view comes with the later multi-agent phase.
 
-Any `viv` CLI subcommand (e.g., `viv agent create`, `viv vault add`) sends the corresponding ctl MUS message to the socket and waits for acknowledgement. `keeperd` is the single source of state.
+Ctl request/response payloads are MUS structs from `internal/ctl/protocol.go` rather than JSON blobs. Any `viv` CLI subcommand (e.g., `viv agent create`) sends the corresponding ctl MUS payload to the socket and waits for acknowledgement. `keeperd` is the single source of state.
+
+---
+
+### 3a. Bridges (External Connectors)
+
+Bridges are external processes (e.g., Slack/Telegram bots, webhooks, or legacy system adapters) that connect to `keeperd` to provide ingress (triggering prompts) or egress (delivering notifications) outside the core runtime.
+
+See [BRIDGES.md](BRIDGES.md) for the full architecture, configuration, and security model.
 
 ---
 
@@ -446,7 +452,7 @@ type SwarmCapability interface {
 }
 ```
 
-**`vivgen` compile-time tool:** Reads the `capabilities/*.kdl` source files and generates the Go types, static schema strings, and registry data compiled into the runtime. This keeps the KDL capability catalogue as the source of truth while ensuring the schema the LLM receives is always in sync with what `keeperd` and `ward` parse.
+**`vivgen` compile-time tool:** Reads the `capabilities/*.kdl` source files and generates the Go types, static schema strings, and registry data compiled into the runtime. These KDL files are **only used at compile-time**; they are never read live by `keeperd` or `ward`. This ensures the schema the LLM receives is always in sync with what the system handles while keeping the runtime core free of KDL parsing overhead.
 
 ```go
 // file: browser_page_read.go
@@ -461,6 +467,15 @@ type Browser_Page_Read struct {
 The generator/linter enforces: Namespace_Noun_Verb naming, complete field metadata in KDL (description + at least one example or enum where required), snake_case JSON keys, no vendor-specific terms in generic namespaces, and consistency between capabilities, entities, and categories.
 
 **Backward compatibility:** `vivgen` checks that any field removed or renamed in a generated capability type would break existing `agent.kdl` policy grants referencing that capability's entity types. CI fails if a breaking change is introduced without a new versioned capability name (e.g., `Email_Message_Send_v2`).
+
+**Capability Porting (The "Logic Gap"):**
+
+When migrating from systems like OpenClaw, executable plugin code (JS/TS) is considered **Unsupported**. This is a design choice to maintain VIVARY's Go-based, isolated runtime core.
+
+To bridge this gap, the migration TUI provides a **Capability Stub Generator**:
+- **Inputs:** Legacy plugin name, identified category (Memory, Search, etc.), and configuration keys.
+- **Outputs:** A boilerplate Go project, `main.go` using `SwarmCapability`, and a `capability.kdl` definition.
+- **Goal:** Minimize the boilerplate required for an operator to manually re-implement the plugin's logic as a native VIVARY Go CLI tool.
 
 ---
 

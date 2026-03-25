@@ -93,12 +93,28 @@ type FrameRecord struct {
 // QueryFrames executes a flexible filter query.  All filter fields are
 // optional; zero values are ignored.
 type FrameFilter struct {
-	AgentID  string // matches from_id
-	MsgType  string // exact msg_type
-	Since    time.Time
-	Until    time.Time
-	SeqNo    uint64 // exact seq_no, 0 = any
-	Limit    int    // 0 = no limit
+	AgentID string // matches from_id
+	MsgType string // exact msg_type
+	Since   time.Time
+	Until   time.Time
+	SeqNo   uint64 // exact seq_no, 0 = any
+	Limit   int    // 0 = no limit
+}
+
+// SecurityEventRecord is a decoded row from the security_events table.
+type SecurityEventRecord struct {
+	ID     int64
+	Ts     time.Time
+	Agent  string
+	Kind   string
+	Detail string
+}
+
+// SecurityEventFilter returns security events matching the provided fields.
+type SecurityEventFilter struct {
+	Agent string
+	Kind  string
+	Limit int
 }
 
 // Tail returns the most recent n frames across all agents.
@@ -163,6 +179,43 @@ func scanFrames(rows *sql.Rows) ([]FrameRecord, error) {
 		t, _ := time.Parse(time.RFC3339Nano, tsStr)
 		r.Ts = t
 		r.Payload = payload
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+// QuerySecurityEvents returns security events matching f.
+func (d *DB) QuerySecurityEvents(f SecurityEventFilter) ([]SecurityEventRecord, error) {
+	q := `SELECT id, ts, agent, kind, detail FROM security_events WHERE 1=1`
+	var args []any
+	if f.Agent != "" {
+		q += " AND agent = ?"
+		args = append(args, f.Agent)
+	}
+	if f.Kind != "" {
+		q += " AND kind = ?"
+		args = append(args, f.Kind)
+	}
+	q += " ORDER BY id ASC"
+	if f.Limit > 0 {
+		q += fmt.Sprintf(" LIMIT %d", f.Limit)
+	}
+
+	rows, err := d.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []SecurityEventRecord
+	for rows.Next() {
+		var r SecurityEventRecord
+		var tsStr string
+		if err := rows.Scan(&r.ID, &tsStr, &r.Agent, &r.Kind, &r.Detail); err != nil {
+			return nil, err
+		}
+		t, _ := time.Parse(time.RFC3339Nano, tsStr)
+		r.Ts = t
 		records = append(records, r)
 	}
 	return records, rows.Err()

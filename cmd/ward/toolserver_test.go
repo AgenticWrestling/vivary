@@ -53,28 +53,81 @@ func startTestToolServer(t *testing.T, w *ward) string {
 	return ""
 }
 
-// toolRoundTrip dials sockPath, sends req as JSON, signals EOF, and returns
-// the decoded ToolResponse.
-func toolRoundTrip(t *testing.T, sockPath string, req ToolRequest) ToolResponse {
+func dialToolSocket(t *testing.T, sockPath string) *net.UnixConn {
 	t.Helper()
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		t.Fatalf("dial tool socket: %v", err)
 	}
-	defer conn.Close()
-
-	data, _ := json.Marshal(req)
-	if _, err := conn.Write(data); err != nil {
-		t.Fatalf("write request: %v", err)
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		conn.Close()
+		t.Fatal("tool socket connection is not a UnixConn")
 	}
-	// CloseWrite signals EOF so handleConn's io.ReadAll returns.
-	conn.(*net.UnixConn).CloseWrite()
+	t.Cleanup(func() { unixConn.Close() })
+	return unixConn
+}
 
+func readToolResponse(t *testing.T, conn *net.UnixConn) ToolResponse {
+	t.Helper()
 	var resp ToolResponse
 	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	return resp
+}
+
+func sendRawToolPayload(t *testing.T, sockPath string, payload []byte) ToolResponse {
+	t.Helper()
+	conn := dialToolSocket(t, sockPath)
+	if _, err := conn.Write(payload); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	_ = conn.CloseWrite()
+	return readToolResponse(t, conn)
+}
+
+func newPromptTestWard(t *testing.T) (*ward, *bytes.Buffer) {
+	t.Helper()
+	var out bytes.Buffer
+	w := newTestWardForServer(t)
+	w.pipe = &musPipe{w: &out, agentID: w.agentID, log: w.log}
+	return w, &out
+}
+
+func writeFakeClaude(t *testing.T, content string) string {
+	t.Helper()
+	tmp := t.TempDir()
+	claudePath := filepath.Join(tmp, "claude")
+	if err := os.WriteFile(claudePath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return tmp
+}
+
+func readFailureEventFromBuffer(t *testing.T, out *bytes.Buffer) audit.FailureEvent {
+	t.Helper()
+	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		t.Fatalf("read emitted frame: %v", err)
+	}
+	if hdr.Type != switchboard.MsgType_FailureEvent {
+		t.Fatalf("frame type = %v, want FailureEvent", hdr.Type)
+	}
+	ev, err := audit.UnmarshalFailure(payload)
+	if err != nil {
+		t.Fatalf("decode failure event: %v", err)
+	}
+	return ev
+}
+
+// toolRoundTrip dials sockPath, sends req as JSON, signals EOF, and returns
+// the decoded ToolResponse.
+func toolRoundTrip(t *testing.T, sockPath string, req ToolRequest) ToolResponse {
+	t.Helper()
+	data, _ := json.Marshal(req)
+	return sendRawToolPayload(t, sockPath, data)
 }
 
 // ---- isSchemaOnly unit tests -----------------------------------------------
@@ -212,19 +265,7 @@ func TestToolServer_MalformedJSON_SetsAbortKind(t *testing.T) {
 	w := newTestWardForServer(t)
 	sockPath := startTestToolServer(t, w)
 
-	conn, err := net.Dial("unix", sockPath)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer conn.Close()
-
-	conn.Write([]byte("this is not json"))
-	conn.(*net.UnixConn).CloseWrite()
-
-	var resp ToolResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	resp := sendRawToolPayload(t, sockPath, []byte("this is not json"))
 	if resp.OK {
 		t.Error("expected OK=false for malformed JSON")
 	}
@@ -235,16 +276,8 @@ func TestToolServer_MalformedJSON_SetsAbortKind(t *testing.T) {
 }
 
 func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
-	tmp := t.TempDir()
-	claudePath := filepath.Join(tmp, "claude")
-	if err := os.WriteFile(claudePath, []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
-	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	var out bytes.Buffer
-	w := newTestWardForServer(t)
-	w.pipe = &musPipe{w: &out, agentID: w.agentID, log: w.log}
+	writeFakeClaude(t, "#!/bin/sh\nsleep 5\n")
+	w, out := newPromptTestWard(t)
 
 	go func() {
 		deadline := time.Now().Add(2 * time.Second)
@@ -260,17 +293,7 @@ func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
 	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 42, Text: "test prompt"}
 	w.handlePrompt(context.Background(), prompt.MarshalMUS())
 
-	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(out.Bytes()))
-	if err != nil {
-		t.Fatalf("read emitted frame: %v", err)
-	}
-	if hdr.Type != switchboard.MsgType_FailureEvent {
-		t.Fatalf("frame type = %v, want FailureEvent", hdr.Type)
-	}
-	ev, err := audit.UnmarshalFailure(payload)
-	if err != nil {
-		t.Fatalf("decode failure event: %v", err)
-	}
+	ev := readFailureEventFromBuffer(t, out)
 	if ev.Kind != "schema_invalid" {
 		t.Fatalf("failure kind = %q, want %q", ev.Kind, "schema_invalid")
 	}
@@ -280,8 +303,6 @@ func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
 }
 
 func TestHandlePrompt_EmitsMalformedToolCallFailureViaToolSocket(t *testing.T) {
-	tmp := t.TempDir()
-	claudePath := filepath.Join(tmp, "claude")
 	claudeScript := `#!/bin/sh
 python3 - <<'PY'
 import os, socket, time
@@ -292,14 +313,9 @@ sock.shutdown(socket.SHUT_WR)
 time.sleep(5)
 PY
 `
-	if err := os.WriteFile(claudePath, []byte(claudeScript), 0o755); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
-	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	tmp := writeFakeClaude(t, claudeScript)
 
-	var out bytes.Buffer
-	w := newTestWardForServer(t)
-	w.pipe = &musPipe{w: &out, agentID: w.agentID, log: w.log}
+	w, out := newPromptTestWard(t)
 	sockPath := filepath.Join(tmp, "ward-tool.sock")
 	w.toolSockPath = sockPath
 
@@ -321,17 +337,7 @@ PY
 	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 99, Text: "test prompt"}
 	w.handlePrompt(context.Background(), prompt.MarshalMUS())
 
-	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(out.Bytes()))
-	if err != nil {
-		t.Fatalf("read emitted frame: %v", err)
-	}
-	if hdr.Type != switchboard.MsgType_FailureEvent {
-		t.Fatalf("frame type = %v, want FailureEvent", hdr.Type)
-	}
-	ev, err := audit.UnmarshalFailure(payload)
-	if err != nil {
-		t.Fatalf("decode failure event: %v", err)
-	}
+	ev := readFailureEventFromBuffer(t, out)
 	if ev.Kind != "malformed_tool_call" {
 		t.Fatalf("failure kind = %q, want %q", ev.Kind, "malformed_tool_call")
 	}
@@ -346,19 +352,7 @@ func TestToolServer_MalformedJSON(t *testing.T) {
 	w := newTestWardForServer(t)
 	sockPath := startTestToolServer(t, w)
 
-	conn, err := net.Dial("unix", sockPath)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer conn.Close()
-
-	conn.Write([]byte("this is not json"))
-	conn.(*net.UnixConn).CloseWrite()
-
-	var resp ToolResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	resp := sendRawToolPayload(t, sockPath, []byte("this is not json"))
 	if resp.OK {
 		t.Error("expected OK=false for malformed JSON")
 	}

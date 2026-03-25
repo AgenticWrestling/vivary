@@ -24,9 +24,9 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 **Remaining MVP deliverables:**
 
-1. Finish Ward-side schema validation and malformed-call failure reporting so the prompt -> tool -> capability response -> completion path is fully coherent.
-2. Close the remaining browser mediation gaps: document/profile isolation clarity and end-to-end allow/deny coverage against the shipped proxy path.
-3. Finish `keeperd` runtime state and CLI/TUI status parity so operator views are fully truthful and consistent.
+1. Keep Ward's now-wired schema validation and malformed-call failure reporting covered by prompt-run tests so the prompt -> tool -> capability response -> completion path stays fully coherent.
+2. Close the remaining browser mediation gaps: document/profile isolation clarity and full prompt-run allow/deny coverage against the shipped proxy path.
+3. Finish `keeperd` runtime state and CLI/TUI status parity so operator views are fully truthful and consistent across both surfaces.
 4. Finish audit payload sensitivity policy so stored payload behavior matches capability categories beyond the currently wired per-capability hook.
 5. Make provisioning behavior safe and predictable on Linux.
 6. Expand test coverage from unit-level pieces to real MVP end-to-end assertions.
@@ -82,13 +82,13 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - Separate binary exists.
 - CLI commands for status, prompt dispatch, ping, and agent lifecycle exist.
 - TUI subscribe/status flow and event rendering exist.
+- CLI status now renders keeper-owned prompt/event/outcome/token/cost/tool-call fields and has snapshot coverage.
 
 **Remaining work:**
 
-- Keep status, last event, token counts, and cost sourced from keeper-owned state rather than only live event arrival.
-- Make CLI status output and TUI detail views agree on field meanings, field coverage, and fallback behavior.
+- Make the TUI detail/status views match the CLI on field meanings, field coverage, and fallback behavior.
 - Keep the CLI surface as important as the TUI: every MVP operator action should stay available without fullscreen UI.
-- Add tests for richer status snapshots once keeper-owned runtime state is expanded.
+- Add matching TUI/status rendering coverage so keeper-owned runtime fields cannot drift between surfaces.
 
 ### 1.4 Agent Workspace Provisioning
 
@@ -153,13 +153,13 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - Tool socket server for capability CLIs exists.
 - Completion and failure events exist.
 - Generated schemas and binary MUS marshallers are available inside Ward.
+- Schema validation and malformed/schema-invalid failure signaling are implemented and covered at the tool and prompt-abort levels.
 
 **Remaining work:**
 
 - Keep the current Claude CLI -> Ward tool socket -> keeperd capability path as the single MVP execution path and avoid reintroducing overlapping mechanisms.
-- Finish Ward-side validation/failure handling so the prompt -> tool call -> capability response -> tool result -> completion path has no ambiguous malformed-call branch left in normal execution.
+- Keep the Ward validation/failure path stable and extend it to broader prompt-run coverage.
 - Introduce one normalized internal event shape inside Ward so backend-specific parsing stays behind a very small adapter boundary.
-- Add explicit schema validation on every forwarded tool call against the generated schema, with operator-visible failure events for malformed/schema-invalid calls.
 - Keep schema synchronization through `vivgen` as the only source of truth; do not reintroduce hard-coded schema copies.
 - If a future `AgentCLI` interface is added, keep it thin and justified by actual need, not speculative provider generalization.
 
@@ -177,9 +177,25 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - Add tests covering stable machine-readable output modes.
 - Make sure `vivlog` stays sufficient for protocol bring-up, ACL debugging, and prompt-run inspection before richer UI work lands.
 
+### 2.5 Migration System (OpenClaw -> VIVARY)
+
+**Already done:**
+
+- `internal/migrate/openclaw.go` implements v0 discovery (artifacts, channels, plugins, redacted credentials).
+- `viv migrate openclaw inspect` CLI command exists.
+- Redaction and portability classification rules are implemented.
+
+**Remaining work:**
+
+- **Phase 1: Discovery TUI.** Build a read-only Bubble Tea explorer for `findings.kdl` inside `viv`.
+- **Phase 2: Plan Builder.** Implement decision capture (approve/defer/resolve) and `plan.kdl` generation.
+- **Phase 3: Apply & Verification.** Implement dry-run and live import (prompts, macros, schedules).
+- **Capability Stub Generator:** Add a command/TUI helper to generate Go/KDL boilerplate for `unsupported` plugins.
+- **Entity Inference:** Automate the mapping of plugin-level configuration to VIVARY `entity` scope constraints (path-prefix, domain-suffix).
+
 ---
 
-## Phase 3: Minimal Capability Surface
+### Phase 3: Minimal Capability Surface
 
 ### 3.1 `vivgen` Tool
 
@@ -211,14 +227,14 @@ This plan tracks the MVP runtime core first and distinguishes between:
 #### 3.2b Whitelisting Proxy
 
 - Keep capability-layer whitelist checks and the now-wired proxy-layer whitelist enforcement aligned as defence-in-depth.
-- Expand proxy-layer coverage from unit tests to broader end-to-end assertions so the shipped path stays obviously correct.
+- Browser allow/deny coverage now exists at the proxy layer, capability->proxy handoff layer, and keeperd response/audit layer; extend it to broader prompt-run assertions so the shipped path stays obviously correct.
 - Emit clear `capability_denied`/security records for blocked browser targets.
 
 #### 3.2c `Browser_Page_Read`
 
 - Keep `Browser_Page_Read` as the only browser capability in MVP.
 - Ensure navigation, wait strategy, and readable text extraction are deterministic enough for testing.
-- Add explicit allow/deny integration tests before expanding browser surface area.
+- Keep explicit allow/deny integration coverage in place before expanding browser surface area; remaining gaps are full prompt-run and live-Chrome assertions.
 - Make failure behavior legible when Chrome is unavailable, the target is denied, or extraction fails.
 
 ### 3.3 Filesystem Output Capability
@@ -235,6 +251,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - SQLite frames table exists.
 - Completion and failure event payloads exist.
 - `vivlog` exists.
+- Audit helpers can now query security-event records directly in tests/tooling.
 
 **Remaining work:**
 
@@ -257,11 +274,11 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 This is now the most important section of the plan.
 
-- Keep browser mediation obviously correct by preserving the proxy whitelist checks already in place and extending integration coverage before adding more capability families.
+- Keep browser mediation obviously correct by preserving the proxy whitelist checks already in place and extending the remaining prompt-run/live-Chrome integration coverage before adding more capability families.
 - Make provisioning safe and recoverable: cleanup-on-failure, correct runtime registration, predictable Linux behavior.
 - Make ctl/event semantics explicit and stable so the TUI, CLI, and audit log all agree on message behavior.
 - Finish keeper-owned status details and CLI/TUI parity on top of the existing prompt/event/cost state.
-- Finish Ward malformed-call validation/failure handling so the MVP reads as one clear runtime path, not several partially-overlapping ones.
+- Keep Ward malformed-call validation/failure handling on the single clear runtime path and extend coverage to the broader end-to-end prompt flow.
 - Keep the runtime single-agent and boring until these pieces are solid.
 
 ### 3.7 Approval and Policy Gating
@@ -371,6 +388,17 @@ Only after the MVP exit tests pass do we add swarm concerns.
 
 These items are worth tracking but are not committed to any phase yet.
 
+### Switchboard Identity Encoding
+
+Investigate switching MUS `SwarmHeader` identities from varlen UTF-8 strings to fixed `uint32` values once the runtime has a clear, stable identity-mapping story.
+
+Constraints for any future investigation:
+
+- keep the operator-facing/audit-visible identity model legible; human-meaningful agent IDs should not disappear from logs and tooling
+- define reserved control-plane IDs explicitly (`ctl`, `keeper`) before changing the wire format
+- do not introduce ad hoc or non-deterministic string->ID mapping that could make routing or debugging harder
+- treat this as a wire-size/throughput optimization, not MVP-critical functionality
+
 ### MCP Tool Protocol
 
 Investigate whether Ward can act as a Model Context Protocol (MCP) host, exposing capability CLIs as MCP tools rather than relying on the current bespoke integration path.
@@ -387,17 +415,17 @@ Constraints for any future investigation:
 
 If the goal is to finish the MVP cleanly, work should happen in this order:
 
-1. Finish Ward's single clear prompt/tool execution path.
-   - complete the chosen prompt -> tool -> result -> completion flow
-   - remove overlapping or half-implemented execution branches
-   - emit explicit schema/failure events for malformed tool calls
+1. Keep Ward's single clear prompt/tool execution path crisp.
+   - preserve the chosen prompt -> tool -> result -> completion flow
+   - avoid reintroducing overlapping or half-implemented execution branches
+   - extend prompt-run tests around the existing schema/failure events for malformed tool calls
 2. Extend browser mediation validation and test coverage.
    - keep whitelist policy enforced in both the capability layer and proxy layer
    - make profile/context isolation match the docs or simplify the docs
-   - add broader allow/deny integration tests around the shipped path
+   - add the remaining broader allow/deny prompt-run and live-Chrome integration tests around the shipped path
 3. Make `keeperd` runtime state/status authoritative.
    - keep tracking prompt seq, last event, outcome, cost, token counts, and tool-call counts in keeper-owned state
-   - extend/return the remaining status details consistently to CLI/TUI callers
+   - extend/return the remaining status details consistently to CLI/TUI callers and keep CLI/TUI rendering aligned
 4. Implement real audit payload policy.
    - keep `Capability.AuditPayload()` wired into keeper-side storage decisions
    - add coverage for stored vs omitted payload behavior as non-audited capability families land

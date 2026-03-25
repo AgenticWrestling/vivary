@@ -3,15 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/internal/chromproxy"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
 	"vivary.dev/vivary/pkg/mus"
@@ -108,6 +111,108 @@ func (c *ctlClient) recv(t *testing.T) (switchboard.SwarmHeader, []byte) {
 		t.Fatalf("recv frame: %v", err)
 	}
 	return hdr, payload
+}
+
+func decodeCapabilityResponse(t *testing.T, buf *bytes.Buffer) capabilities.CapabilityResponsePayload {
+	t.Helper()
+	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("read capability response: %v", err)
+	}
+	if hdr.Type != switchboard.MsgType_CapabilityResponse {
+		t.Fatalf("frame type = %v, want CapabilityResponse", hdr.Type)
+	}
+	var resp capabilities.CapabilityResponsePayload
+	if err := resp.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
+		t.Fatalf("unmarshal capability response: %v", err)
+	}
+	return resp
+}
+
+func fetchCtlStatus(t *testing.T, sockPath string) ctl.StatusPayload {
+	t.Helper()
+	c := dialCtl(t, sockPath)
+	c.send(t, switchboard.MsgType_CtlStatus, nil)
+	hdr, payload := c.recv(t)
+	if hdr.Type != switchboard.MsgType_CtlStatus {
+		t.Fatalf("expected CtlStatus, got %v", hdr.Type)
+	}
+	var status ctl.StatusPayload
+	if err := status.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+	return status
+}
+
+func findAgentStatus(t *testing.T, status ctl.StatusPayload, agentID string) ctl.AgentStatus {
+	t.Helper()
+	for i := range status.Agents {
+		if status.Agents[i].ID == agentID {
+			return status.Agents[i]
+		}
+	}
+	t.Fatalf("agent %q not found in status", agentID)
+	return ctl.AgentStatus{}
+}
+
+func registerTestAgentPipe(t *testing.T, d *daemon, agentID string) *io.PipeWriter {
+	t.Helper()
+	pr, pw := io.Pipe()
+	pipe := &switchboard.Pipe{
+		AgentID: agentID,
+		Reader:  pr,
+		Writer:  io.Discard,
+		Limiter: switchboard.NewByteRateLimiter(1 << 20),
+	}
+	d.mu.Lock()
+	d.agents[agentID] = &agentState{id: agentID, pipe: pipe}
+	d.mu.Unlock()
+	d.router.AddPipe(context.Background(), pipe)
+	t.Cleanup(func() {
+		_ = pw.Close()
+		d.router.RemovePipe(agentID)
+	})
+	return pw
+}
+
+func registerResponsePipe(t *testing.T, d *daemon, agentID string, w io.Writer) {
+	t.Helper()
+	pipe := &switchboard.Pipe{AgentID: agentID, Reader: bytes.NewReader(nil), Writer: w}
+	d.router.AddPipe(context.Background(), pipe)
+	t.Cleanup(func() { d.router.RemovePipe(agentID) })
+}
+
+func queryDeniedSecurityEvents(t *testing.T, d *daemon, agentID string) []audit.SecurityEventRecord {
+	t.Helper()
+	events, err := d.auditDB.QuerySecurityEvents(audit.SecurityEventFilter{Agent: agentID, Kind: "capability_denied"})
+	if err != nil {
+		t.Fatalf("query security events: %v", err)
+	}
+	return events
+}
+
+func sendAgentFrame(t *testing.T, w io.Writer, agentID string, msgType switchboard.MsgType, seq uint64, payload []byte) {
+	t.Helper()
+	hdr := switchboard.SwarmHeader{Version: 0, Type: msgType, FromID: agentID, ToID: "keeper", SeqNo: seq}
+	if err := switchboard.WriteFrame(w, hdr, payload); err != nil {
+		t.Fatalf("write frame type=%v: %v", msgType, err)
+	}
+}
+
+func waitForAgentState(t *testing.T, d *daemon, agentID string, ok func(*agentState) bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		d.mu.RLock()
+		state := d.agents[agentID]
+		ready := state != nil && ok(state)
+		d.mu.RUnlock()
+		if ready {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("agent state for %q did not reach expected condition", agentID)
 }
 
 // ---- Tests -----------------------------------------------------------------
@@ -390,22 +495,7 @@ func TestKeeperWardPipe_FailureEventUpdatesCtlStatus(t *testing.T) {
 	defer cancel()
 
 	const agentID = "test-agent-pipe"
-	pr, pw := io.Pipe()
-	pipe := &switchboard.Pipe{
-		AgentID: agentID,
-		Reader:  pr,
-		Writer:  io.Discard,
-		Limiter: switchboard.NewByteRateLimiter(1 << 20),
-	}
-
-	d.mu.Lock()
-	d.agents[agentID] = &agentState{id: agentID, pipe: pipe}
-	d.mu.Unlock()
-	d.router.AddPipe(context.Background(), pipe)
-	t.Cleanup(func() {
-		_ = pw.Close()
-		d.router.RemovePipe(agentID)
-	})
+	pw := registerTestAgentPipe(t, d, agentID)
 
 	fev := audit.FailureEvent{
 		AgentID:   agentID,
@@ -417,50 +507,14 @@ func TestKeeperWardPipe_FailureEventUpdatesCtlStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal failure event: %v", err)
 	}
-	hdr := switchboard.SwarmHeader{
-		Version: 0,
-		Type:    switchboard.MsgType_FailureEvent,
-		FromID:  agentID,
-		ToID:    "keeper",
-		SeqNo:   1,
-	}
-	if err := switchboard.WriteFrame(pw, hdr, payload); err != nil {
-		t.Fatalf("write failure frame: %v", err)
-	}
+	sendAgentFrame(t, pw, agentID, switchboard.MsgType_FailureEvent, 1, payload)
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		d.mu.RLock()
-		state := d.agents[agentID]
-		updated := state != nil && state.lastOutcome == "malformed_tool_call" && !state.lastEventAt.IsZero()
-		d.mu.RUnlock()
-		if updated {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForAgentState(t, d, agentID, func(state *agentState) bool {
+		return state.lastOutcome == "malformed_tool_call" && !state.lastEventAt.IsZero()
+	})
 
-	c := dialCtl(t, sockPath)
-	c.send(t, switchboard.MsgType_CtlStatus, nil)
-	hdrResp, respPayload := c.recv(t)
-	if hdrResp.Type != switchboard.MsgType_CtlStatus {
-		t.Fatalf("expected CtlStatus, got %v", hdrResp.Type)
-	}
-	var status ctl.StatusPayload
-	if err := status.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-
-	var found *ctl.AgentStatus
-	for i := range status.Agents {
-		if status.Agents[i].ID == agentID {
-			found = &status.Agents[i]
-			break
-		}
-	}
-	if found == nil {
-		t.Fatalf("agent %q not found in status", agentID)
-	}
+	status := fetchCtlStatus(t, sockPath)
+	found := findAgentStatus(t, status, agentID)
 	if found.State != "running" {
 		t.Fatalf("State = %q, want running", found.State)
 	}
@@ -477,22 +531,7 @@ func TestKeeperWardPipe_CompletionEventUpdatesCtlStatus(t *testing.T) {
 	defer cancel()
 
 	const agentID = "test-agent-pipe-success"
-	pr, pw := io.Pipe()
-	pipe := &switchboard.Pipe{
-		AgentID: agentID,
-		Reader:  pr,
-		Writer:  io.Discard,
-		Limiter: switchboard.NewByteRateLimiter(1 << 20),
-	}
-
-	d.mu.Lock()
-	d.agents[agentID] = &agentState{id: agentID, pipe: pipe}
-	d.mu.Unlock()
-	d.router.AddPipe(context.Background(), pipe)
-	t.Cleanup(func() {
-		_ = pw.Close()
-		d.router.RemovePipe(agentID)
-	})
+	pw := registerTestAgentPipe(t, d, agentID)
 
 	cev := audit.CompletionEvent{
 		AgentID:      agentID,
@@ -508,50 +547,14 @@ func TestKeeperWardPipe_CompletionEventUpdatesCtlStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal completion event: %v", err)
 	}
-	hdr := switchboard.SwarmHeader{
-		Version: 0,
-		Type:    switchboard.MsgType_CompletionEvent,
-		FromID:  agentID,
-		ToID:    "keeper",
-		SeqNo:   1,
-	}
-	if err := switchboard.WriteFrame(pw, hdr, payload); err != nil {
-		t.Fatalf("write completion frame: %v", err)
-	}
+	sendAgentFrame(t, pw, agentID, switchboard.MsgType_CompletionEvent, 1, payload)
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		d.mu.RLock()
-		state := d.agents[agentID]
-		updated := state != nil && state.lastOutcome == "success" && state.inputTokens == 120 && state.outputTokens == 55 && state.toolCalls == 4 && !state.lastEventAt.IsZero()
-		d.mu.RUnlock()
-		if updated {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForAgentState(t, d, agentID, func(state *agentState) bool {
+		return state.lastOutcome == "success" && state.inputTokens == 120 && state.outputTokens == 55 && state.toolCalls == 4 && !state.lastEventAt.IsZero()
+	})
 
-	c := dialCtl(t, sockPath)
-	c.send(t, switchboard.MsgType_CtlStatus, nil)
-	hdrResp, respPayload := c.recv(t)
-	if hdrResp.Type != switchboard.MsgType_CtlStatus {
-		t.Fatalf("expected CtlStatus, got %v", hdrResp.Type)
-	}
-	var status ctl.StatusPayload
-	if err := status.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-
-	var found *ctl.AgentStatus
-	for i := range status.Agents {
-		if status.Agents[i].ID == agentID {
-			found = &status.Agents[i]
-			break
-		}
-	}
-	if found == nil {
-		t.Fatalf("agent %q not found in status", agentID)
-	}
+	status := fetchCtlStatus(t, sockPath)
+	found := findAgentStatus(t, status, agentID)
 	if found.State != "running" {
 		t.Fatalf("State = %q, want running", found.State)
 	}
@@ -572,6 +575,103 @@ func TestKeeperWardPipe_CompletionEventUpdatesCtlStatus(t *testing.T) {
 	}
 	if found.LastEventAt == "" {
 		t.Fatal("LastEventAt should be set after completion event from ward pipe")
+	}
+}
+
+func TestBrowserCapabilityRequest_DeniedWritesSecurityEvent(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+	d.ctx = context.Background()
+
+	d.dispatcher.Register(&capabilities.BrowserPageRead{ChromeProxy: func(context.Context, string, string, chromproxy.WhitelistPolicy, string, int) (string, error) {
+		t.Fatal("proxy should not be called when capability-layer whitelist denies")
+		return "", nil
+	}})
+
+	const agentID = "browser-agent-deny"
+	d.dispatcher.SetACL(&capabilities.ACL{
+		AgentID: agentID,
+		Entries: []capabilities.ACLEntry{{
+			CapabilityName: capabilities.BrowserPageReadName,
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "Link",
+				Constraints: capabilities.ConstraintSet{"domain": {"example.com"}},
+			}},
+		}},
+	})
+
+	var out bytes.Buffer
+	registerResponsePipe(t, d, agentID, &out)
+
+	args, _ := json.Marshal(capabilities.Browser_Page_Read{URL: "https://evil.com/page"})
+	req := capabilities.CapabilityRequestPayload{Capability: capabilities.BrowserPageReadName, Args: args}
+	d.handleFrame(switchboard.Frame{Header: switchboard.SwarmHeader{Version: 0, Type: switchboard.MsgType_CapabilityRequest, FromID: agentID, ToID: "keeper", SeqNo: 11}, Payload: req.MarshalMUS()})
+
+	resp := decodeCapabilityResponse(t, &out)
+	if resp.OK || resp.ErrorCode != "capability_denied" {
+		t.Fatalf("expected capability_denied, got ok=%v code=%s", resp.OK, resp.ErrorCode)
+	}
+
+	events := queryDeniedSecurityEvents(t, d, agentID)
+	if len(events) != 1 {
+		t.Fatalf("want 1 security event, got %d", len(events))
+	}
+	if !strings.Contains(events[0].Detail, "cap=Browser_Page_Read") {
+		t.Fatalf("unexpected detail: %q", events[0].Detail)
+	}
+	if !strings.Contains(events[0].Detail, "not in browser whitelist") {
+		t.Fatalf("unexpected detail: %q", events[0].Detail)
+	}
+}
+
+func TestBrowserCapabilityRequest_AllowedDoesNotWriteSecurityEvent(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+	d.ctx = context.Background()
+
+	d.dispatcher.Register(&capabilities.BrowserPageRead{ChromeProxy: func(_ context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error) {
+		if agentID != "browser-agent-allow" {
+			t.Fatalf("agentID = %q", agentID)
+		}
+		if targetURL != "https://example.com/page" {
+			t.Fatalf("targetURL = %q", targetURL)
+		}
+		if len(policy.Domains) != 1 || policy.Domains[0] != "example.com" {
+			t.Fatalf("policy.Domains = %#v", policy.Domains)
+		}
+		return "browser text", nil
+	}})
+
+	const agentID = "browser-agent-allow"
+	d.dispatcher.SetACL(&capabilities.ACL{
+		AgentID: agentID,
+		Entries: []capabilities.ACLEntry{{
+			CapabilityName: capabilities.BrowserPageReadName,
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "Link",
+				Constraints: capabilities.ConstraintSet{"domain": {"example.com"}},
+			}},
+		}},
+	})
+
+	var out bytes.Buffer
+	registerResponsePipe(t, d, agentID, &out)
+
+	args, _ := json.Marshal(capabilities.Browser_Page_Read{URL: "https://example.com/page"})
+	req := capabilities.CapabilityRequestPayload{Capability: capabilities.BrowserPageReadName, Args: args}
+	d.handleFrame(switchboard.Frame{Header: switchboard.SwarmHeader{Version: 0, Type: switchboard.MsgType_CapabilityRequest, FromID: agentID, ToID: "keeper", SeqNo: 12}, Payload: req.MarshalMUS()})
+
+	resp := decodeCapabilityResponse(t, &out)
+	if !resp.OK {
+		t.Fatalf("expected OK response, got code=%s detail=%s", resp.ErrorCode, resp.ErrorDetail)
+	}
+	if !bytes.Contains(resp.Data, []byte("browser text")) {
+		t.Fatalf("expected response data to contain browser text, got %s", resp.Data)
+	}
+
+	events := queryDeniedSecurityEvents(t, d, agentID)
+	if len(events) != 0 {
+		t.Fatalf("expected no capability_denied security events, got %d", len(events))
 	}
 }
 
