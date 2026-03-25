@@ -138,6 +138,8 @@ Ctl request/response payloads are MUS structs from `internal/ctl/protocol.go` ra
 
 Bridges are external processes (e.g., Slack/Telegram bots, webhooks, or legacy system adapters) that connect to `keeperd` to provide ingress (triggering prompts) or egress (delivering notifications) outside the core runtime.
 
+Bridges are intentionally post-MVP. They remain part of the longer-term platform direction, but they are not required to prove the core single-agent governed runtime.
+
 See [BRIDGES.md](BRIDGES.md) for the full architecture, configuration, and security model.
 
 ---

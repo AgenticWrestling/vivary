@@ -30,6 +30,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 4. Finish audit payload sensitivity policy so stored payload behavior matches capability categories beyond the currently wired per-capability hook.
 5. Make provisioning behavior safe and predictable on Linux.
 6. Expand test coverage from unit-level pieces to real MVP end-to-end assertions.
+7. Keep operator ergonomics in scope: denial reasons should stay legible, the CLI should remain a full operator surface, and safe policy examples should ship with the repo.
 
 **MVP non-goals:**
 
@@ -89,6 +90,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - Make the TUI detail/status views match the CLI on field meanings, field coverage, and fallback behavior.
 - Keep the CLI surface as important as the TUI: every MVP operator action should stay available without fullscreen UI.
 - Add matching TUI/status rendering coverage so keeper-owned runtime fields cannot drift between surfaces.
+- Make denial and validation errors explicit enough that operators can tell which policy or config check failed without reading code.
 
 ### 1.4 Agent Workspace Provisioning
 
@@ -371,6 +373,12 @@ Only after the MVP exit tests pass do we add swarm concerns.
 - Initial set: `Spreadsheet_Range_Read`, `Spreadsheet_Cell_Update`, `Email_Message_List`, `Email_Message_Read`, `Calendar_Event_List`, `Calendar_Event_Create`.
 - Response normalization strips formatting metadata before returning to the agent.
 - Vendor-neutral capability names resolve to the appropriate provider based on assigned credentials.
+
+### 5.5 Bridges and External Connectors
+
+- Treat bridges as a post-MVP integration layer, not part of the runtime-core exit criteria.
+- If implemented, start with one narrow ingress/egress path and keep `keeperd` as the semantic and policy authority.
+- Use `docs/BRIDGES.md` and `docs/TWILIO_BRIDGE_DESIGN.md` as roadmap/design references only until concrete bridge code exists.
 
 ---
 

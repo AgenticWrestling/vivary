@@ -7,7 +7,7 @@ Multi-agent routing remains deferred; the CLI, TUI, and Nix/LXD packaging path a
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.24.2+
 - [`task`](https://taskfile.dev) (optional but recommended)
 
 Platform-specific requirements:
