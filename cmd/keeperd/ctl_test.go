@@ -175,6 +175,28 @@ func registerTestAgentPipe(t *testing.T, d *daemon, agentID string) *io.PipeWrit
 	return pw
 }
 
+func registerIntegrationAgentPipe(t *testing.T, d *daemon, agentID string) (*io.PipeReader, *io.PipeWriter) {
+	t.Helper()
+	wardToKeeperReader, wardToKeeperWriter := io.Pipe()
+	keeperToWardReader, keeperToWardWriter := io.Pipe()
+	pipe := &switchboard.Pipe{
+		AgentID: agentID,
+		Reader:  wardToKeeperReader,
+		Writer:  keeperToWardWriter,
+		Limiter: switchboard.NewByteRateLimiter(1 << 20),
+	}
+	d.mu.Lock()
+	d.agents[agentID] = &agentState{id: agentID, pipe: pipe}
+	d.mu.Unlock()
+	d.router.AddPipe(context.Background(), pipe)
+	t.Cleanup(func() {
+		_ = wardToKeeperWriter.Close()
+		_ = keeperToWardReader.Close()
+		d.router.RemovePipe(agentID)
+	})
+	return keeperToWardReader, wardToKeeperWriter
+}
+
 func registerResponsePipe(t *testing.T, d *daemon, agentID string, w io.Writer) {
 	t.Helper()
 	pipe := &switchboard.Pipe{AgentID: agentID, Reader: bytes.NewReader(nil), Writer: w}
@@ -213,6 +235,15 @@ func waitForAgentState(t *testing.T, d *daemon, agentID string, ok func(*agentSt
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("agent state for %q did not reach expected condition", agentID)
+}
+
+func queryFramesByType(t *testing.T, d *daemon, msgType string, agentID string) []audit.FrameRecord {
+	t.Helper()
+	records, err := d.auditDB.QueryFrames(audit.FrameFilter{MsgType: msgType, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("query frames: %v", err)
+	}
+	return records
 }
 
 // ---- Tests -----------------------------------------------------------------
@@ -672,6 +703,214 @@ func TestBrowserCapabilityRequest_AllowedDoesNotWriteSecurityEvent(t *testing.T)
 	events := queryDeniedSecurityEvents(t, d, agentID)
 	if len(events) != 0 {
 		t.Fatalf("expected no capability_denied security events, got %d", len(events))
+	}
+}
+
+func TestCtlPromptRun_CompletionUpdatesStatusAndAudit(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+
+	const agentID = "prompt-run-agent"
+	keeperToWardReader, wardToKeeperWriter := registerIntegrationAgentPipe(t, d, agentID)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hdr, payload, err := switchboard.ReadFrame(keeperToWardReader)
+		if err != nil {
+			t.Errorf("fake ward read prompt: %v", err)
+			return
+		}
+		if hdr.Type != switchboard.MsgType_CtlPrompt {
+			t.Errorf("prompt frame type = %v, want CtlPrompt", hdr.Type)
+			return
+		}
+		var prompt ctl.PromptPayload
+		if err := prompt.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
+			t.Errorf("decode prompt payload: %v", err)
+			return
+		}
+		if prompt.AgentID != agentID || prompt.Seq != 44 || prompt.Text != "write a page summary" {
+			t.Errorf("unexpected prompt payload: %+v", prompt)
+			return
+		}
+
+		cev := audit.CompletionEvent{
+			AgentID:      agentID,
+			PromptSeq:    prompt.Seq,
+			Model:        "claude-sonnet-4-5",
+			InputTokens:  31,
+			OutputTokens: 9,
+			CostUSD:      0.0007,
+			Outcome:      "success",
+			ToolCalls:    1,
+		}
+		b, err := audit.MarshalEvent(&cev)
+		if err != nil {
+			t.Errorf("marshal completion event: %v", err)
+			return
+		}
+		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_CompletionEvent, 1, b)
+	}()
+
+	c := dialCtl(t, sockPath)
+	prompt := ctl.PromptPayload{AgentID: agentID, Seq: 44, Text: "write a page summary"}
+	c.send(t, switchboard.MsgType_CtlPrompt, prompt.MarshalMUS())
+	hdr, payload := c.recv(t)
+	if hdr.Type != switchboard.MsgType_CtlPrompt {
+		t.Fatalf("expected CtlPrompt ack, got %v", hdr.Type)
+	}
+	if len(payload) == 0 || payload[0] != 1 {
+		t.Fatalf("prompt ack not ok: %v", payload)
+	}
+	<-done
+
+	waitForAgentState(t, d, agentID, func(state *agentState) bool {
+		return state.lastPromptSeq == 44 && state.lastOutcome == "success" && state.toolCalls == 1 && !state.lastEventAt.IsZero()
+	})
+
+	status := fetchCtlStatus(t, sockPath)
+	found := findAgentStatus(t, status, agentID)
+	if found.LastPromptSeq != 44 {
+		t.Fatalf("LastPromptSeq = %d, want 44", found.LastPromptSeq)
+	}
+	if found.LastOutcome != "success" {
+		t.Fatalf("LastOutcome = %q, want success", found.LastOutcome)
+	}
+	if found.InputTokens != 31 || found.OutputTokens != 9 {
+		t.Fatalf("tokens = (%d,%d), want (31,9)", found.InputTokens, found.OutputTokens)
+	}
+
+	completionFrames := queryFramesByType(t, d, switchboard.MsgType_CompletionEvent.String(), agentID)
+	if len(completionFrames) != 1 {
+		t.Fatalf("want 1 completion frame, got %d", len(completionFrames))
+	}
+	if len(completionFrames[0].Payload) == 0 {
+		t.Fatal("completion event payload should be stored in audit log")
+	}
+	storedCompletion, err := audit.UnmarshalCompletion(completionFrames[0].Payload)
+	if err != nil {
+		t.Fatalf("decode stored completion payload: %v", err)
+	}
+	if storedCompletion.PromptSeq != 44 || storedCompletion.ToolCalls != 1 {
+		t.Fatalf("unexpected stored completion payload: %+v", storedCompletion)
+	}
+
+	promptFrames := queryFramesByType(t, d, switchboard.MsgType_CtlPrompt.String(), ctl.CtlIdentity)
+	if len(promptFrames) != 1 {
+		t.Fatalf("want 1 ctl prompt frame, got %d", len(promptFrames))
+	}
+	if len(promptFrames[0].Payload) == 0 {
+		t.Fatal("ctl prompt payload should be stored in audit log")
+	}
+	var storedPrompt ctl.PromptPayload
+	if err := storedPrompt.UnmarshalMUS(bytes.NewReader(promptFrames[0].Payload)); err != nil {
+		t.Fatalf("decode stored prompt payload: %v", err)
+	}
+	if storedPrompt.AgentID != agentID || storedPrompt.Seq != 44 {
+		t.Fatalf("unexpected stored prompt payload: %+v", storedPrompt)
+	}
+}
+
+func TestCtlPromptRun_FailureUpdatesStatusAndAudit(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+
+	const agentID = "prompt-run-agent-fail"
+	keeperToWardReader, wardToKeeperWriter := registerIntegrationAgentPipe(t, d, agentID)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hdr, payload, err := switchboard.ReadFrame(keeperToWardReader)
+		if err != nil {
+			t.Errorf("fake ward read prompt: %v", err)
+			return
+		}
+		if hdr.Type != switchboard.MsgType_CtlPrompt {
+			t.Errorf("prompt frame type = %v, want CtlPrompt", hdr.Type)
+			return
+		}
+		var prompt ctl.PromptPayload
+		if err := prompt.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
+			t.Errorf("decode prompt payload: %v", err)
+			return
+		}
+		if prompt.AgentID != agentID || prompt.Seq != 45 || prompt.Text != "summarize the failure" {
+			t.Errorf("unexpected prompt payload: %+v", prompt)
+			return
+		}
+
+		fev := audit.FailureEvent{
+			AgentID:   agentID,
+			PromptSeq: prompt.Seq,
+			Kind:      "malformed_tool_call",
+			Detail:    "malformed JSON from tool socket",
+		}
+		b, err := audit.MarshalEvent(&fev)
+		if err != nil {
+			t.Errorf("marshal failure event: %v", err)
+			return
+		}
+		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_FailureEvent, 1, b)
+	}()
+
+	c := dialCtl(t, sockPath)
+	prompt := ctl.PromptPayload{AgentID: agentID, Seq: 45, Text: "summarize the failure"}
+	c.send(t, switchboard.MsgType_CtlPrompt, prompt.MarshalMUS())
+	hdr, payload := c.recv(t)
+	if hdr.Type != switchboard.MsgType_CtlPrompt {
+		t.Fatalf("expected CtlPrompt ack, got %v", hdr.Type)
+	}
+	if len(payload) == 0 || payload[0] != 1 {
+		t.Fatalf("prompt ack not ok: %v", payload)
+	}
+	<-done
+
+	waitForAgentState(t, d, agentID, func(state *agentState) bool {
+		return state.lastPromptSeq == 45 && state.lastOutcome == "malformed_tool_call" && !state.lastEventAt.IsZero()
+	})
+
+	status := fetchCtlStatus(t, sockPath)
+	found := findAgentStatus(t, status, agentID)
+	if found.LastPromptSeq != 45 {
+		t.Fatalf("LastPromptSeq = %d, want 45", found.LastPromptSeq)
+	}
+	if found.LastOutcome != "malformed_tool_call" {
+		t.Fatalf("LastOutcome = %q, want malformed_tool_call", found.LastOutcome)
+	}
+	if found.LastEventAt == "" {
+		t.Fatal("LastEventAt should be set after failure event")
+	}
+
+	failureFrames := queryFramesByType(t, d, switchboard.MsgType_FailureEvent.String(), agentID)
+	if len(failureFrames) != 1 {
+		t.Fatalf("want 1 failure frame, got %d", len(failureFrames))
+	}
+	if len(failureFrames[0].Payload) == 0 {
+		t.Fatal("failure event payload should be stored in audit log")
+	}
+	storedFailure, err := audit.UnmarshalFailure(failureFrames[0].Payload)
+	if err != nil {
+		t.Fatalf("decode stored failure payload: %v", err)
+	}
+	if storedFailure.PromptSeq != 45 || storedFailure.Kind != "malformed_tool_call" {
+		t.Fatalf("unexpected stored failure payload: %+v", storedFailure)
+	}
+
+	promptFrames := queryFramesByType(t, d, switchboard.MsgType_CtlPrompt.String(), ctl.CtlIdentity)
+	if len(promptFrames) != 1 {
+		t.Fatalf("want 1 ctl prompt frame, got %d", len(promptFrames))
+	}
+	if len(promptFrames[0].Payload) == 0 {
+		t.Fatal("ctl prompt payload should be stored in audit log")
+	}
+	var storedPrompt ctl.PromptPayload
+	if err := storedPrompt.UnmarshalMUS(bytes.NewReader(promptFrames[0].Payload)); err != nil {
+		t.Fatalf("decode stored prompt payload: %v", err)
+	}
+	if storedPrompt.AgentID != agentID || storedPrompt.Seq != 45 {
+		t.Fatalf("unexpected stored prompt payload: %+v", storedPrompt)
 	}
 }
 

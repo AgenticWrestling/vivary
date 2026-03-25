@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,6 +121,59 @@ func readFailureEventFromBuffer(t *testing.T, out *bytes.Buffer) audit.FailureEv
 		t.Fatalf("decode failure event: %v", err)
 	}
 	return ev
+}
+
+type frameCaptureWriter struct {
+	mu       sync.Mutex
+	ward     *ward
+	frames   [][]byte
+	requests []capabilities.CapabilityRequestPayload
+}
+
+func (w *frameCaptureWriter) Write(p []byte) (int, error) {
+	copyBuf := append([]byte(nil), p...)
+	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(copyBuf))
+	if err != nil {
+		return 0, err
+	}
+	if hdr.Type == switchboard.MsgType_CapabilityRequest {
+		var req capabilities.CapabilityRequestPayload
+		if err := req.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
+			return 0, err
+		}
+		w.mu.Lock()
+		w.requests = append(w.requests, req)
+		w.mu.Unlock()
+
+		respData, _ := json.Marshal(map[string]string{"text": "page text"})
+		respPayload := capabilities.CapabilityResponsePayload{OK: true, Data: respData}
+		w.ward.deliverCapabilityResponse(switchboard.SwarmHeader{Type: switchboard.MsgType_CapabilityResponse, SeqNo: hdr.SeqNo}, respPayload.MarshalMUS())
+		return len(p), nil
+	}
+	w.mu.Lock()
+	w.frames = append(w.frames, copyBuf)
+	w.mu.Unlock()
+	return len(p), nil
+}
+
+func (w *frameCaptureWriter) singleFrame(t *testing.T) (switchboard.SwarmHeader, []byte, error) {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.frames) != 1 {
+		t.Fatalf("captured %d frames, want 1", len(w.frames))
+	}
+	return switchboard.ReadFrame(bytes.NewReader(w.frames[0]))
+}
+
+func (w *frameCaptureWriter) singleRequest(t *testing.T) capabilities.CapabilityRequestPayload {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.requests) != 1 {
+		t.Fatalf("captured %d capability requests, want 1", len(w.requests))
+	}
+	return w.requests[0]
 }
 
 // toolRoundTrip dials sockPath, sends req as JSON, signals EOF, and returns
@@ -343,6 +397,64 @@ PY
 	}
 	if ev.PromptSeq != 99 {
 		t.Fatalf("prompt seq = %d, want 99", ev.PromptSeq)
+	}
+}
+
+func TestHandlePrompt_ExecutesToolAndEmitsCompletionEvent(t *testing.T) {
+	capRegistry = capabilities.GeneratedRegistry()
+	writeFakeClaude(t, "#!/bin/sh\nsleep 1\nprintf '%s\n' '{\"type\":\"tool_use\"}' '{\"type\":\"message_stop\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7}}'\n")
+	w := newTestWardForServer(t)
+	capture := &frameCaptureWriter{ward: w}
+	w.pipe = &musPipe{w: capture, agentID: w.agentID, log: w.log}
+	sockPath := startTestToolServer(t, w)
+	w.toolSockPath = sockPath
+
+	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 55, Text: "test prompt"}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.handlePrompt(context.Background(), prompt.MarshalMUS())
+	}()
+
+	resp := toolRoundTrip(t, sockPath, ToolRequest{
+		Capability: "Browser_Page_Read",
+		Args:       json.RawMessage(`{"url":"https://example.com/page"}`),
+	})
+	if !resp.OK {
+		t.Fatalf("tool round trip failed: %s %s", resp.ErrorCode, resp.ErrorDetail)
+	}
+	<-done
+
+	req := capture.singleRequest(t)
+	if req.Capability != "Browser_Page_Read" {
+		t.Fatalf("capability = %q, want Browser_Page_Read", req.Capability)
+	}
+	if !bytes.Contains(req.Args, []byte(`"url":"https://example.com/page"`)) {
+		t.Fatalf("unexpected capability args: %s", req.Args)
+	}
+
+	hdr, payload, err := capture.singleFrame(t)
+	if err != nil {
+		t.Fatalf("read captured frame: %v", err)
+	}
+	if hdr.Type != switchboard.MsgType_CompletionEvent {
+		t.Fatalf("frame type = %v, want CompletionEvent", hdr.Type)
+	}
+	ev, err := audit.UnmarshalCompletion(payload)
+	if err != nil {
+		t.Fatalf("decode completion event: %v", err)
+	}
+	if ev.PromptSeq != 55 {
+		t.Fatalf("prompt seq = %d, want 55", ev.PromptSeq)
+	}
+	if ev.Outcome != "success" {
+		t.Fatalf("outcome = %q, want success", ev.Outcome)
+	}
+	if ev.ToolCalls != 1 {
+		t.Fatalf("tool calls = %d, want 1", ev.ToolCalls)
+	}
+	if ev.InputTokens != 12 || ev.OutputTokens != 7 {
+		t.Fatalf("tokens = (%d,%d), want (12,7)", ev.InputTokens, ev.OutputTokens)
 	}
 }
 

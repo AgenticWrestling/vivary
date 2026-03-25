@@ -9,6 +9,7 @@ import (
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 type fakeTransport struct {
@@ -61,9 +62,40 @@ func TestTUIStatusAndCompletionView(t *testing.T) {
 	view := m.View()
 
 	assertContains(t, view, "agent:       agent-1")
+	assertContains(t, view, "outcome:     success")
 	assertContains(t, view, "last cost:   $0.0042")
 	assertContains(t, view, "last tokens: in=13 out=21")
 	assertContains(t, view, "completion: success")
+}
+
+func TestTUIStatusView_UsesKeeperOwnedRuntimeFields(t *testing.T) {
+	transport := newFakeTransport()
+	model := newTUIModel("./keeper.sock", transport)
+
+	updated, _ := model.Update(tuiStatusMsg{Status: ctl.StatusPayload{
+		DaemonVersion: "dev",
+		UptimeSeconds: 12,
+		Agents: []ctl.AgentStatus{{
+			ID:            "agent-1",
+			State:         "running",
+			LastPromptSeq: 23,
+			LastEventAt:   "2026-03-24T12:34:56Z",
+			LastOutcome:   "success",
+			InputTokens:   120,
+			OutputTokens:  55,
+			CostUSD:       "0.002500",
+			ToolCalls:     4,
+		}},
+	}})
+	m := updated.(tuiModel)
+	view := m.View()
+
+	assertContains(t, view, "prompt seq:  23")
+	assertContains(t, view, "last event:  2026-03-24T12:34:56Z")
+	assertContains(t, view, "outcome:     success")
+	assertContains(t, view, "last cost:   $0.002500")
+	assertContains(t, view, "last tokens: in=120 out=55")
+	assertContains(t, view, "tool calls:  4")
 }
 
 func TestTUIPromptEntryAndSend(t *testing.T) {
@@ -129,6 +161,44 @@ func TestDecodeTUIFrame(t *testing.T) {
 	}
 	if completion.Event.AgentID != "agent-1" || completion.Event.PromptSeq != 3 {
 		t.Fatalf("unexpected completion event: %#v", completion.Event)
+	}
+}
+
+func TestDecodeTUIFrame_StatusUsesMUS(t *testing.T) {
+	status := ctl.StatusPayload{
+		DaemonVersion: "dev",
+		UptimeSeconds: 12,
+		Agents:        []ctl.AgentStatus{{ID: "agent-1", LastOutcome: "success", ToolCalls: 2}},
+	}
+	payload := status.MarshalMUS()
+	msg := decodeTUIFrame(frameHeader(switchboard.MsgType_CtlStatus), payload)
+	statusMsg, ok := msg.(tuiStatusMsg)
+	if !ok {
+		t.Fatalf("expected status msg, got %#v", msg)
+	}
+	if statusMsg.Status.DaemonVersion != "dev" || len(statusMsg.Status.Agents) != 1 || statusMsg.Status.Agents[0].ToolCalls != 2 {
+		t.Fatalf("unexpected status payload: %#v", statusMsg.Status)
+	}
+}
+
+func TestDecodeTUIFrame_AckUsesMUS(t *testing.T) {
+	msg := decodeTUIFrame(frameHeader(switchboard.MsgType_CtlSubscribe), []byte{1})
+	ack, ok := msg.(tuiSubscribeAckMsg)
+	if !ok {
+		t.Fatalf("expected subscribe ack, got %#v", msg)
+	}
+	if !ack.OK {
+		t.Fatal("expected successful ack")
+	}
+
+	errPayload := append([]byte{0}, mus.AppendString(nil, "prompt denied")...)
+	msg = decodeTUIFrame(frameHeader(switchboard.MsgType_CtlPrompt), errPayload)
+	promptAck, ok := msg.(tuiPromptAckMsg)
+	if !ok {
+		t.Fatalf("expected prompt ack, got %#v", msg)
+	}
+	if promptAck.OK || promptAck.Error != "prompt denied" {
+		t.Fatalf("unexpected prompt ack: %#v", promptAck)
 	}
 }
 

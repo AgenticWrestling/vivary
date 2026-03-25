@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,6 +12,7 @@ import (
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 type tuiTransport interface {
@@ -37,11 +38,6 @@ type tuiCompletionMsg struct{ Event audit.CompletionEvent }
 type tuiFailureMsg struct{ Event audit.FailureEvent }
 type tuiErrMsg struct{ Err error }
 type tuiTickMsg time.Time
-
-type okResponse struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-}
 
 type liveTransport struct {
 	conn   netConn
@@ -125,20 +121,20 @@ func (t *liveTransport) readLoop() {
 func decodeTUIFrame(hdr switchboard.SwarmHeader, payload []byte) tea.Msg {
 	switch hdr.Type {
 	case switchboard.MsgType_CtlSubscribe:
-		var ack okResponse
-		if err := json.Unmarshal(payload, &ack); err != nil {
+		ack, err := decodeAckPayload(payload)
+		if err != nil {
 			return tuiErrMsg{Err: fmt.Errorf("decode subscribe ack: %w", err)}
 		}
 		return tuiSubscribeAckMsg(ack)
 	case switchboard.MsgType_CtlStatus:
 		var status ctl.StatusPayload
-		if err := json.Unmarshal(payload, &status); err != nil {
+		if err := status.UnmarshalMUS(bytes.NewReader(payload)); err != nil {
 			return tuiErrMsg{Err: fmt.Errorf("decode status: %w", err)}
 		}
 		return tuiStatusMsg{Status: status}
 	case switchboard.MsgType_CtlPrompt:
-		var ack okResponse
-		if err := json.Unmarshal(payload, &ack); err != nil {
+		ack, err := decodeAckPayload(payload)
+		if err != nil {
 			return tuiErrMsg{Err: fmt.Errorf("decode prompt ack: %w", err)}
 		}
 		return tuiPromptAckMsg(ack)
@@ -257,6 +253,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		snap.Status.ID = msg.Event.AgentID
 		snap.Status.LastPromptSeq = msg.Event.PromptSeq
 		snap.Status.LastEventAt = time.Now().Format(time.RFC3339)
+		snap.Status.LastOutcome = msg.Event.Outcome
+		snap.Status.InputTokens = msg.Event.InputTokens
+		snap.Status.OutputTokens = msg.Event.OutputTokens
+		snap.Status.CostUSD = fmt.Sprintf("%.6f", msg.Event.CostUSD)
+		snap.Status.ToolCalls = msg.Event.ToolCalls
 		m.flash = fmt.Sprintf("completion: %s seq %d", msg.Event.AgentID, msg.Event.PromptSeq)
 		return m, m.waitForMessage()
 	case tuiFailureMsg:
@@ -266,6 +267,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		snap.Status.ID = msg.Event.AgentID
 		snap.Status.LastPromptSeq = msg.Event.PromptSeq
 		snap.Status.LastEventAt = time.Now().Format(time.RFC3339)
+		snap.Status.LastOutcome = msg.Event.Kind
 		m.flash = fmt.Sprintf("failure: %s %s", msg.Event.AgentID, msg.Event.Kind)
 		return m, m.waitForMessage()
 	case tuiPromptAckMsg:
@@ -308,8 +310,10 @@ func (m tuiModel) View() string {
 		b.WriteString(fmt.Sprintf("state:       %s\n", orDefault(agent.State, snap.Status.State)))
 		b.WriteString(fmt.Sprintf("prompt seq:  %d\n", maxUint64(agent.LastPromptSeq, snap.Status.LastPromptSeq)))
 		b.WriteString(fmt.Sprintf("last event:  %s\n", m.lastEventSummary(snap)))
+		b.WriteString(fmt.Sprintf("outcome:     %s\n", m.lastOutcomeSummary(snap)))
 		b.WriteString(fmt.Sprintf("last cost:   %s\n", m.lastCostSummary(snap)))
 		b.WriteString(fmt.Sprintf("last tokens: %s\n", m.lastTokenSummary(snap)))
+		b.WriteString(fmt.Sprintf("tool calls:  %s\n", m.lastToolCallSummary(snap)))
 		b.WriteString("\n")
 		if m.promptMode {
 			b.WriteString("prompt> " + m.promptInput + "\n\n")
@@ -495,17 +499,57 @@ func (m tuiModel) lastEventSummary(snap *agentSnapshot) string {
 }
 
 func (m tuiModel) lastCostSummary(snap *agentSnapshot) string {
-	if snap == nil || snap.LastCompletion == nil {
+	if snap == nil {
+		return "n/a"
+	}
+	if snap.Status.CostUSD != "" {
+		return "$" + snap.Status.CostUSD
+	}
+	if snap.LastCompletion == nil {
 		return "n/a"
 	}
 	return fmt.Sprintf("$%.4f", snap.LastCompletion.CostUSD)
 }
 
 func (m tuiModel) lastTokenSummary(snap *agentSnapshot) string {
-	if snap == nil || snap.LastCompletion == nil {
+	if snap == nil {
+		return "n/a"
+	}
+	if snap.Status.InputTokens != 0 || snap.Status.OutputTokens != 0 {
+		return fmt.Sprintf("in=%d out=%d", snap.Status.InputTokens, snap.Status.OutputTokens)
+	}
+	if snap.LastCompletion == nil {
 		return "n/a"
 	}
 	return fmt.Sprintf("in=%d out=%d", snap.LastCompletion.InputTokens, snap.LastCompletion.OutputTokens)
+}
+
+func (m tuiModel) lastOutcomeSummary(snap *agentSnapshot) string {
+	if snap == nil || snap.Status.LastOutcome == "" {
+		return "none"
+	}
+	return snap.Status.LastOutcome
+}
+
+func (m tuiModel) lastToolCallSummary(snap *agentSnapshot) string {
+	if snap == nil {
+		return "0"
+	}
+	return fmt.Sprintf("%d", snap.Status.ToolCalls)
+}
+
+func decodeAckPayload(payload []byte) (tuiSubscribeAckMsg, error) {
+	if len(payload) == 0 {
+		return tuiSubscribeAckMsg{}, fmt.Errorf("empty ack payload")
+	}
+	if payload[0] == 1 {
+		return tuiSubscribeAckMsg{OK: true}, nil
+	}
+	errText, err := mus.ReadString(bytes.NewReader(payload[1:]), 1024)
+	if err != nil {
+		return tuiSubscribeAckMsg{}, err
+	}
+	return tuiSubscribeAckMsg{OK: false, Error: errText}, nil
 }
 
 func tickCmd() tea.Cmd {
