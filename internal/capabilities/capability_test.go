@@ -3,6 +3,7 @@ package capabilities
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -366,6 +367,58 @@ func TestBrowserPageRead_Execute_ECSConstraintAllows(t *testing.T) {
 	}
 }
 
+func TestBrowserPageRead_Execute_PassesTypedWhitelistPolicyToProxy(t *testing.T) {
+	var gotPolicy chromproxy.WhitelistPolicy
+	var gotAgentID, gotURL, gotWaitFor string
+	var gotMaxChars int
+	cap := &BrowserPageRead{ChromeProxy: func(_ context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error) {
+		gotAgentID = agentID
+		gotURL = targetURL
+		gotPolicy = policy
+		gotWaitFor = waitFor
+		gotMaxChars = maxChars
+		return "stub page text", nil
+	}}
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{
+		{Entity: "Link", Constraints: map[string][]string{
+			"domain":        {"example.com:8443"},
+			"domain-suffix": {"wikipedia.org"},
+			"path-prefix":   {"/allowed"},
+		}},
+		{Entity: "File", Constraints: map[string][]string{"path-prefix": {"/tmp/ignored"}}},
+	})
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com:8443/allowed/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "agent-browser", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected allowed browser read, got %s %s", resp.ErrorCode, resp.ErrorDetail)
+	}
+	if gotAgentID != "agent-browser" {
+		t.Fatalf("agentID = %q, want agent-browser", gotAgentID)
+	}
+	if gotURL != "https://example.com:8443/allowed/page" {
+		t.Fatalf("targetURL = %q", gotURL)
+	}
+	if gotWaitFor != "networkidle" {
+		t.Fatalf("waitFor = %q, want networkidle", gotWaitFor)
+	}
+	if gotMaxChars != 32768 {
+		t.Fatalf("maxChars = %d, want 32768", gotMaxChars)
+	}
+	if len(gotPolicy.Domains) != 1 || gotPolicy.Domains[0] != "example.com:8443" {
+		t.Fatalf("Domains = %#v", gotPolicy.Domains)
+	}
+	if len(gotPolicy.DomainSuffixes) != 1 || gotPolicy.DomainSuffixes[0] != "wikipedia.org" {
+		t.Fatalf("DomainSuffixes = %#v", gotPolicy.DomainSuffixes)
+	}
+	if len(gotPolicy.PathPrefixes) != 1 || gotPolicy.PathPrefixes[0] != "/allowed" {
+		t.Fatalf("PathPrefixes = %#v", gotPolicy.PathPrefixes)
+	}
+}
+
 func TestBrowserPageRead_Execute_ECSConstraintDeniesOtherDomain(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
 	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{
@@ -381,6 +434,31 @@ func TestBrowserPageRead_Execute_ECSConstraintDeniesOtherDomain(t *testing.T) {
 	}
 	if resp.OK {
 		t.Fatal("domain not matching ECS constraint should be denied")
+	}
+}
+
+func TestBrowserPageRead_Execute_ProxyDenySurfacesAsChromeError(t *testing.T) {
+	cap := &BrowserPageRead{ChromeProxy: func(_ context.Context, _, _ string, _ chromproxy.WhitelistPolicy, _ string, _ int) (string, error) {
+		return "", errors.New(`URL "https://example.com/page" not permitted for agent "a"`)
+	}}
+	ctx := contextWithConstraints(context.Background(), []ScopeConstraint{{
+		Entity:      "Link",
+		Constraints: ConstraintSet{"domain": {"example.com"}},
+	}})
+	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+
+	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("proxy deny should return an error response")
+	}
+	if resp.ErrorCode != "chrome_error" {
+		t.Fatalf("error_code = %q, want chrome_error", resp.ErrorCode)
+	}
+	if resp.ErrorDetail == "" {
+		t.Fatal("expected proxy deny detail to be preserved")
 	}
 }
 
