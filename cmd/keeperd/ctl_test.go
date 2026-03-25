@@ -991,6 +991,86 @@ func TestAuditPayloadPolicy_SuppressedCapability(t *testing.T) {
 	}
 }
 
+func TestAuditPayloadPolicy_SuppressedCapability_OmitsStoredPayload(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+	d.ctx = context.Background()
+
+	d.dispatcher.Register(&suppressedCap{})
+	const agentID = "audit-suppressed-agent"
+	d.dispatcher.SetACL(&capabilities.ACL{
+		AgentID: agentID,
+		Entries: []capabilities.ACLEntry{{
+			CapabilityName: "Test_Sensitive_Read",
+		}},
+	})
+
+	var out bytes.Buffer
+	registerResponsePipe(t, d, agentID, &out)
+
+	args := []byte(`{"secret":"top-secret"}`)
+	req := capabilities.CapabilityRequestPayload{Capability: "Test_Sensitive_Read", Args: args}
+	d.handleFrame(switchboard.Frame{
+		Header:  switchboard.SwarmHeader{Version: 0, Type: switchboard.MsgType_CapabilityRequest, FromID: agentID, ToID: "keeper", SeqNo: 77},
+		Payload: req.MarshalMUS(),
+	})
+
+	resp := decodeCapabilityResponse(t, &out)
+	if !resp.OK {
+		t.Fatalf("expected OK response, got code=%s detail=%s", resp.ErrorCode, resp.ErrorDetail)
+	}
+
+	frames := queryFramesByType(t, d, switchboard.MsgType_CapabilityRequest.String(), agentID)
+	if len(frames) != 1 {
+		t.Fatalf("want 1 capability request frame, got %d", len(frames))
+	}
+	if len(frames[0].Payload) != 0 {
+		t.Fatalf("expected suppressed payload to be omitted, got %d bytes", len(frames[0].Payload))
+	}
+}
+
+func TestAuditPayloadPolicy_KnownCapability_StoresPayload(t *testing.T) {
+	d, _, cancel := newTestDaemon(t)
+	defer cancel()
+	d.ctx = context.Background()
+
+	const agentID = "audit-filesystem-agent"
+	d.dispatcher.SetACL(&capabilities.ACL{
+		AgentID: agentID,
+		Entries: []capabilities.ACLEntry{{
+			CapabilityName: capabilities.FilesystemFileWriteName,
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "File",
+				Constraints: capabilities.ConstraintSet{"path-prefix": {t.TempDir()}},
+			}},
+		}},
+	})
+
+	var out bytes.Buffer
+	registerResponsePipe(t, d, agentID, &out)
+
+	args := []byte(`{"path":"note.txt","content":"hello"}`)
+	req := capabilities.CapabilityRequestPayload{Capability: capabilities.FilesystemFileWriteName, Args: args}
+	encoded := req.MarshalMUS()
+	d.handleFrame(switchboard.Frame{
+		Header:  switchboard.SwarmHeader{Version: 0, Type: switchboard.MsgType_CapabilityRequest, FromID: agentID, ToID: "keeper", SeqNo: 78},
+		Payload: encoded,
+	})
+
+	resp := decodeCapabilityResponse(t, &out)
+	if !resp.OK {
+		t.Fatalf("expected OK response, got code=%s detail=%s", resp.ErrorCode, resp.ErrorDetail)
+	}
+
+	frames := queryFramesByType(t, d, switchboard.MsgType_CapabilityRequest.String(), agentID)
+	if len(frames) != 1 {
+		t.Fatalf("want 1 capability request frame, got %d", len(frames))
+	}
+	if !bytes.Equal(frames[0].Payload, encoded) {
+		t.Fatalf("expected stored payload to match original request bytes")
+	}
+}
+
 // suppressedCap is a test-only capability with AuditPayload()==false.
 type suppressedCap struct{}
 
