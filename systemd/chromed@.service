@@ -1,0 +1,16 @@
+[Unit]
+Description=VIVARY chromed for %i
+After=lxd.service network-online.target
+Requires=lxd.service
+
+[Service]
+Type=simple
+RuntimeDirectory=chromed-%i
+ExecStartPre=/usr/bin/install -d -m 0755 /var/lib/vivary/chromed/%i/profiles
+ExecStart=/usr/local/bin/chromed --socket /run/chromed-%i/chromed.sock --profile-root /var/lib/vivary/chromed/%i/profiles --chrome-binary /usr/bin/google-chrome-beta --container-name %i
+Restart=on-failure
+RestartSec=1
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

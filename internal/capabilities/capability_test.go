@@ -541,6 +541,24 @@ func TestURLMatchesConstraints(t *testing.T) {
 			ok:          false,
 		},
 		{
+			name: "path-prefix requires anchored domain",
+			url:  "https://evil.com/allowed/page",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain":      {"example.com"},
+				"path-prefix": {"/allowed"},
+			}}},
+			ok: false,
+		},
+		{
+			name: "path-prefix with matching domain allows",
+			url:  "https://example.com/allowed/page",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain":      {"example.com"},
+				"path-prefix": {"/allowed"},
+			}}},
+			ok: true,
+		},
+		{
 			name: "wrong entity ignored",
 			url:  "https://example.com/",
 			constraints: []ScopeConstraint{{Entity: "File", Constraints: ConstraintSet{

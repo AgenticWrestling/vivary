@@ -47,6 +47,16 @@ func TestValidateOrchestratorConfig_ZeroMaxPipeBytes(t *testing.T) {
 	}
 }
 
+func TestDefaultOrchestratorConfig_ChromedDefaults(t *testing.T) {
+	cfg := DefaultOrchestratorConfig("/tmp/test")
+	if cfg.ChromedSocketPath == "" {
+		t.Fatal("expected chromed socket default")
+	}
+	if cfg.ChromeProxyServer != "" {
+		t.Fatalf("chrome-proxy-server default = %q, want empty for auto-detect", cfg.ChromeProxyServer)
+	}
+}
+
 // ---- ValidateProviderConfig ---------------------------------------------------
 
 func TestValidateProviderConfig_Valid(t *testing.T) {

@@ -14,11 +14,25 @@ import (
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
+	chromedapi "vivary.dev/vivary/internal/chromed"
 	"vivary.dev/vivary/internal/ctl"
 	agentruntime "vivary.dev/vivary/internal/runtime"
 	"vivary.dev/vivary/internal/switchboard"
 	"vivary.dev/vivary/pkg/mus"
 )
+
+type fakeBrowserReleaseClient struct{ releaseCount int }
+
+func (f *fakeBrowserReleaseClient) Acquire(context.Context, chromedapi.AcquireRequest) (chromedapi.AcquireResponse, error) {
+	return chromedapi.AcquireResponse{}, nil
+}
+func (f *fakeBrowserReleaseClient) Release(context.Context, string) (chromedapi.ReleaseResponse, error) {
+	f.releaseCount++
+	return chromedapi.ReleaseResponse{OK: true}, nil
+}
+func (f *fakeBrowserReleaseClient) Status(context.Context, string) (chromedapi.StatusResponse, error) {
+	return chromedapi.StatusResponse{}, nil
+}
 
 type recordingRuntime struct {
 	provisionSubvolume func(agentID, templatePath string) (string, error)
@@ -328,6 +342,8 @@ func TestProvisioningSpawnFailureCleansUpStateACLAndSubvolume(t *testing.T) {
 		},
 	}
 	d.runtime = rt
+	browserClient := &fakeBrowserReleaseClient{}
+	d.browserMgr = newBrowserManager(browserClient, nil, nil)
 
 	err := d.agentCreate(context.Background(), ctl.AgentCreatePayload{ID: "agent-fail"})
 	if err == nil || !strings.Contains(err.Error(), "spawn agent") {
@@ -432,6 +448,8 @@ func TestProvisioningDestroyCallsNetworkTerminateAndSubvolumeCleanup(t *testing.
 		},
 	}
 	d.runtime = rt
+	browserClient := &fakeBrowserReleaseClient{}
+	d.browserMgr = newBrowserManager(browserClient, nil, nil)
 
 	c := dialCtl(t, sockPath)
 	payload := sendCreate(t, c, "agent-clean")
@@ -460,6 +478,9 @@ func TestProvisioningDestroyCallsNetworkTerminateAndSubvolumeCleanup(t *testing.
 	}
 	if len(destroyedSubvols) != 1 || !strings.Contains(destroyedSubvols[0], "agent-clean") {
 		t.Fatalf("expected subvolume destroy for agent-clean, got %#v", destroyedSubvols)
+	}
+	if browserClient.releaseCount != 1 {
+		t.Fatalf("expected browser release for agent-clean, got %d", browserClient.releaseCount)
 	}
 
 	resp, err := d.dispatcher.Dispatch(context.Background(), capabilities.Request{

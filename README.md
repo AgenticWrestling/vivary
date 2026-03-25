@@ -21,9 +21,9 @@ VIVARY is a governed runtime for isolated, auditable AI agents on a shared host.
 - **Headless External Access:** Safe, auditable access to the outside world:
   - **Chrome CDP Firewall:** A shared headless Chrome instance runs on the host OS. `keeperd` proxies whitelisted, carefully designed resource+capability (noun/verb) commands — agents _never_ connect to the debug port directly.
 
-  - **REST Gateway Binaries:** Heavyweight APIs (Google Workspace, etc.) are wrapped by thin Go binaries invoked by `keeperd`. The credential secrets never enters the nspawn container.
+  - **REST Gateway Binaries:** Heavyweight APIs (Google Workspace, etc.) are a planned post-MVP extension. The runtime is designed to front them through thin host-side binaries invoked by `keeperd`.
 
-- **Zero-Exposure Credential Management:** `keeperd` holds all secrets in an AES-256-GCM encrypted vault. Agents reference a `credential_id` only.
+- **Credential-Reference Model:** Agents reference a `credential_id` only. Full encrypted vault workflows remain a later phase rather than a completed MVP feature.
 
 - **Identity Integrity:** Agent identity (`FromID`) is stamped by `keeperd` based on which pipe a message arrived on. Agents cannot spoof each other's identities.
 
@@ -31,13 +31,13 @@ VIVARY is a governed runtime for isolated, auditable AI agents on a shared host.
 
 - **Unix-Style Debug Tooling:** `vivlog` decodes and inspects MUS audit records from the WAL, supports grep-friendly filters, and gives operators a simple CLI for understanding what the runtime actually did.
 
-- **Cross-Platform Parity:** Packaged as a NixOS LXD/LXC container via a `distrobuild` Nix Flake script. Identical highly efficient execution environments on Linux (native LXD), Windows 11 (WSL2), and macOS (OrbStack/Lima).
+- **Linux-First Runtime Packaging:** Packaged as a NixOS LXD/LXC container via a `distrobuild` Nix Flake path. Linux is the current full runtime/isolation story; macOS and WSL2 are still primarily development and validation environments.
 
 ## Binaries
 
 | Binary | Role |
 |---|---|
-| `keeperd` | Central daemon — message router, policy enforcer, credential vault |
+| `keeperd` | Central daemon — message router, policy enforcer, and audit authority |
 | `ward` | Per-agent binary inside each nspawn container — LLM lifecycle manager |
 | `viv` | Operator TUI and CLI — connects to `keeperd` via MUS-over-Unix-socket |
 | `vivlog` | Audit log reader — decodes and inspects the SQLite MUS audit trail |
@@ -51,7 +51,7 @@ VIVARY is a governed runtime for isolated, auditable AI agents on a shared host.
 
 ## Getting Started
 
-_(Deployment instructions pending XXXXXXXXXXXXX implementation — see `docs/PLAN.md` Phase 1.)_
+See `USAGE.md` for the current build, test, local runtime, and LXD workflow instructions.
 
 ## Target: v0.1 MVP
 

@@ -115,23 +115,25 @@ func (s browserScope) allowsURL(rawURL string) bool {
 		return false
 	}
 	domain := strings.ToLower(u.Host)
-	path := u.Path
+	domainAllowed := false
 
 	for _, d := range s.domains {
 		if domain == strings.ToLower(d) {
-			return true
+			domainAllowed = true
+			break
 		}
 	}
-	for _, suffixValue := range s.domainSuffixes {
-		suffix := strings.ToLower(suffixValue)
-		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
-			return true
+	if !domainAllowed {
+		for _, suffixValue := range s.domainSuffixes {
+			suffix := strings.ToLower(suffixValue)
+			if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
+				domainAllowed = true
+				break
+			}
 		}
 	}
-	for _, prefix := range s.pathPrefixes {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
+	if len(s.pathPrefixes) == 0 {
+		return domainAllowed
 	}
-	return false
+	return domainAllowed
 }

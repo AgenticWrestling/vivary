@@ -22,7 +22,7 @@ import (
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
-	"vivary.dev/vivary/internal/chromproxy"
+	chromedapi "vivary.dev/vivary/internal/chromed"
 	"vivary.dev/vivary/internal/ctl"
 	agentruntime "vivary.dev/vivary/internal/runtime"
 	"vivary.dev/vivary/internal/switchboard"
@@ -60,18 +60,29 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Launch headless Chrome sidecar (non-fatal if unavailable).
-	stopChrome, chromeErr := launchChrome(ctx, cfg, log)
-	if chromeErr != nil {
-		log.Warn("chrome sidecar unavailable; Browser_Page_Read will fail", "err", chromeErr)
+	proxyHost := cfg.ChromeProxyServer
+	var proxyAlloc *proxyAllocator
+	if proxyHost == "" {
+		var hostErr error
+		proxyHost, hostErr = detectAdvertiseHost()
+		if hostErr != nil {
+			log.Warn("browser proxy host unavailable; Browser_Page_Read will fail", "err", hostErr)
+		}
 	}
-	defer stopChrome()
-
-	chromeProxy := chromproxy.New(cfg.ChromeRemoteDebugAddr)
+	if proxyHost != "" {
+		proxyAlloc = newProxyAllocator(proxyHost, log)
+	}
+	browserMgr := newBrowserManager(&chromedapi.Client{SocketPath: cfg.ChromedSocketPath}, proxyAlloc, log)
+	if _, err := os.Stat(cfg.ChromedSocketPath); err != nil {
+		log.Warn("chromed socket unavailable; Browser_Page_Read will fail", "socket", cfg.ChromedSocketPath, "err", err)
+	}
+	if proxyAlloc != nil {
+		defer proxyAlloc.ReleaseAll()
+	}
 
 	reg := capabilities.NewRegistry()
 	reg.Register(&capabilities.BrowserPageRead{
-		ChromeProxy: chromeProxy.ReadPage,
+		ChromeProxy: browserMgr.ReadPage,
 	})
 	reg.Register(&capabilities.FilesystemFileWrite{})
 
@@ -99,6 +110,7 @@ func main() {
 		auditDB:    auditDB,
 		dispatcher: dispatcher,
 		router:     router,
+		browserMgr: browserMgr,
 		runtime:    rt,
 		agents:     make(map[string]*agentState),
 		startedAt:  time.Now(),
@@ -142,6 +154,7 @@ type daemon struct {
 	auditDB    *audit.DB
 	dispatcher *capabilities.Dispatcher
 	router     *switchboard.Router
+	browserMgr *browserManager
 	runtime    agentruntime.ContainerRuntime
 	seqOut     switchboard.SeqCounter
 

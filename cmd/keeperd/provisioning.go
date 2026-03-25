@@ -239,6 +239,11 @@ func (d *daemon) agentDestroy(req ctl.AgentDestroyPayload) error {
 
 	d.router.RemovePipe(req.ID)
 	d.dispatcher.RemoveACL(req.ID)
+	if d.browserMgr != nil {
+		if err := d.browserMgr.Release(context.Background(), req.ID); err != nil {
+			d.log.Warn("release browser session failed", "agent", req.ID, "err", err)
+		}
+	}
 
 	// Tear down agent isolation.
 	_ = d.runtime.RemoveNetworkRules(req.ID)

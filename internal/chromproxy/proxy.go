@@ -381,25 +381,26 @@ func (p WhitelistPolicy) Allows(rawURL string) bool {
 		return true
 	}
 	domain := strings.ToLower(u.Host)
-	path := u.Path
+	domainAllowed := false
 	for _, d := range p.Domains {
 		if domain == strings.ToLower(strings.TrimSpace(d)) {
-			return true
+			domainAllowed = true
+			break
 		}
 	}
-	for _, s := range p.DomainSuffixes {
-		suffix := strings.ToLower(strings.TrimSpace(s))
-		if suffix != "" && (domain == suffix || strings.HasSuffix(domain, "."+suffix)) {
-			return true
+	if !domainAllowed {
+		for _, s := range p.DomainSuffixes {
+			suffix := strings.ToLower(strings.TrimSpace(s))
+			if suffix != "" && (domain == suffix || strings.HasSuffix(domain, "."+suffix)) {
+				domainAllowed = true
+				break
+			}
 		}
 	}
-	for _, prefix := range p.PathPrefixes {
-		prefix = strings.TrimSpace(prefix)
-		if prefix != "" && strings.HasPrefix(path, prefix) {
-			return true
-		}
+	if len(p.PathPrefixes) == 0 {
+		return domainAllowed
 	}
-	return false
+	return domainAllowed
 }
 
 func (p WhitelistPolicy) allowsByPrefix(rawURL string) bool {

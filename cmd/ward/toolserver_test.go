@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,8 +25,9 @@ import (
 func newTestWardForServer(t *testing.T) *ward {
 	t.Helper()
 	return &ward{
-		agentID: "test-agent",
-		log:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
+		agentID:       "test-agent",
+		loopThreshold: 5,
+		log:           slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 }
 
@@ -107,6 +109,75 @@ func writeFakeClaude(t *testing.T, content string) string {
 	return tmp
 }
 
+func buildFakeToolCaller(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	const program = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+)
+
+type toolResponse struct {
+	OK          bool            ` + "`json:\"ok\"`" + `
+	Data        json.RawMessage ` + "`json:\"data\"`" + `
+	ErrorCode   string          ` + "`json:\"error_code\"`" + `
+	ErrorDetail string          ` + "`json:\"error_detail\"`" + `
+}
+
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: toolcaller <sock>")
+		os.Exit(2)
+	}
+	conn, err := net.Dial("unix", os.Args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	req := map[string]any{
+		"capability": "Browser_Page_Read",
+		"args": map[string]any{"url": "https://example.com/page"},
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
+		_ = cw.CloseWrite()
+	}
+	var resp toolResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if !resp.OK {
+		fmt.Fprintf(os.Stderr, "%s: %s\n", resp.ErrorCode, resp.ErrorDetail)
+		os.Exit(1)
+	}
+	if !strings.Contains(string(resp.Data), "page text") {
+		fmt.Fprintf(os.Stderr, "unexpected response: %s\n", resp.Data)
+		os.Exit(1)
+	}
+}
+`
+	if err := os.WriteFile(src, []byte(program), 0o644); err != nil {
+		t.Fatalf("write toolcaller source: %v", err)
+	}
+	out := filepath.Join(dir, "toolcaller")
+	cmd := exec.Command("go", "build", "-o", out, src)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build toolcaller: %v\n%s", err, b)
+	}
+	return out
+}
+
 func readFailureEventFromBuffer(t *testing.T, out *bytes.Buffer) audit.FailureEvent {
 	t.Helper()
 	hdr, payload, err := switchboard.ReadFrame(bytes.NewReader(out.Bytes()))
@@ -166,6 +237,15 @@ func (w *frameCaptureWriter) singleFrame(t *testing.T) (switchboard.SwarmHeader,
 	return switchboard.ReadFrame(bytes.NewReader(w.frames[0]))
 }
 
+func (w *frameCaptureWriter) singleFrameMaybe() (switchboard.SwarmHeader, []byte, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.frames) != 1 {
+		return switchboard.SwarmHeader{}, nil, os.ErrNotExist
+	}
+	return switchboard.ReadFrame(bytes.NewReader(w.frames[0]))
+}
+
 func (w *frameCaptureWriter) singleRequest(t *testing.T) capabilities.CapabilityRequestPayload {
 	t.Helper()
 	w.mu.Lock()
@@ -174,6 +254,12 @@ func (w *frameCaptureWriter) singleRequest(t *testing.T) capabilities.Capability
 		t.Fatalf("captured %d capability requests, want 1", len(w.requests))
 	}
 	return w.requests[0]
+}
+
+func (w *frameCaptureWriter) counts() (int, int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.requests), len(w.frames)
 }
 
 // toolRoundTrip dials sockPath, sends req as JSON, signals EOF, and returns
@@ -460,6 +546,64 @@ func TestHandlePrompt_ExecutesToolAndEmitsCompletionEvent(t *testing.T) {
 	}
 	if ev.PromptSeq != 55 {
 		t.Fatalf("prompt seq = %d, want 55", ev.PromptSeq)
+	}
+	if ev.Outcome != "success" {
+		t.Fatalf("outcome = %q, want success", ev.Outcome)
+	}
+	if ev.ToolCalls != 1 {
+		t.Fatalf("tool calls = %d, want 1", ev.ToolCalls)
+	}
+	if ev.InputTokens != 12 || ev.OutputTokens != 7 {
+		t.Fatalf("tokens = (%d,%d), want (12,7)", ev.InputTokens, ev.OutputTokens)
+	}
+}
+
+func TestHandlePrompt_FakeClaudeInvokesToolAndEmitsCompletionEvent(t *testing.T) {
+	capRegistry = capabilities.GeneratedRegistry()
+	toolCaller := buildFakeToolCaller(t)
+	writeFakeClaude(t, "#!/bin/sh\nset -eu\nsock=${WARD_TOOL_SOCK:?}\nfor _ in 1 2 3 4 5 6 7 8 9 10; do\n  [ -S \"$sock\" ] && break\n  sleep 0.1\ndone\n\""+toolCaller+"\" \"$sock\" >/dev/null\nprintf '%s\n' '{\"type\":\"tool_use\"}' '{\"type\":\"message_stop\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7}}'\n")
+	w := newTestWardForServer(t)
+	capture := &frameCaptureWriter{ward: w}
+	w.pipe = &musPipe{w: capture, agentID: w.agentID, log: w.log}
+	sockPath := startTestToolServer(t, w)
+	w.toolSockPath = sockPath
+
+	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 56, Text: "test prompt"}
+	w.handlePrompt(context.Background(), prompt.MarshalMUS())
+
+	requestCount, frameCount := capture.counts()
+	if requestCount != 1 {
+		hdr, payload, err := capture.singleFrameMaybe()
+		if err == nil && hdr.Type == switchboard.MsgType_FailureEvent {
+			fev, ferr := audit.UnmarshalFailure(payload)
+			if ferr == nil {
+				t.Fatalf("captured %d capability requests, want 1 (failure=%s detail=%s)", requestCount, fev.Kind, fev.Detail)
+			}
+		}
+		t.Fatalf("captured %d capability requests, want 1 (frames=%d)", requestCount, frameCount)
+	}
+
+	req := capture.singleRequest(t)
+	if req.Capability != "Browser_Page_Read" {
+		t.Fatalf("capability = %q, want Browser_Page_Read", req.Capability)
+	}
+	if !bytes.Contains(req.Args, []byte(`"url":"https://example.com/page"`)) {
+		t.Fatalf("unexpected capability args: %s", req.Args)
+	}
+
+	hdr, payload, err := capture.singleFrame(t)
+	if err != nil {
+		t.Fatalf("read captured frame: %v", err)
+	}
+	if hdr.Type != switchboard.MsgType_CompletionEvent {
+		t.Fatalf("frame type = %v, want CompletionEvent", hdr.Type)
+	}
+	ev, err := audit.UnmarshalCompletion(payload)
+	if err != nil {
+		t.Fatalf("decode completion event: %v", err)
+	}
+	if ev.PromptSeq != 56 {
+		t.Fatalf("prompt seq = %d, want 56", ev.PromptSeq)
 	}
 	if ev.Outcome != "success" {
 		t.Fatalf("outcome = %q, want success", ev.Outcome)

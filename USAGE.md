@@ -165,13 +165,14 @@ All fields are optional; defaults are shown:
 socket-path    "./keeper.sock"
 audit-db       "./audit.db"
 vault-path     "./vault.enc"
-chrome-debug-addr "127.0.0.1:9222"
-chrome-binary  "chromium"       // path or name; empty = disable sidecar
-chrome-user-data-dir "./chrome-data"
+chromed-socket-path "/run/vivary/chromed-host/chromed.sock"
+chrome-proxy-server ""          // optional advertised keeper proxy host/IP; empty = auto-detect container IPv4
 max-pipe-bytes-per-sec 1048576
 log-level      "info"   // debug | info | warn | error
 providers-file "./providers.kdl"
 ```
+
+For host-browser mode, `keeperd` asks the host-side `chromed` service for a per-agent Chrome instance. `keeperd` also starts a per-agent HTTP proxy inside the container on ports `8700-8800` and passes that proxy URL to `chromed` so host Chrome reaches the network through `keeperd`. If `chrome-proxy-server` is empty, `keeperd` advertises the first non-loopback container IPv4 address.
 
 keeperd also reads `providers.kdl` (see `providers.kdl` at the project root for
 the built-in registry).  Each provider entry maps a name to a canonical API URL:

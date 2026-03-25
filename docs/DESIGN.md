@@ -125,6 +125,7 @@ Current MVP implementation status: subscribe/status/prompt/agent lifecycle/ping 
 | `MsgType_FailureEvent` | keeperd → viv | Pushed directly to subscribed ctl clients when a prompt run fails. |
 | `MsgType_CtlAgentCreate` | viv → keeperd | Provision a new agent workspace from a template. |
 | `MsgType_CtlAgentDestroy` | viv → keeperd | Destroy an agent workspace and tear down its runtime state. |
+| `MsgType_CtlAgentList` | viv → keeperd | Request the current list of configured or live agents. |
 | `MsgType_CtlStatus` | viv → keeperd | Request a full snapshot of current agent states (used on startup). |
 | `MsgType_CtlApproval` | reserved | Approval remains designed-but-not-implemented in the current MVP runtime. |
 
@@ -152,15 +153,16 @@ See [BRIDGES.md](BRIDGES.md) for the full architecture, configuration, and secur
 
 ```go
 type SwarmHeader struct {
-    Version  uint8
-    FromID   string
-    ToID     string   // "agent-id", "group:name", or "*" for broadcast
-    MsgType  uint8
-    SeqNo    uint64   // monotonic per-sender; used for loop detection
-    ParentID string   // ID of the agent that invoked this one; "" for top-level
-    Depth    uint8    // invocation chain depth; keeperd increments on each hop
+    Version    uint8
+    Type       MsgType
+    FromID     string
+    ToID       string
+    SeqNo      uint64
+    PayloadLen uint32
 }
 ```
+
+`ParentID` and `Depth` remain planned post-MVP multi-agent extensions rather than fields in the current wire header.
 
 - **Routing:** In the MVP, `keeperd` routes request/response traffic between ctl and one Ward pipe. The same framing is designed to extend later to unicast, multicast (group prefix), and broadcast destinations. `SeqNo` is validated to be strictly increasing per sender — a non-monotonic sequence triggers a security log event.
 - **Identity integrity:** `keeperd` stamps `FromID` on all inbound frames from the pipe the bytes arrived on. Agent-supplied `FromID` values are ignored and overwritten. Spoofing is structurally impossible.
@@ -272,23 +274,24 @@ Agents interact with the outside world exclusively through MUS capability reques
 
 #### 6a. Browser (Chrome Sidecar)
 
-A single headless Chrome instance runs on the **host OS** (outside all nspawn containers), bound to `localhost:9222`. `keeperd` is the sole process that may connect to this port.
+A host-side `chromed` service runs on the **host OS** (outside all nspawn containers) and manages per-agent headless Chrome instances with dedicated profile directories. `keeperd` requests sessions from `chromed` over a local MUS socket and receives the per-agent CDP address to use.
 
 - Agents emit MUS-wrapped CDP verbs (e.g., `Browser_Page_Read`).
 - `keeperd` validates the verb against the agent's ACL in `agent.kdl`.
-- Validated requests are translated to Chrome DevTools Protocol JSON-RPC and forwarded to port 9222.
+- Validated requests are translated to Chrome DevTools Protocol JSON-RPC and forwarded to the per-agent CDP endpoint returned by `chromed`.
 - The runtime now enforces browser whitelist policy in two places: first in the capability layer during ACL/scope validation, then again in the Chrome proxy before any CDP traffic is sent. This defence-in-depth behavior is part of the MVP runtime and should remain testable at both layers.
+- Host Chrome is configured to use a small per-agent HTTP proxy served by `keeperd` inside the LXC guest. The proxy binds on the container network address (not `127.0.0.1`) so the host browser can reach it; the default port range is `8700-8800`.
 - Current tests cover browser allow/deny behavior at the proxy layer, capability-to-proxy handoff layer, keeperd response/audit layer, and prompt-run boundary. What is still missing is live-Chrome verification against the real sidecar process.
-- The current implementation uses a single shared headless Chrome process plus per-agent target/session bookkeeping inside `keeperd`. The originally-described per-agent `--user-data-dir` profile isolation is **not** implemented in the current MVP and should be treated as a future hardening/clarification task rather than an existing guarantee.
+- The current implementation uses one host-managed Chrome process per active agent session, with a dedicated `--user-data-dir` profile per agent managed by `chromed`.
 - Because Chrome runs on the host OS, the nspawn container image requires no display server, window manager, or GPU drivers.
 
-**Scaling note:** The current MVP uses one shared Chrome instance. If stronger per-agent browser isolation is required later, we can evaluate either per-agent profiles or a more explicit browser-context model, but the docs should not imply that profile isolation already exists today.
+**Scaling note:** The current path prefers clearer per-agent profile/process ownership over the lowest possible browser footprint. If this becomes too heavy, a later phase can evaluate explicit browser contexts or pooled browser workers without weakening `keeperd` policy authority.
 
 #### 6b. REST APIs (Google Workspace, etc.)
 
-Heavyweight REST APIs are wrapped by separate **REST Gateway Go binaries** invoked by `keeperd`. These binaries translate MUS verbs into authenticated API calls.
+Heavyweight REST APIs are a post-MVP extension. The intended design is to wrap them with separate **REST Gateway Go binaries** invoked by `keeperd`. Those binaries would translate MUS verbs into authenticated API calls.
 
-- `keeperd` holds all credentials in an AES-256-GCM encrypted vault. Agents reference a `credential_id` only — the secret value never enters the nspawn container.
+- The intended model is that `keeperd` holds credentials and agents reference a `credential_id` only — the secret value never enters the nspawn container. Full vault workflows remain later-phase work.
 - Gateway binaries strip response metadata bloat before returning results, reducing agent context consumption.
 - The vendor-neutral capability naming layer (e.g., `Calendar_Event_Create` rather than `Gsuite_Calendar_Insert`) allows `keeperd` to swap underlying providers based on the agent's assigned `credential_id` without changing agent code.
 
@@ -536,10 +539,10 @@ The design intent is that protocol bring-up, ACL debugging, and prompt-run inspe
 
 - **Nesting security caveat:** `security.nesting=true` expands the kernel attack surface for inner nspawn containers. The threat model treats the LXD boundary as a **transport and distribution layer**, not a security boundary. The nspawn container with `-U` User Namespacing is the agent's actual security boundary. If an agent escapes nspawn, it is within the NixOS LXD container — isolated from the bare host OS and from other LXD containers. A hardened LXD profile (AppArmor policy, seccomp filter) reducing the nesting surface is planned post-MVP. See [SECURITY.md](SECURITY.md) for the full threat model.
 
-- **Host OS:**
-  - **Linux:** Native LXD (Ubuntu, Fedora, CachyOS, etc.).
-  - **Windows 11:** LXD inside WSL2 (supports Cgroup v2 and GPU offloading).
-  - **macOS:** LXD via OrbStack or Lima.
+- **Host OS target path:**
+  - **Linux:** current full runtime and isolation path.
+  - **Windows 11 / WSL2:** development and validation target; full runtime parity remains unfinished.
+  - **macOS / OrbStack / Lima:** development and validation target; full runtime parity remains unfinished.
 - **`distrobuild`:** A script that builds and exports the NixOS LXD image from the Flake. Running `distrobuild` on any supported host produces a byte-identical image, ensuring environment parity across the swarm. All VIVARY binaries (`keeperd`, `ward`, `viv`, `vivlog`) are compiled from the same Flake revision, ensuring Ward and keeperd schema versions are always in sync.
 
 - **Btrfs on virtualised storage:** In WSL2 and OrbStack environments, Btrfs runs on a virtual disk image. Snapshot creation remains O(1) (a Btrfs metadata operation), but the underlying virtual disk driver may add latency. Known requirements: OrbStack/Lima requires `btrfs.subvol=true` in the VM config; WSL2 requires the VHD to be formatted as Btrfs at creation time. Both are handled automatically by `distrobuild`.

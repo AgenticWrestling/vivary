@@ -50,7 +50,8 @@ func TestWhitelistPolicy_TypedConstraints(t *testing.T) {
 	}{
 		{"https://example.com:8443/page", true},
 		{"https://en.wikipedia.org/wiki/VIVARY", true},
-		{"https://random.test/allowed/page", true},
+		{"https://example.com:8443/allowed/page", true},
+		{"https://random.test/allowed/page", false},
 		{"https://example.com/page", false},
 		{"https://evil.com/page", false},
 	}

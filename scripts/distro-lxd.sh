@@ -12,6 +12,8 @@ Usage:
   scripts/distro-lxd.sh build  [base|runtime]
   scripts/distro-lxd.sh import [base|runtime] [alias]
   scripts/distro-lxd.sh launch [image-alias]  [container-name]
+  scripts/distro-lxd.sh stop   [container-name]
+  scripts/distro-lxd.sh delete [container-name]
   scripts/distro-lxd.sh export <alias>        [output-dir]
 
 Defaults:
@@ -25,6 +27,38 @@ The launch subcommand creates the container with the settings required for
 nested systemd-nspawn (security.nesting=true, cgroup v2 delegation, and the
 kernel modules needed for nftables and overlay filesystems).
 EOF
+}
+
+chromed_service_name() {
+  printf 'chromed@%s.service' "$1"
+}
+
+require_chromed_unit() {
+  if ! sudo systemctl cat chromed@.service >/dev/null 2>&1; then
+    printf 'Error: chromed systemd unit is not installed. Run `task distro:chromed:install` first.\n' >&2
+    exit 1
+  fi
+}
+
+start_chromed_for_container() {
+  local name service host_dir
+  name="$1"
+  service="$(chromed_service_name "$name")"
+  host_dir="/run/chromed-$name"
+
+  require_chromed_unit
+  sudo systemctl start "$service"
+  lxc config device remove "$name" chromed-sock >/dev/null 2>&1 || true
+  lxc config device add "$name" chromed-sock disk source="$host_dir" path=/run/vivary/chromed-host
+}
+
+stop_chromed_for_container() {
+  local name service
+  name="$1"
+  service="$(chromed_service_name "$name")"
+
+  lxc config device remove "$name" chromed-sock >/dev/null 2>&1 || true
+  sudo systemctl stop "$service" >/dev/null 2>&1 || true
 }
 
 target_to_attr() {
@@ -103,6 +137,25 @@ launch_container() {
   lxc launch "$image" "$name" \
     --config security.nesting=true \
     --config linux.kernel.modules=overlay,nf_tables,ip_tables,ip6_tables,nf_nat
+  start_chromed_for_container "$name"
+}
+
+stop_container() {
+  local name
+  name="${1:-vivary}"
+
+  "$LXD_CHECK" --check
+  lxc stop "$name"
+  stop_chromed_for_container "$name"
+}
+
+delete_container() {
+  local name
+  name="${1:-vivary}"
+
+  "$LXD_CHECK" --check
+  stop_chromed_for_container "$name"
+  lxc delete -f "$name"
 }
 
 export_image() {
@@ -127,6 +180,12 @@ case "$command" in
     ;;
   launch)
     launch_container "${2:-vivary-runtime}" "${3:-vivary}"
+    ;;
+  stop)
+    stop_container "${2:-vivary}"
+    ;;
+  delete)
+    delete_container "${2:-vivary}"
     ;;
   export)
     if [ $# -lt 2 ]; then usage; exit 1; fi

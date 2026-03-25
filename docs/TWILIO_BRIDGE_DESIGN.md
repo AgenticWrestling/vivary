@@ -1,5 +1,7 @@
 # VIVARY Twilio SMS Bridge Design
 
+This document is a roadmap design example for a post-MVP bridge, not a description of a currently implemented subsystem.
+
 ## Overview
 
 The Twilio SMS Bridge provides bidirectional SMS communication for VIVARY agents. It handles incoming SMS messages (ingress) by triggering agent prompts and exposes SMS sending/listing capabilities (egress) for agents to use as tools.
@@ -17,7 +19,7 @@ The Twilio SMS Bridge provides bidirectional SMS communication for VIVARY agents
 1. **Twilio Webhook:** Twilio sends an HTTP POST request to the Bridge's configured webhook URL.
 2. **Payload Parsing:** The Bridge validates the Twilio signature and parses the `From`, `To`, and `Body`.
 3. **Identity Mapping:** The Bridge looks up which agent should receive the message (e.g., based on the `To` number or a default mapping).
-4. **MUS Prompt:** The Bridge sends a `MsgType_Prompt` to `keeperd`:
+4. **MUS Prompt:** The Bridge would send a prompt/control message to `keeperd`:
    - `FromID`: `bridge:twilio-sms-01`
    - `ToID`: `assistant-01`
    - `Payload`: The SMS body and metadata.
@@ -30,7 +32,7 @@ The Bridge exposes the `Messaging_SMS_Send` capability. When an agent calls this
 2. **Twilio API Call:** The Bridge uses its configured `AccountSID` and `AuthToken` to call the Twilio REST API.
 3. **Response:** The Bridge returns the Twilio SID and status as a `MsgType_CapabilityResponse`.
 
-## Capability Definition (`capabilities/messaging_sms.kdl`)
+## Proposed Capability Definition (`capabilities/messaging_sms.kdl`)
 
 ```kdl
 capability Messaging_SMS_Send {
@@ -66,7 +68,7 @@ capability Messaging_SMS_List {
 
 ### Credentials
 
-The Bridge requires `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`. In a production VIVARY setup, these should be stored in the VIVARY Vault and resolved by `keeperd` when the Bridge connects, or passed to the Bridge process securely.
+The Bridge requires `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`. In a future production VIVARY setup, these could be stored in the VIVARY credential/vault layer or passed to the Bridge process securely.
 
 ### Persistence
 

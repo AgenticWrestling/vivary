@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	validLogLevels     = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
-	capNameRe          = regexp.MustCompile(`^[A-Z][A-Za-z]+_[A-Z][A-Za-z]+_[A-Z][A-Za-z]+$`)
+	validLogLevels = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+	capNameRe      = regexp.MustCompile(`^[A-Z][A-Za-z]+_[A-Z][A-Za-z]+_[A-Z][A-Za-z]+$`)
 )
 
 // OrchestratorConfig is parsed from orchestrator.kdl in the workspace root.
@@ -26,6 +26,8 @@ type OrchestratorConfig struct {
 	ProvidersFile           string `kdl:"providers-file"`
 	ChromeBinaryPath        string `kdl:"chrome-binary"`
 	ChromeUserDataDir       string `kdl:"chrome-user-data-dir"`
+	ChromedSocketPath       string `kdl:"chromed-socket-path"`
+	ChromeProxyServer       string `kdl:"chrome-proxy-server"`
 }
 
 // ProviderConfig is one entry from providers.kdl.
@@ -37,10 +39,10 @@ type ProviderConfig struct {
 
 // AgentConfig is parsed from <agent-subvolume>/agent.kdl.
 type AgentConfig struct {
-	ID             string                  `kdl:"id"`
-	Provider       string                  `kdl:"provider"`
-	CPUShares      uint32                  `kdl:"cpu-shares"`
-	MemoryMaxBytes uint64                  `kdl:"memory-max-bytes"`
+	ID             string                 `kdl:"id"`
+	Provider       string                 `kdl:"provider"`
+	CPUShares      uint32                 `kdl:"cpu-shares"`
+	MemoryMaxBytes uint64                 `kdl:"memory-max-bytes"`
 	Capabilities   []AgentCapabilityEntry `kdl:"capabilities,child"`
 }
 
@@ -62,6 +64,8 @@ func DefaultOrchestratorConfig(workspaceRoot string) OrchestratorConfig {
 		ProvidersFile:           workspaceRoot + "/providers.kdl",
 		ChromeBinaryPath:        "chromium",
 		ChromeUserDataDir:       workspaceRoot + "/chrome-data",
+		ChromedSocketPath:       "/run/vivary/chromed-host/chromed.sock",
+		ChromeProxyServer:       "",
 	}
 }
 

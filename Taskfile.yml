@@ -23,6 +23,7 @@ tasks:
     deps:
       - build:keeperd
       - build:ward
+      - build:chromed
       - build:viv
       - build:vivlog
       - build:capwrap
@@ -39,6 +40,12 @@ tasks:
     cmds:
       - mkdir -p {{.BIN_DIR}}
       - go build -o {{.BIN_DIR}}/ward ./cmd/ward
+
+  build:chromed:
+    desc: Build chromed
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/chromed ./chromed
 
   build:viv:
     desc: Build viv CLI
@@ -110,10 +117,34 @@ tasks:
     cmds:
       - ./scripts/check-lxd-access.sh
 
+  distro:chromed:install:
+    desc: Install the host chromed systemd unit and binary
+    deps:
+      - build:chromed
+    cmds:
+      - sudo install -Dm755 {{.BIN_DIR}}/chromed /usr/local/bin/chromed
+      - sudo install -Dm644 ./systemd/chromed@.service /etc/systemd/system/chromed@.service
+      - sudo systemctl daemon-reload
+
+  distro:chromed:status:
+    desc: Show chromed systemd status for the target container
+    cmds:
+      - sudo systemctl --no-pager --full status chromed@{{.CONTAINER}}.service
+
   distro:launch:
     desc: Launch the default runtime LXD container
     cmds:
       - ./scripts/distro-lxd.sh launch vivary-runtime {{.CONTAINER}}
+
+  distro:stop:
+    desc: Stop the runtime LXD container and matching chromed host service
+    cmds:
+      - ./scripts/distro-lxd.sh stop {{.CONTAINER}}
+
+  distro:delete:
+    desc: Delete the runtime LXD container and matching chromed host service
+    cmds:
+      - ./scripts/distro-lxd.sh delete {{.CONTAINER}}
 
   distro:export:
     desc: Export an LXD image alias to tarballs
