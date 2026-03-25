@@ -357,20 +357,9 @@ func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
 }
 
 func TestHandlePrompt_EmitsMalformedToolCallFailureViaToolSocket(t *testing.T) {
-	claudeScript := `#!/bin/sh
-python3 - <<'PY'
-import os, socket, time
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect(os.environ["WARD_TOOL_SOCK"])
-sock.sendall(b'this is not json')
-sock.shutdown(socket.SHUT_WR)
-time.sleep(5)
-PY
-`
-	tmp := writeFakeClaude(t, claudeScript)
-
+	writeFakeClaude(t, "#!/bin/sh\nsleep 5\n")
 	w, out := newPromptTestWard(t)
-	sockPath := filepath.Join(tmp, "ward-tool.sock")
+	sockPath := filepath.Join(t.TempDir(), "ward-tool.sock")
 	w.toolSockPath = sockPath
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -389,7 +378,32 @@ PY
 	}
 
 	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 99, Text: "test prompt"}
-	w.handlePrompt(context.Background(), prompt.MarshalMUS())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.handlePrompt(context.Background(), prompt.MarshalMUS())
+	}()
+
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if w.activeCmd.Load() != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if w.activeCmd.Load() == nil {
+		t.Fatal("LLM subprocess did not become active")
+	}
+
+	resp := sendRawToolPayload(t, sockPath, []byte("this is not json"))
+	if resp.OK {
+		t.Fatal("malformed tool payload unexpectedly succeeded")
+	}
+	if resp.ErrorCode != "bad_request" {
+		t.Fatalf("error code = %q, want %q", resp.ErrorCode, "bad_request")
+	}
+
+	<-done
 
 	ev := readFailureEventFromBuffer(t, out)
 	if ev.Kind != "malformed_tool_call" {
