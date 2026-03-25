@@ -64,6 +64,11 @@ func main() {
 		c.cmdPing()
 	case "version":
 		fmt.Println(cliVersion)
+	case "migrate":
+		if err := runMigrate(args[1:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printUsage()
@@ -86,6 +91,7 @@ Commands:
   agent destroy --id <id>    Destroy an agent workspace
   prompt --agent <id> --seq <n> <text>
                              Dispatch a prompt to an agent
+  migrate openclaw inspect   Inspect an OpenClaw install and write KDL findings
   ping                       Ping keeperd (liveness check)
   version                    Print CLI version`)
 }
