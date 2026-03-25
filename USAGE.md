@@ -82,6 +82,10 @@ This section is Linux-only. It assumes:
 - `/usr/bin/google-chrome-beta` exists on the host for browser-backed agent sessions
 - `chromed@.service` is installed on the host (`task distro:chromed:install`)
 
+If the host unit is not installed, `scripts/distro-lxd.sh launch` falls back to
+running a user-managed `chromed` process from `/usr/local/bin/chromed` or
+`./bin/chromed`, with state under `./.vivary/chromed/<container>/`.
+
 The repo ships two LXD-importable Nix images:
 
 - `vivary-base`: minimal immutable-ish OS image, no VIVARY binaries
@@ -114,10 +118,16 @@ task distro:chromed:status
 `task distro:launch` now does three things together:
 
 - launches the LXD container
-- starts the matching host `chromed@<container>.service` systemd unit
+- starts the matching host `chromed@<container>.service` systemd unit, or falls
+  back to a user-managed `chromed` process when the unit is unavailable
 - bind-mounts the host chromed runtime directory into the container at `/run/vivary/chromed-host`
 
 That mount exposes the host-side MUS socket at `/run/vivary/chromed-host/chromed.sock`, which is how `keeperd` asks `chromed` to create or release per-agent Chrome sessions.
+
+Chrome sessions stay headless in the shipped path, so you should not expect a
+visible desktop Chrome window or profile switcher to pop up on the host while
+browser e2e tests run. Host-side profile state is still created under the
+matching `chromed` profile root, one directory per agent ID.
 
 Inside the runtime container:
 
@@ -155,11 +165,26 @@ task distro:connect CONTAINER=my-vivary-dev
 
 `distro:push` is a dev convenience and mutates the running container. The cleaner full-image path is still to rebuild/import/launch a fresh `vivary-runtime` image.
 
+`distro:push` also installs override binaries in `/usr/local/bin` inside the
+container. `keeperd` prefers those paths for `keeperd`, `ward`, and `capwrap`
+when present, so local dev pushes can override the immutable image copies.
+
 `distro:restart:keeperd` starts `keeperd` in the container with `--workspace /var/lib/vivary/workspace` by default and writes logs to `/var/log/vivary/keeperd.log`. Override with `KEEPERD_WORKSPACE=/some/path` if your container uses a different workspace.
 
 `distro:connect` uses `lxc exec` from the host to launch `viv tui` inside the running container against `$KEEPERD_WORKSPACE/keeper.sock` (default `/var/lib/vivary/workspace/keeper.sock`).
 
 `task distro:stop` and `task distro:delete` stop the matching host `chromed@<container>.service` unit as part of the same lifecycle.
+
+To exercise the live browser mediation path against a running LXD container,
+use:
+
+```sh
+task distro:test:browser-e2e CONTAINER=vivary-static
+```
+
+That task provisions one allow-path agent and one deny-path agent, drives both
+through the LXD + `chromed` path, and asserts that only the allow-path agent
+acquires a live browser session.
 
 ---
 

@@ -29,8 +29,9 @@ import (
 // Proxy connects to a single headless Chrome instance and exposes
 // ReadPage for capability execution.
 type Proxy struct {
-	debugAddr string // host:port, e.g. "127.0.0.1:9222"
-	client    *http.Client
+	debugAddr      string // host:port, e.g. "127.0.0.1:9222"
+	unixSocketPath string
+	client         *http.Client
 
 	mu      sync.Mutex
 	targets map[string]*target // keyed by targetID
@@ -48,16 +49,26 @@ type WhitelistPolicy struct {
 
 // New creates a Proxy pointing at debugAddr.
 func New(debugAddr string) *Proxy {
-	return &Proxy{
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
+	}
+	p := &Proxy{
 		debugAddr: debugAddr,
 		client: &http.Client{
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
-			},
-			Timeout: 10 * time.Second,
+			Transport: transport,
+			Timeout:   10 * time.Second,
 		},
 		targets: make(map[string]*target),
 	}
+	if strings.HasPrefix(debugAddr, "unix:") {
+		p.unixSocketPath = strings.TrimPrefix(debugAddr, "unix:")
+		p.debugAddr = "unix"
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", p.unixSocketPath)
+		}
+	}
+	return p
 }
 
 // ReadPage navigates to rawURL, waits for the network to settle, extracts
@@ -146,7 +157,7 @@ func (p *Proxy) openTarget(ctx context.Context, agentID string) (*target, error)
 		}
 	}
 
-	conn, err := dialCDP(ctx, wsURL)
+	conn, err := dialCDP(ctx, wsURL, p.unixSocketPath)
 	if err != nil {
 		return nil, fmt.Errorf("dial CDP: %w", err)
 	}
@@ -167,7 +178,7 @@ func (p *Proxy) openTarget(ctx context.Context, agentID string) (*target, error)
 // listTargets calls /json/list on the CDP HTTP endpoint.
 func (p *Proxy) listTargets(ctx context.Context) ([]map[string]string, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://"+p.debugAddr+"/json/list", nil)
+		p.httpURL("/json/list"), nil)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -182,7 +193,7 @@ func (p *Proxy) listTargets(ctx context.Context) ([]map[string]string, error) {
 // newTarget creates a new about:blank page via /json/new.
 func (p *Proxy) newTarget(ctx context.Context) (string, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPut,
-		"http://"+p.debugAddr+"/json/new?about:blank", nil)
+		p.httpURL("/json/new?about:blank"), nil)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return "", err
@@ -194,6 +205,13 @@ func (p *Proxy) newTarget(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("parse new target: %w", err)
 	}
 	return tgt["webSocketDebuggerUrl"], nil
+}
+
+func (p *Proxy) httpURL(path string) string {
+	if p.unixSocketPath != "" {
+		return "http://127.0.0.1" + path
+	}
+	return "http://" + p.debugAddr + path
 }
 
 // ---- CDP session commands --------------------------------------------------
@@ -431,7 +449,7 @@ type cdpConn interface {
 }
 
 // dialCDP opens a WebSocket connection to wsURL using a hand-rolled client.
-func dialCDP(ctx context.Context, wsURL string) (cdpConn, error) {
+func dialCDP(ctx context.Context, wsURL string, unixSocketPath string) (cdpConn, error) {
 	// wsURL is of the form ws://127.0.0.1:9222/devtools/page/<id>
 	addr, path, err := parseWSURL(wsURL)
 	if err != nil {
@@ -439,7 +457,12 @@ func dialCDP(ctx context.Context, wsURL string) (cdpConn, error) {
 	}
 
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	network := "tcp"
+	if unixSocketPath != "" {
+		network = "unix"
+		addr = unixSocketPath
+	}
+	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
@@ -449,7 +472,7 @@ func dialCDP(ctx context.Context, wsURL string) (cdpConn, error) {
 	req := fmt.Sprintf(
 		"GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
 			"Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n",
-		path, addr, key,
+		path, hostHeader(addr, unixSocketPath), key,
 	)
 	if _, err := io.WriteString(conn, req); err != nil {
 		conn.Close()
@@ -480,6 +503,13 @@ func dialCDP(ctx context.Context, wsURL string) (cdpConn, error) {
 	}
 
 	return &wsConn{conn: conn}, nil
+}
+
+func hostHeader(addr, unixSocketPath string) string {
+	if unixSocketPath != "" {
+		return "127.0.0.1"
+	}
+	return addr
 }
 
 func parseWSURL(wsURL string) (addr, path string, err error) {

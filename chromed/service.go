@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,8 @@ type launchSpec struct {
 type instance struct {
 	agentID     string
 	debugAddr   string
+	forwardLn   net.Listener
+	forwardPath string
 	profileDir  string
 	proxyServer string
 	proc        managedProcess
@@ -70,17 +73,19 @@ type manager struct {
 	mu           sync.Mutex
 	instances    map[string]*instance
 	profileRoot  string
+	forwardRoot  string
 	chromeBinary string
 	start        func(context.Context, launchSpec) (managedProcess, error)
 	waitReady    func(context.Context, string) error
-	allocDebug   func() (string, error)
+	allocDebug   func(string) (string, error)
 	log          *slog.Logger
 }
 
-func newManager(profileRoot, chromeBinary string, log *slog.Logger) *manager {
+func newManager(profileRoot, chromeBinary, forwardRoot string, log *slog.Logger) *manager {
 	return &manager{
 		instances:    make(map[string]*instance),
 		profileRoot:  profileRoot,
+		forwardRoot:  forwardRoot,
 		chromeBinary: chromeBinary,
 		start:        startChromeProcess,
 		waitReady:    waitForChromeReady,
@@ -106,9 +111,35 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 	if err := os.MkdirAll(profileDir, 0o750); err != nil {
 		return chromedapi.AcquireResponse{}, fmt.Errorf("mkdir profile dir: %w", err)
 	}
-	debugAddr, err := m.allocDebug()
+	debugAddr, err := m.allocDebug(req.ProxyServer)
 	if err != nil {
 		return chromedapi.AcquireResponse{}, fmt.Errorf("allocate debug addr: %w", err)
+	}
+	publicDebugAddr := debugAddr
+	forwardLn, err := startDebugForwarder(req.ProxyServer, debugAddr)
+	if err == nil && forwardLn != nil {
+		publicDebugAddr = forwardLn.Addr().String()
+	} else if err != nil && m.log != nil {
+		m.log.Warn("debug forwarder unavailable; using local debug address", "agent", req.AgentID, "err", err)
+	}
+	forwardPath := ""
+	if m.forwardRoot != "" {
+		forwardPath = filepath.Join(m.forwardRoot, req.AgentID+".cdp.sock")
+		if err := os.Remove(forwardPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return chromedapi.AcquireResponse{}, fmt.Errorf("remove stale debug socket: %w", err)
+		}
+		unixLn, err := startUnixDebugForwarder(forwardPath, debugAddr)
+		if err != nil {
+			if forwardLn != nil {
+				_ = forwardLn.Close()
+			}
+			return chromedapi.AcquireResponse{}, fmt.Errorf("start unix debug forwarder: %w", err)
+		}
+		if forwardLn != nil {
+			_ = forwardLn.Close()
+		}
+		forwardLn = unixLn
+		publicDebugAddr = "unix:/run/vivary/chromed-host/" + req.AgentID + ".cdp.sock"
 	}
 	spec := launchSpec{
 		AgentID:          req.AgentID,
@@ -128,6 +159,9 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 	readyCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if err := m.waitReady(readyCtx, debugAddr); err != nil {
+		if forwardLn != nil {
+			_ = forwardLn.Close()
+		}
 		_ = proc.Kill()
 		_ = proc.Wait()
 		return chromedapi.AcquireResponse{}, fmt.Errorf("wait for chrome ready: %w", err)
@@ -135,7 +169,9 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 
 	inst := &instance{
 		agentID:     req.AgentID,
-		debugAddr:   debugAddr,
+		debugAddr:   publicDebugAddr,
+		forwardLn:   forwardLn,
+		forwardPath: forwardPath,
 		profileDir:  profileDir,
 		proxyServer: req.ProxyServer,
 		proc:        proc,
@@ -147,9 +183,9 @@ func (m *manager) Acquire(ctx context.Context, req chromedapi.AcquireRequest) (c
 
 	go m.reap(req.AgentID, proc)
 	if m.log != nil {
-		m.log.Info("chrome profile acquired", "agent", req.AgentID, "debug_addr", debugAddr, "pid", proc.Pid())
+		m.log.Info("chrome profile acquired", "agent", req.AgentID, "debug_addr", publicDebugAddr, "pid", proc.Pid())
 	}
-	return chromedapi.AcquireResponse{OK: true, DebugAddr: debugAddr, ProfileDir: profileDir}, nil
+	return chromedapi.AcquireResponse{OK: true, DebugAddr: publicDebugAddr, ProfileDir: profileDir}, nil
 }
 
 func (m *manager) reap(agentID string, proc managedProcess) {
@@ -180,6 +216,12 @@ func (m *manager) Release(agentID string) (chromedapi.ReleaseResponse, error) {
 	}
 	if err := inst.proc.Kill(); err != nil {
 		return chromedapi.ReleaseResponse{}, fmt.Errorf("kill chrome: %w", err)
+	}
+	if inst.forwardLn != nil {
+		_ = inst.forwardLn.Close()
+	}
+	if inst.forwardPath != "" {
+		_ = os.Remove(inst.forwardPath)
 	}
 	if m.log != nil {
 		m.log.Info("chrome profile released", "agent", agentID, "debug_addr", inst.debugAddr)
@@ -217,7 +259,8 @@ func (m *manager) ReleaseAll() {
 	}
 }
 
-func allocateDebugAddr() (string, error) {
+func allocateDebugAddr(proxyServer string) (string, error) {
+	_ = proxyServer
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", err
@@ -225,6 +268,91 @@ func allocateDebugAddr() (string, error) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 	return addr, nil
+}
+
+func detectReachableHost(proxyServer string) (string, error) {
+	if strings.TrimSpace(proxyServer) == "" {
+		return "", fmt.Errorf("proxy server is required")
+	}
+	u, err := url.Parse(proxyServer)
+	if err != nil {
+		return "", fmt.Errorf("parse proxy server: %w", err)
+	}
+	targetHost := u.Hostname()
+	if targetHost == "" {
+		return "", fmt.Errorf("proxy server host is empty")
+	}
+	conn, err := net.Dial("udp4", net.JoinHostPort(targetHost, "9"))
+	if err != nil {
+		return "", fmt.Errorf("probe route to proxy server: %w", err)
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil {
+		return "", fmt.Errorf("probe route returned no local IP")
+	}
+	ip := addr.IP.To4()
+	if ip == nil || ip.IsLoopback() {
+		return "", fmt.Errorf("probe route returned non-routable local IP")
+	}
+	return ip.String(), nil
+}
+
+func startDebugForwarder(proxyServer, targetAddr string) (net.Listener, error) {
+	host, err := detectReachableHost(proxyServer)
+	if err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go proxyDebugConn(conn, targetAddr)
+		}
+	}()
+	return ln, nil
+}
+
+func startUnixDebugForwarder(socketPath, targetAddr string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go proxyDebugConn(conn, targetAddr)
+		}
+	}()
+	return ln, nil
+}
+
+func proxyDebugConn(conn net.Conn, targetAddr string) {
+	upstream, err := net.Dial("tcp", targetAddr)
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	go proxyConn(upstream, conn)
+	go proxyConn(conn, upstream)
+}
+
+func proxyConn(dst net.Conn, src net.Conn) {
+	defer dst.Close()
+	defer src.Close()
+	_, _ = io.Copy(dst, src)
 }
 
 func startChromeProcess(ctx context.Context, spec launchSpec) (managedProcess, error) {

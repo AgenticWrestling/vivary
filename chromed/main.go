@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -19,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	mgr := newManager(*profileRoot, *chromeBinary, log)
+	mgr := newManager(*profileRoot, *chromeBinary, filepath.Dir(*socketPath), log)
 	srv := &server{
 		socketPath:      *socketPath,
 		manager:         mgr,

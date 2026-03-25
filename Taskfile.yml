@@ -33,43 +33,43 @@ tasks:
     desc: Build keeperd
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/keeperd ./cmd/keeperd
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/keeperd ./cmd/keeperd
 
   build:ward:
     desc: Build ward
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/ward ./cmd/ward
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/ward ./cmd/ward
 
   build:chromed:
     desc: Build chromed
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/chromed ./chromed
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/chromed ./chromed
 
   build:viv:
     desc: Build viv CLI
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/viv ./cmd/viv
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/viv ./cmd/viv
 
   build:vivlog:
     desc: Build vivlog
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/vivlog ./cmd/vivlog
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/vivlog ./cmd/vivlog
 
   build:capwrap:
     desc: Build capwrap
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/capwrap ./cmd/capwrap
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/capwrap ./cmd/capwrap
 
   build:vivgen:
     desc: Build vivgen
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/vivgen ./cmd/vivgen
+      - CGO_ENABLED=0 go build -o {{.BIN_DIR}}/vivgen ./cmd/vivgen
 
   dev:
     desc: Build binaries and run the Go test suite
@@ -157,24 +157,31 @@ tasks:
       - build
     cmds:
       - ./scripts/check-lxd-access.sh --check
-      - lxc exec {{.CONTAINER}} -- mkdir -p /usr/local/bin /usr/lib/vivary
+      - lxc exec {{.CONTAINER}} -- mkdir -p /usr/local/bin
+      - lxc exec {{.CONTAINER}} -- sh -lc 'pkill -x keeperd || true'
       - lxc file push {{.BIN_DIR}}/keeperd {{.CONTAINER}}/usr/local/bin/keeperd
       - lxc file push {{.BIN_DIR}}/viv {{.CONTAINER}}/usr/local/bin/viv
       - lxc file push {{.BIN_DIR}}/vivlog {{.CONTAINER}}/usr/local/bin/vivlog
-      - lxc file push {{.BIN_DIR}}/ward {{.CONTAINER}}/usr/lib/vivary/ward
-      - lxc file push {{.BIN_DIR}}/capwrap {{.CONTAINER}}/usr/lib/vivary/capwrap
+      - lxc file push {{.BIN_DIR}}/ward {{.CONTAINER}}/usr/local/bin/ward
+      - lxc file push {{.BIN_DIR}}/capwrap {{.CONTAINER}}/usr/local/bin/capwrap
 
   distro:restart:keeperd:
     desc: Restart keeperd inside a running LXD container
     cmds:
       - ./scripts/check-lxd-access.sh --check
-      - lxc exec {{.CONTAINER}} -- sh -lc 'mkdir -p /var/log/vivary {{.KEEPERD_WORKSPACE}} && pkill -f "/usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}}" || true; nohup /usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}} >/var/log/vivary/keeperd.log 2>&1 &'
+      - lxc exec {{.CONTAINER}} -- sh -lc 'mkdir -p /var/log/vivary {{.KEEPERD_WORKSPACE}} && pkill -x keeperd || true; KEEPERD_BIN=/usr/local/bin/keeperd; [ -x "$KEEPERD_BIN" ] || KEEPERD_BIN=$(command -v keeperd); nohup "$KEEPERD_BIN" --workspace {{.KEEPERD_WORKSPACE}} >/var/log/vivary/keeperd.log 2>&1 &'
 
   distro:connect:
     desc: Launch the viv TUI against keeperd inside a running LXD container
     cmds:
       - ./scripts/check-lxd-access.sh --check
-      - lxc exec {{.CONTAINER}} -- /usr/local/bin/viv --socket {{.KEEPERD_WORKSPACE}}/keeper.sock tui
+      - lxc exec {{.CONTAINER}} -- viv --socket {{.KEEPERD_WORKSPACE}}/keeper.sock tui
+
+  distro:test:browser-e2e:
+    desc: Run LXD+chromed browser allow/deny end-to-end test
+    cmds:
+      - ./scripts/check-lxd-access.sh --check
+      - CONTAINER={{.CONTAINER}} KEEPERD_WORKSPACE={{.KEEPERD_WORKSPACE}} ./scripts/e2e-lxd-browser.sh
 
   distro:push:restart:
     desc: Push runtime binaries and restart keeperd inside the LXD container

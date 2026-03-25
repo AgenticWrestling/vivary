@@ -96,10 +96,12 @@ func main() {
 	if os.Getenv("VIVARY_STUB_RUNTIME") != "" || runtime.GOOS != "linux" {
 		rt = &agentruntime.StubRuntime{}
 	} else {
+		wardPath := preferExistingPath("/usr/local/bin/ward", "/usr/lib/vivary/ward")
+		capwrapPath := preferExistingPath("/usr/local/bin/capwrap", "/usr/lib/vivary/capwrap")
 		rt = &agentruntime.LinuxRuntime{
 			NspawnRootBase:    "/var/lib/vivary/agents",
-			WardBinaryPath:    "/usr/lib/vivary/ward",
-			CapwrapBinaryPath: "/usr/lib/vivary/capwrap",
+			WardBinaryPath:    wardPath,
+			CapwrapBinaryPath: capwrapPath,
 		}
 	}
 
@@ -126,6 +128,13 @@ func main() {
 	log.Info("keeperd ready", "socket", cfg.SocketPath)
 	<-ctx.Done()
 	log.Info("keeperd shutting down")
+}
+
+func preferExistingPath(preferred, fallback string) string {
+	if _, err := os.Stat(preferred); err == nil {
+		return preferred
+	}
+	return fallback
 }
 
 // ---- Daemon state ----------------------------------------------------------

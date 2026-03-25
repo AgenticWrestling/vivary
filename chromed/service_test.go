@@ -44,8 +44,8 @@ func (p *fakeProcess) Pid() int { return 4242 }
 func newTestManager(t *testing.T) (*manager, *fakeProcess) {
 	t.Helper()
 	proc := &fakeProcess{waitCh: make(chan error)}
-	mgr := newManager(t.TempDir(), "/usr/bin/google-chrome-beta", slog.New(slog.NewTextHandler(io.Discard, nil)))
-	mgr.allocDebug = func() (string, error) { return "127.0.0.1:45555", nil }
+	mgr := newManager(t.TempDir(), "/usr/bin/google-chrome-beta", "", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	mgr.allocDebug = func(string) (string, error) { return "127.0.0.1:45555", nil }
 	mgr.start = func(context.Context, launchSpec) (managedProcess, error) { return proc, nil }
 	mgr.waitReady = func(context.Context, string) error { return nil }
 	return mgr, proc

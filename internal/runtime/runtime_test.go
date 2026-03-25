@@ -8,7 +8,11 @@ import (
 
 func TestLinuxRuntime_InstallCapabilityCLIs(t *testing.T) {
 	root := t.TempDir()
-	r := &LinuxRuntime{CapwrapBinaryPath: "/usr/bin/capwrap"}
+	hostCapwrap := filepath.Join(t.TempDir(), "capwrap-host")
+	if err := os.WriteFile(hostCapwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write host capwrap: %v", err)
+	}
+	r := &LinuxRuntime{CapwrapBinaryPath: hostCapwrap}
 
 	caps := []string{"Browser_Page_Read", "Filesystem_File_Write"}
 	if err := r.InstallCapabilityCLIs(root, caps); err != nil {
@@ -26,11 +30,22 @@ func TestLinuxRuntime_InstallCapabilityCLIs(t *testing.T) {
 			t.Errorf("symlink %s → %q, want /usr/bin/capwrap", name, target)
 		}
 	}
+	b, err := os.ReadFile(filepath.Join(root, "usr", "bin", "capwrap"))
+	if err != nil {
+		t.Fatalf("read installed capwrap: %v", err)
+	}
+	if string(b) != "#!/bin/sh\nexit 0\n" {
+		t.Fatalf("installed capwrap contents = %q", string(b))
+	}
 }
 
 func TestLinuxRuntime_InstallCapabilityCLIs_Idempotent(t *testing.T) {
 	root := t.TempDir()
-	r := &LinuxRuntime{CapwrapBinaryPath: "/usr/bin/capwrap"}
+	hostCapwrap := filepath.Join(t.TempDir(), "capwrap-host")
+	if err := os.WriteFile(hostCapwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write host capwrap: %v", err)
+	}
+	r := &LinuxRuntime{CapwrapBinaryPath: hostCapwrap}
 	caps := []string{"Browser_Page_Read"}
 
 	// Install twice — should not fail on the second call.
@@ -42,9 +57,13 @@ func TestLinuxRuntime_InstallCapabilityCLIs_Idempotent(t *testing.T) {
 	}
 }
 
-func TestLinuxRuntime_InstallCapabilityCLIs_DefaultPath(t *testing.T) {
+func TestLinuxRuntime_InstallCapabilityCLIs_UsesCopiedCapwrap(t *testing.T) {
 	root := t.TempDir()
-	r := &LinuxRuntime{} // CapwrapBinaryPath empty → default
+	hostCapwrap := filepath.Join(t.TempDir(), "capwrap-host")
+	if err := os.WriteFile(hostCapwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write host capwrap: %v", err)
+	}
+	r := &LinuxRuntime{CapwrapBinaryPath: hostCapwrap}
 
 	if err := r.InstallCapabilityCLIs(root, []string{"Browser_Page_Read"}); err != nil {
 		t.Fatalf("InstallCapabilityCLIs: %v", err)

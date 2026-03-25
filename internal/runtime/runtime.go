@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,6 +97,8 @@ func (r *LinuxRuntime) SpawnWard(ctx context.Context, agentID, subvolPath string
 	cpuWeight := max(1, min(10000, cfg.CPUShares/1024*100))
 
 	nspawnArgs := []string{
+		"--quiet",
+		"--console=pipe",
 		"--directory=" + subvolPath,
 		"--bind-ro=" + r.WardBinaryPath + ":" + wardBin,
 		"--private-network",
@@ -165,19 +168,40 @@ func (r *LinuxRuntime) InstallCapabilityCLIs(subvolPath string, capNames []strin
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir cap bin dir: %w", err)
 	}
+	capwrapDest := filepath.Join(binDir, "capwrap")
 	capwrap := r.CapwrapBinaryPath
 	if capwrap == "" {
 		capwrap = "/usr/bin/capwrap"
+	}
+	if err := installBinaryCopy(capwrap, capwrapDest); err != nil {
+		return fmt.Errorf("install capwrap: %w", err)
 	}
 	for _, name := range capNames {
 		link := filepath.Join(binDir, name)
 		// Remove stale symlink if present.
 		_ = os.Remove(link)
-		if err := os.Symlink(capwrap, link); err != nil {
+		if err := os.Symlink("/usr/bin/capwrap", link); err != nil {
 			return fmt.Errorf("symlink capwrap for %s: %w", name, err)
 		}
 	}
 	return nil
+}
+
+func installBinaryCopy(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func (r *LinuxRuntime) Terminate(agentID string) error {

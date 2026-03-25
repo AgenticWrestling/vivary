@@ -58,14 +58,14 @@ func main() {
 	capRegistry = capabilities.GeneratedRegistry()
 
 	log := newLogger(*logLevel)
-	log.Info("ward starting", "version", wardVersion, "agent", *agentID)
+	log.Debug("ward starting", "version", wardVersion, "agent", *agentID)
 
 	// Build the system prompt from agent.kdl (may be empty in dev/test mode).
 	sysPrompt := buildSystemPrompt(*agentKDL)
 	if sysPrompt == "" {
-		log.Warn("ward: no agent.kdl found or no capabilities; LLM will have no tool context", "path", *agentKDL)
+		log.Debug("ward: no agent.kdl found or no capabilities; LLM will have no tool context", "path", *agentKDL)
 	} else {
-		log.Info("ward: system prompt built", "capabilities", countCapLines(sysPrompt))
+		log.Debug("ward: system prompt built", "capabilities", countCapLines(sysPrompt))
 	}
 
 	// keeperd communicates with the Ward via its stdin/stdout (the MUS pipe).
@@ -310,8 +310,12 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	if w.systemPrompt != "" {
 		args = append(args, "--system-prompt", w.systemPrompt)
 	}
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Env = append(os.Environ(), toolServerEnvKey+"="+w.toolSockPath)
+	claudePath, err := resolveClaudePath()
+	if err != nil {
+		return llmOutcome{}, "subprocess_crash", fmt.Errorf("resolve LLM subprocess: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, claudePath, args...)
+	cmd.Env = append(withPreferredPATH(os.Environ()), toolServerEnvKey+"="+w.toolSockPath)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -396,6 +400,36 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	}
 
 	return outcome, "", nil
+}
+
+func resolveClaudePath() (string, error) {
+	for _, candidate := range []string{"/usr/local/bin/claude", "/usr/bin/claude", "/bin/claude"} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	path, err := exec.LookPath("claude")
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func withPreferredPATH(env []string) []string {
+	const preferred = "/usr/local/bin:/usr/bin:/bin"
+	for i, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			continue
+		}
+		pathValue := strings.TrimPrefix(kv, "PATH=")
+		if pathValue == "" {
+			env[i] = "PATH=" + preferred
+			return env
+		}
+		env[i] = "PATH=" + preferred + ":" + pathValue
+		return env
+	}
+	return append(env, "PATH="+preferred)
 }
 
 // countCapLines counts "### " section headers in a system prompt as a proxy

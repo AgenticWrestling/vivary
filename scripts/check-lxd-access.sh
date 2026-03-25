@@ -18,6 +18,44 @@ LXD_LOG_DIR="/var/log/lxd"
 APPARMOR_ENABLED="/sys/module/apparmor/parameters/enabled"
 CGROUP_CONTROLLERS="/sys/fs/cgroup/cgroup.controllers"
 QEMU_BIN="qemu-system-$(uname -m)"
+SUBID_MIN_RANGE=65536
+
+sum_subid_ranges() {
+  local file user
+  file="$1"
+  user="$2"
+  awk -F: -v user="$user" '$1 == user { sum += $3 } END { print sum + 0 }' "$file" 2>/dev/null
+}
+
+check_subid_file() {
+  local file label daemon_total user_total
+  file="$1"
+  label="$2"
+
+  if [[ ! -r "$file" ]]; then
+    record_fail "$file is missing or unreadable; LXD subordinate ID mapping will fail"
+    return
+  fi
+
+  daemon_total="$(sum_subid_ranges "$file" root)"
+  user_total="$(sum_subid_ranges "$file" "$CURRENT_USER")"
+
+  if (( daemon_total <= 0 )); then
+    record_fail "root has no entries in $file; add a subordinate $label range for the LXD daemon user"
+  elif (( daemon_total < SUBID_MIN_RANGE )); then
+    record_fail "root only has $daemon_total subordinate $label values in $file; allocate at least $SUBID_MIN_RANGE"
+  else
+    record_ok "root has $daemon_total subordinate $label values in $file"
+  fi
+
+  if (( user_total <= 0 )); then
+    record_warn "$CURRENT_USER has no entries in $file; rootless subordinate-ID tools may be limited"
+  elif (( user_total < SUBID_MIN_RANGE )); then
+    record_warn "$CURRENT_USER only has $user_total subordinate $label values in $file; some rootless workflows may need at least $SUBID_MIN_RANGE"
+  else
+    record_ok "$CURRENT_USER has $user_total subordinate $label values in $file"
+  fi
+}
 
 print_line() {
   printf '%s\n' "$1"
@@ -89,6 +127,21 @@ if [[ -n "$LXC_BIN" ]]; then
     fi
   fi
 fi
+
+if command -v newuidmap >/dev/null 2>&1; then
+  record_ok "found newuidmap at $(command -v newuidmap)"
+else
+  record_fail "newuidmap is not installed; install the shadow package"
+fi
+
+if command -v newgidmap >/dev/null 2>&1; then
+  record_ok "found newgidmap at $(command -v newgidmap)"
+else
+  record_fail "newgidmap is not installed; install the shadow package"
+fi
+
+check_subid_file /etc/subuid uid
+check_subid_file /etc/subgid gid
 
 if [[ -r "$APPARMOR_ENABLED" ]]; then
   if grep -q '^Y' "$APPARMOR_ENABLED"; then

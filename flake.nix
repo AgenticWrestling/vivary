@@ -18,6 +18,7 @@
         pname   = "vivary";
         version = "0.1.0-dev";
         src     = lib.cleanSource ./.;
+        env.CGO_ENABLED = "0";
         vendorHash = "sha256-YomkA1EJXjAkWAvDYzIieSdw8CQzSeck+3zhjTGSqQI=";
         subPackages = [
           "cmd/keeperd"
@@ -30,24 +31,26 @@
       };
 
       # Generate a minimal LXD-compatible metadata tarball.
-      # LXD requires a metadata.tar.xz alongside the rootfs when importing
-      # an image produced outside of LXD itself.
+      # LXD expects metadata.yaml to be YAML, not JSON with a YAML filename.
+      # When the file is JSON, LXD does not read creation_date and rejects the
+      # import with "Missing creation date".
       mkLxdMetadata = { pkgs, system, description }:
         let
           arch = { "x86_64-linux" = "x86_64"; "aarch64-linux" = "aarch64"; }.${system};
         in
         pkgs.runCommand "lxd-metadata.tar.xz" {
           nativeBuildInputs = [ pkgs.gnutar pkgs.xz ];
-          lxdMeta = builtins.toJSON {
-            architecture  = arch;
-            creation_date = 0;
-            properties    = { description = description; os = "nixos"; release = "25.11"; };
-            templates     = { };
-          };
-          passAsFile = [ "lxdMeta" ];
         } ''
           mkdir tmp
-          cp "$lxdMetaPath" tmp/metadata.yaml
+          cat > tmp/metadata.yaml <<EOF
+architecture: ${arch}
+creation_date: 1704067200
+properties:
+  description: ${description}
+  os: nixos
+  release: "25.11"
+templates: {}
+EOF
           tar -C tmp -cJf "$out" metadata.yaml
         '';
 
