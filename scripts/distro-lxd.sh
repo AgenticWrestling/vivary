@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NIX_FLAGS=(--extra-experimental-features "nix-command flakes")
+LXD_CHECK="$ROOT_DIR/scripts/check-lxd-access.sh"
 
 usage() {
   cat <<'EOF'
@@ -71,6 +72,7 @@ import_image() {
   alias="${2:-$(target_to_alias "$target")}"
 
   build_image "$target"
+  "$LXD_CHECK" --check
   mapfile -t files < <(target_to_files "$target")
   local metadata rootfs
   metadata="$ROOT_DIR/result/${files[0]}"
@@ -97,6 +99,7 @@ launch_container() {
   image="${1:-vivary-runtime}"
   name="${2:-vivary}"
 
+  "$LXD_CHECK" --check
   lxc launch "$image" "$name" \
     --config security.nesting=true \
     --config linux.kernel.modules=overlay,nf_tables,ip_tables,ip6_tables,nf_nat
@@ -108,6 +111,7 @@ export_image() {
   outdir="${2:-$ROOT_DIR/dist/lxd-export}"
   prefix="$outdir/$alias"
 
+  "$LXD_CHECK" --check
   mkdir -p "$outdir"
   rm -f "$prefix".tar.xz "$prefix".rootfs.tar.xz
   lxc image export "$alias" "$prefix"

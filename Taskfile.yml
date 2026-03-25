@@ -105,6 +105,11 @@ tasks:
     cmds:
       - ./scripts/distro-lxd.sh import runtime {{.CLI_ARGS}}
 
+  distro:doctor:
+    desc: Diagnose whether LXD runtime launch prerequisites are met
+    cmds:
+      - ./scripts/check-lxd-access.sh
+
   distro:launch:
     desc: Launch the default runtime LXD container
     cmds:
@@ -120,6 +125,7 @@ tasks:
     deps:
       - build
     cmds:
+      - ./scripts/check-lxd-access.sh --check
       - lxc exec {{.CONTAINER}} -- mkdir -p /usr/local/bin /usr/lib/vivary
       - lxc file push {{.BIN_DIR}}/keeperd {{.CONTAINER}}/usr/local/bin/keeperd
       - lxc file push {{.BIN_DIR}}/viv {{.CONTAINER}}/usr/local/bin/viv
@@ -130,11 +136,13 @@ tasks:
   distro:restart:keeperd:
     desc: Restart keeperd inside a running LXD container
     cmds:
+      - ./scripts/check-lxd-access.sh --check
       - lxc exec {{.CONTAINER}} -- sh -lc 'mkdir -p /var/log/vivary {{.KEEPERD_WORKSPACE}} && pkill -f "/usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}}" || true; nohup /usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}} >/var/log/vivary/keeperd.log 2>&1 &'
 
   distro:connect:
     desc: Launch the viv TUI against keeperd inside a running LXD container
     cmds:
+      - ./scripts/check-lxd-access.sh --check
       - lxc exec {{.CONTAINER}} -- /usr/local/bin/viv --socket {{.KEEPERD_WORKSPACE}}/keeper.sock tui
 
   distro:push:restart:
