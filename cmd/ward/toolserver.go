@@ -11,7 +11,7 @@ package main
 //                   Claude subprocess
 //                          │ runs capability CLIs as bash tools
 //                          ▼
-//   cap-cli binary ←[Unix socket]→ Ward toolserver
+//   capwrap binary ←[Unix socket]→ Ward toolserver
 //                                        │ validates args
 //                                        │ sends MUS CapabilityRequest
 //                                        ▼
@@ -134,7 +134,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	// Schema-only request (from cap-cli --help): return the static Explain() string.
+	// Schema-only request (from capwrap --help): return the static Explain() string.
 	if isSchemaOnly(req.Args) {
 		schema := s.w.getCapabilitySchema(req.Capability)
 		if schema == "" {

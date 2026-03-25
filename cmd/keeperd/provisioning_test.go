@@ -3,19 +3,109 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/internal/ctl"
 	agentruntime "vivary.dev/vivary/internal/runtime"
 	"vivary.dev/vivary/internal/switchboard"
-	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/pkg/mus"
 )
+
+type recordingRuntime struct {
+	provisionSubvolume func(agentID, templatePath string) (string, error)
+	installCLIs        func(subvolPath string, capNames []string) error
+	spawnWard          func(ctx context.Context, agentID, subvolPath string, cfg agentruntime.WardConfig) (*exec.Cmd, error)
+	applyNetworkRules  func(agentID string, allowedIPs []string) error
+	removeNetworkRules func(agentID string) error
+	destroySubvolume   func(agentID, subvolPath string) error
+	terminate          func(agentID string) error
+
+	mu                sync.Mutex
+	destroyedSubvols  []string
+	removedNetworks   []string
+	terminatedAgents  []string
+	installedSubvols  []string
+	spawnedAgents     []string
+	appliedRuleAgents []string
+	appliedAllowedIPs [][]string
+}
+
+func (r *recordingRuntime) ProvisionSubvolume(agentID, templatePath string) (string, error) {
+	if r.provisionSubvolume != nil {
+		return r.provisionSubvolume(agentID, templatePath)
+	}
+	return "", fmt.Errorf("ProvisionSubvolume not configured")
+}
+
+func (r *recordingRuntime) DestroySubvolume(agentID, subvolPath string) error {
+	r.mu.Lock()
+	r.destroyedSubvols = append(r.destroyedSubvols, subvolPath)
+	r.mu.Unlock()
+	if r.destroySubvolume != nil {
+		return r.destroySubvolume(agentID, subvolPath)
+	}
+	return nil
+}
+
+func (r *recordingRuntime) InstallCapabilityCLIs(subvolPath string, capNames []string) error {
+	r.mu.Lock()
+	r.installedSubvols = append(r.installedSubvols, subvolPath)
+	r.mu.Unlock()
+	if r.installCLIs != nil {
+		return r.installCLIs(subvolPath, capNames)
+	}
+	return nil
+}
+
+func (r *recordingRuntime) SpawnWard(ctx context.Context, agentID, subvolPath string, cfg agentruntime.WardConfig) (*exec.Cmd, error) {
+	r.mu.Lock()
+	r.spawnedAgents = append(r.spawnedAgents, agentID)
+	r.mu.Unlock()
+	if r.spawnWard != nil {
+		return r.spawnWard(ctx, agentID, subvolPath, cfg)
+	}
+	return nil, fmt.Errorf("SpawnWard not configured")
+}
+
+func (r *recordingRuntime) ApplyNetworkRules(agentID string, allowedIPs []string) error {
+	r.mu.Lock()
+	r.appliedRuleAgents = append(r.appliedRuleAgents, agentID)
+	r.appliedAllowedIPs = append(r.appliedAllowedIPs, append([]string(nil), allowedIPs...))
+	r.mu.Unlock()
+	if r.applyNetworkRules != nil {
+		return r.applyNetworkRules(agentID, allowedIPs)
+	}
+	return nil
+}
+
+func (r *recordingRuntime) RemoveNetworkRules(agentID string) error {
+	r.mu.Lock()
+	r.removedNetworks = append(r.removedNetworks, agentID)
+	r.mu.Unlock()
+	if r.removeNetworkRules != nil {
+		return r.removeNetworkRules(agentID)
+	}
+	return nil
+}
+
+func (r *recordingRuntime) Terminate(agentID string) error {
+	r.mu.Lock()
+	r.terminatedAgents = append(r.terminatedAgents, agentID)
+	r.mu.Unlock()
+	if r.terminate != nil {
+		return r.terminate(agentID)
+	}
+	return nil
+}
 
 // noopWard returns a SpawnFunc that spawns a subprocess which exits immediately.
 // On all POSIX systems "true" exits 0; on test environments without it, we
@@ -220,5 +310,227 @@ func TestProvisioningACLCleanupOnDestroy(t *testing.T) {
 	}
 	if resp.OK || resp.ErrorCode != "capability_denied" {
 		t.Fatalf("expected capability_denied after destroy, got ok=%v code=%s", resp.OK, resp.ErrorCode)
+	}
+}
+
+func TestProvisioningSpawnFailureCleansUpStateACLAndSubvolume(t *testing.T) {
+	d, _, cancel := newTestDaemonWithRuntime(t)
+	defer cancel()
+
+	subvolPath := filepath.Join(t.TempDir(), "agents", "agent-fail")
+	if err := os.MkdirAll(filepath.Join(subvolPath, "output"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	rt := &recordingRuntime{
+		provisionSubvolume: func(agentID, templatePath string) (string, error) { return subvolPath, nil },
+		spawnWard: func(ctx context.Context, agentID, subvolPath string, cfg agentruntime.WardConfig) (*exec.Cmd, error) {
+			return nil, fmt.Errorf("spawn boom")
+		},
+	}
+	d.runtime = rt
+
+	err := d.agentCreate(context.Background(), ctl.AgentCreatePayload{ID: "agent-fail"})
+	if err == nil || !strings.Contains(err.Error(), "spawn agent") {
+		t.Fatalf("expected spawn agent error, got %v", err)
+	}
+
+	d.mu.RLock()
+	_, exists := d.agents["agent-fail"]
+	d.mu.RUnlock()
+	if exists {
+		t.Fatal("agent should be removed from daemon state after spawn failure")
+	}
+
+	resp, dispatchErr := d.dispatcher.Dispatch(context.Background(), capabilities.Request{
+		Name:    capabilities.FilesystemFileWriteName,
+		AgentID: "agent-fail",
+		SeqNo:   1,
+		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+	})
+	if dispatchErr != nil {
+		t.Fatal(dispatchErr)
+	}
+	if resp.OK || resp.ErrorCode != "capability_denied" || resp.ErrorDetail != `no ACL registered for agent "agent-fail"` {
+		t.Fatalf("expected ACL cleanup after failure, got ok=%v code=%s detail=%s", resp.OK, resp.ErrorCode, resp.ErrorDetail)
+	}
+
+	rt.mu.Lock()
+	destroyed := append([]string(nil), rt.destroyedSubvols...)
+	rt.mu.Unlock()
+	if len(destroyed) != 1 || destroyed[0] != subvolPath {
+		t.Fatalf("expected subvolume cleanup for %q, got %#v", subvolPath, destroyed)
+	}
+}
+
+func TestProvisioningCapabilityInstallFailureCleansUpStateAndSubvolume(t *testing.T) {
+	d, _, cancel := newTestDaemonWithRuntime(t)
+	defer cancel()
+
+	subvolPath := filepath.Join(t.TempDir(), "agents", "agent-install-fail")
+	if err := os.MkdirAll(filepath.Join(subvolPath, "output"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	rt := &recordingRuntime{
+		provisionSubvolume: func(agentID, templatePath string) (string, error) { return subvolPath, nil },
+		installCLIs: func(subvolPath string, capNames []string) error {
+			return fmt.Errorf("install boom")
+		},
+	}
+	d.runtime = rt
+
+	err := d.agentCreate(context.Background(), ctl.AgentCreatePayload{ID: "agent-install-fail"})
+	if err == nil || !strings.Contains(err.Error(), "install capability CLIs") {
+		t.Fatalf("expected install capability CLIs error, got %v", err)
+	}
+
+	d.mu.RLock()
+	_, exists := d.agents["agent-install-fail"]
+	d.mu.RUnlock()
+	if exists {
+		t.Fatal("agent should be removed from daemon state after CLI install failure")
+	}
+
+	resp, dispatchErr := d.dispatcher.Dispatch(context.Background(), capabilities.Request{
+		Name:    capabilities.FilesystemFileWriteName,
+		AgentID: "agent-install-fail",
+		SeqNo:   1,
+		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+	})
+	if dispatchErr != nil {
+		t.Fatal(dispatchErr)
+	}
+	if resp.OK || resp.ErrorCode != "capability_denied" || resp.ErrorDetail != `no ACL registered for agent "agent-install-fail"` {
+		t.Fatalf("expected no ACL after install failure, got ok=%v code=%s detail=%s", resp.OK, resp.ErrorCode, resp.ErrorDetail)
+	}
+
+	rt.mu.Lock()
+	installed := append([]string(nil), rt.installedSubvols...)
+	destroyed := append([]string(nil), rt.destroyedSubvols...)
+	rt.mu.Unlock()
+	if len(installed) != 1 || installed[0] != subvolPath {
+		t.Fatalf("expected CLI install attempt for %q, got %#v", subvolPath, installed)
+	}
+	if len(destroyed) != 1 || destroyed[0] != subvolPath {
+		t.Fatalf("expected subvolume cleanup for %q, got %#v", subvolPath, destroyed)
+	}
+}
+
+func TestProvisioningDestroyCallsNetworkTerminateAndSubvolumeCleanup(t *testing.T) {
+	d, sockPath, cancel := newTestDaemonWithRuntime(t)
+	defer cancel()
+
+	rt := &recordingRuntime{
+		provisionSubvolume: func(agentID, templatePath string) (string, error) {
+			p := filepath.Join(t.TempDir(), "agents", agentID)
+			if err := os.MkdirAll(filepath.Join(p, "output"), 0o750); err != nil {
+				return "", err
+			}
+			return p, nil
+		},
+		spawnWard: func(ctx context.Context, agentID, subvolPath string, cfg agentruntime.WardConfig) (*exec.Cmd, error) {
+			return exec.Command("sleep", "1"), nil
+		},
+	}
+	d.runtime = rt
+
+	c := dialCtl(t, sockPath)
+	payload := sendCreate(t, c, "agent-clean")
+	if len(payload) == 0 || payload[0] != 1 {
+		errStr, _ := mus.ReadString(bytes.NewReader(payload[1:]), 1024)
+		t.Fatalf("agentCreate failed: %s", errStr)
+	}
+
+	payload = sendDestroy(t, c, "agent-clean")
+	if len(payload) == 0 || payload[0] != 1 {
+		errStr, _ := mus.ReadString(bytes.NewReader(payload[1:]), 1024)
+		t.Fatalf("agentDestroy failed: %s", errStr)
+	}
+
+	rt.mu.Lock()
+	removedNetworks := append([]string(nil), rt.removedNetworks...)
+	terminatedAgents := append([]string(nil), rt.terminatedAgents...)
+	destroyedSubvols := append([]string(nil), rt.destroyedSubvols...)
+	rt.mu.Unlock()
+
+	if len(removedNetworks) != 1 || removedNetworks[0] != "agent-clean" {
+		t.Fatalf("expected network teardown for agent-clean, got %#v", removedNetworks)
+	}
+	if len(terminatedAgents) != 1 || terminatedAgents[0] != "agent-clean" {
+		t.Fatalf("expected terminate for agent-clean, got %#v", terminatedAgents)
+	}
+	if len(destroyedSubvols) != 1 || !strings.Contains(destroyedSubvols[0], "agent-clean") {
+		t.Fatalf("expected subvolume destroy for agent-clean, got %#v", destroyedSubvols)
+	}
+
+	resp, err := d.dispatcher.Dispatch(context.Background(), capabilities.Request{
+		Name:    capabilities.FilesystemFileWriteName,
+		AgentID: "agent-clean",
+		SeqNo:   1,
+		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK || resp.ErrorCode != "capability_denied" {
+		t.Fatalf("expected ACL removal after destroy, got ok=%v code=%s", resp.OK, resp.ErrorCode)
+	}
+}
+
+func TestProvisioningNetworkRuleFailureIsNonFatal(t *testing.T) {
+	d, sockPath, cancel := newTestDaemonWithRuntime(t)
+	defer cancel()
+
+	rt := &recordingRuntime{
+		provisionSubvolume: func(agentID, templatePath string) (string, error) {
+			p := filepath.Join(t.TempDir(), "agents", agentID)
+			if err := os.MkdirAll(filepath.Join(p, "output"), 0o750); err != nil {
+				return "", err
+			}
+			return p, nil
+		},
+		spawnWard: func(ctx context.Context, agentID, subvolPath string, cfg agentruntime.WardConfig) (*exec.Cmd, error) {
+			return exec.Command("sleep", "1"), nil
+		},
+		applyNetworkRules: func(agentID string, allowedIPs []string) error {
+			return fmt.Errorf("nft boom")
+		},
+	}
+	d.runtime = rt
+	d.cfg.ProvidersFile = filepath.Join(t.TempDir(), "missing-providers.kdl")
+
+	c := dialCtl(t, sockPath)
+	payload := sendCreate(t, c, "agent-netwarn")
+	if len(payload) == 0 || payload[0] != 1 {
+		errStr, _ := mus.ReadString(bytes.NewReader(payload[1:]), 1024)
+		t.Fatalf("agentCreate failed: %s", errStr)
+	}
+
+	d.mu.RLock()
+	agent, exists := d.agents["agent-netwarn"]
+	d.mu.RUnlock()
+	if !exists || agent == nil || agent.pipe == nil {
+		t.Fatal("agent should still be provisioned despite network rule failure")
+	}
+
+	rt.mu.Lock()
+	appliedAgents := append([]string(nil), rt.appliedRuleAgents...)
+	appliedIPs := append([][]string(nil), rt.appliedAllowedIPs...)
+	rt.mu.Unlock()
+	if len(appliedAgents) != 1 || appliedAgents[0] != "agent-netwarn" {
+		t.Fatalf("expected ApplyNetworkRules call for agent-netwarn, got %#v", appliedAgents)
+	}
+	if len(appliedIPs) != 1 || appliedIPs[0] != nil {
+		t.Fatalf("expected nil allowedIPs fallback on provider resolution failure, got %#v", appliedIPs)
+	}
+}
+
+func TestResolveProviderIPs_ProviderNotFound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.kdl")
+	if err := os.WriteFile(path, []byte("provider anthropic {\n    api-url https://api.anthropic.com\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolveProviderIPs(path, "openai", newLogger("error"))
+	if err == nil || !strings.Contains(err.Error(), `provider "openai" not found`) {
+		t.Fatalf("expected provider-not-found error, got %v", err)
 	}
 }

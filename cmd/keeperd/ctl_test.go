@@ -1000,6 +1000,9 @@ func TestCtlPromptRun_BrowserAllowRoundTrip(t *testing.T) {
 		t.Fatalf("prompt ack not ok: hdr=%v payload=%v", hdr.Type, payload)
 	}
 	<-done
+	waitForAgentState(t, d, agentID, func(state *agentState) bool {
+		return state.lastOutcome == "success" && !state.lastEventAt.IsZero()
+	})
 
 	status := fetchCtlStatus(t, sockPath)
 	found := findAgentStatus(t, status, agentID)
@@ -1091,6 +1094,9 @@ func TestCtlPromptRun_BrowserDenyRoundTrip(t *testing.T) {
 		t.Fatalf("prompt ack not ok: hdr=%v payload=%v", hdr.Type, payload)
 	}
 	<-done
+	waitForAgentState(t, d, agentID, func(state *agentState) bool {
+		return state.lastOutcome == "capability_denied" && !state.lastEventAt.IsZero()
+	})
 
 	status := fetchCtlStatus(t, sockPath)
 	found := findAgentStatus(t, status, agentID)

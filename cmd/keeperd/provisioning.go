@@ -89,7 +89,7 @@ func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) er
 		return fmt.Errorf("write agent.kdl: %w", err)
 	}
 
-	// Install per-capability symlinks inside the container so cap-cli is
+	// Install per-capability symlinks inside the container so capwrap is
 	// reachable under each capability name.
 	if err := d.runtime.InstallCapabilityCLIs(subvolPath, d.dispatcher.Names()); err != nil {
 		return fmt.Errorf("install capability CLIs: %w", err)

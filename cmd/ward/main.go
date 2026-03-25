@@ -22,10 +22,10 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"strings"
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -261,7 +261,7 @@ func (w *ward) handlePrompt(ctx context.Context, payload []byte) {
 	if ferr != nil {
 		fev := audit.FailureEvent{
 			AgentID: w.agentID, PromptSeq: msg.Seq,
-			Kind:   ev, Detail: ferr.Error(),
+			Kind: ev, Detail: ferr.Error(),
 		}
 		b, _ := audit.MarshalEvent(&fev)
 		_ = w.pipe.send(switchboard.MsgType_FailureEvent, "keeper", b)
@@ -292,7 +292,7 @@ type llmOutcome struct {
 }
 
 // getCapabilitySchema returns the static JSON Schema string for a named
-// capability.  Ward has a local copy of all registered schemas so that cap-cli
+// capability.  Ward has a local copy of all registered schemas so that capwrap
 // --help works without a keeperd round-trip.
 func (w *ward) getCapabilitySchema(name string) string {
 	return capRegistry[name]
@@ -341,7 +341,7 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	go io.Copy(io.Discard, stderrPipe) //nolint:errcheck
 
 	// Scan stream-json output for monitoring events only.
-	// Capability execution happens via cap-cli → toolServer → executeTool →
+	// Capability execution happens via capwrap → toolServer → executeTool →
 	// keeperd.  The tool_use events here are emitted by Claude Code after it
 	// has already dispatched the tool; we read them only to count tool calls
 	// and extract usage/model metadata.  Loop detection and capability
@@ -397,7 +397,6 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 
 	return outcome, "", nil
 }
-
 
 // countCapLines counts "### " section headers in a system prompt as a proxy
 // for the number of capability entries, used only for the startup log line.

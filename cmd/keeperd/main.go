@@ -86,8 +86,9 @@ func main() {
 		rt = &agentruntime.StubRuntime{}
 	} else {
 		rt = &agentruntime.LinuxRuntime{
-			NspawnRootBase: "/var/lib/vivary/agents",
-			WardBinaryPath: "/usr/lib/vivary/ward",
+			NspawnRootBase:    "/var/lib/vivary/agents",
+			WardBinaryPath:    "/usr/lib/vivary/ward",
+			CapwrapBinaryPath: "/usr/lib/vivary/capwrap",
 		}
 	}
 

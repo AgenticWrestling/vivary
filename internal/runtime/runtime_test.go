@@ -8,7 +8,7 @@ import (
 
 func TestLinuxRuntime_InstallCapabilityCLIs(t *testing.T) {
 	root := t.TempDir()
-	r := &LinuxRuntime{CapCLIBinaryPath: "/usr/bin/cap-cli"}
+	r := &LinuxRuntime{CapwrapBinaryPath: "/usr/bin/capwrap"}
 
 	caps := []string{"Browser_Page_Read", "Filesystem_File_Write"}
 	if err := r.InstallCapabilityCLIs(root, caps); err != nil {
@@ -22,15 +22,15 @@ func TestLinuxRuntime_InstallCapabilityCLIs(t *testing.T) {
 			t.Errorf("symlink %s missing: %v", name, err)
 			continue
 		}
-		if target != "/usr/bin/cap-cli" {
-			t.Errorf("symlink %s → %q, want /usr/bin/cap-cli", name, target)
+		if target != "/usr/bin/capwrap" {
+			t.Errorf("symlink %s → %q, want /usr/bin/capwrap", name, target)
 		}
 	}
 }
 
 func TestLinuxRuntime_InstallCapabilityCLIs_Idempotent(t *testing.T) {
 	root := t.TempDir()
-	r := &LinuxRuntime{CapCLIBinaryPath: "/usr/bin/cap-cli"}
+	r := &LinuxRuntime{CapwrapBinaryPath: "/usr/bin/capwrap"}
 	caps := []string{"Browser_Page_Read"}
 
 	// Install twice — should not fail on the second call.
@@ -44,7 +44,7 @@ func TestLinuxRuntime_InstallCapabilityCLIs_Idempotent(t *testing.T) {
 
 func TestLinuxRuntime_InstallCapabilityCLIs_DefaultPath(t *testing.T) {
 	root := t.TempDir()
-	r := &LinuxRuntime{} // CapCLIBinaryPath empty → default
+	r := &LinuxRuntime{} // CapwrapBinaryPath empty → default
 
 	if err := r.InstallCapabilityCLIs(root, []string{"Browser_Page_Read"}); err != nil {
 		t.Fatalf("InstallCapabilityCLIs: %v", err)
@@ -53,8 +53,8 @@ func TestLinuxRuntime_InstallCapabilityCLIs_DefaultPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("symlink missing: %v", err)
 	}
-	if target != "/usr/bin/cap-cli" {
-		t.Errorf("got %q, want /usr/bin/cap-cli", target)
+	if target != "/usr/bin/capwrap" {
+		t.Errorf("got %q, want /usr/bin/capwrap", target)
 	}
 }
 

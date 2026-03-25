@@ -1,7 +1,7 @@
 # VIVARY Usage Guide
 
-Current state: MVP runtime core (v0.1-dev).  All commands below work today.
-Multi-agent routing, the BubbleTea TUI, and the Nix distrobuild are not yet wired up.
+Current state: MVP runtime core (v0.1-dev). All commands below work today.
+Multi-agent routing remains deferred; the CLI, TUI, and Nix/LXD packaging path are wired up.
 
 ---
 
@@ -25,13 +25,14 @@ task build:keeperd
 task build:ward
 task build:viv
 task build:vivlog
+task build:capwrap
 
 # Or with go directly
 go build -o bin/keeperd ./cmd/keeperd
 go build -o bin/ward    ./cmd/ward
 go build -o bin/viv     ./cmd/viv
 go build -o bin/vivlog  ./cmd/vivlog
-go build -o bin/cap-cli ./cmd/cap-cli
+go build -o bin/capwrap ./cmd/capwrap
 go build -o bin/vivgen  ./cmd/vivgen
 ```
 
@@ -60,6 +61,62 @@ Passing test suites:
 | `TestVivaryLog_*` | `internal/audit` |
 | `TestCompletionEventRoundTrip` | `internal/audit` |
 | `TestWardLoop_*` | `cmd/ward` |
+
+---
+
+## LXD / distrobuild
+
+The repo ships two LXD-importable Nix images:
+
+- `vivary-base`: minimal immutable-ish OS image, no VIVARY binaries
+- `vivary-runtime`: base image plus VIVARY runtime binaries
+
+Build/import them with:
+
+```sh
+# Build tarballs only
+task distro
+task distro:runtime
+
+# Build and import into LXD
+task distro:import
+task distro:import:runtime
+
+# Launch the runtime image into a container named "vivary"
+./scripts/distro-lxd.sh launch vivary-runtime vivary
+```
+
+Inside the runtime container:
+
+- `keeperd`, `viv`, `vivlog` are in PATH
+- helper binaries live at:
+  - `/usr/lib/vivary/ward`
+  - `/usr/lib/vivary/capwrap`
+
+Inside each agent rootfs, keeperd bind-mounts/readies the helper binaries at simple LSB-style paths:
+
+- `/usr/bin/ward`
+- `/usr/bin/capwrap`
+- `/usr/bin/<CapabilityName>` symlinked to `/usr/bin/capwrap`
+
+For developer iteration against an existing runtime container, you can rebuild and push updated binaries into the default container (`vivary`):
+
+```sh
+task distro:push
+
+# Or target a different running container
+task distro:push CONTAINER=my-vivary-dev
+
+# Push and restart keeperd inside the default container
+task distro:push:restart
+
+# Or just restart keeperd inside a running container
+task distro:restart:keeperd CONTAINER=my-vivary-dev
+```
+
+`distro:push` is a dev convenience and mutates the running container. The cleaner full-image path is still to rebuild/import/launch a fresh `vivary-runtime` image.
+
+`distro:restart:keeperd` starts `keeperd` in the container with `--workspace /var/lib/vivary/workspace` by default and writes logs to `/var/log/vivary/keeperd.log`. Override with `KEEPERD_WORKSPACE=/some/path` if your container uses a different workspace.
 
 ---
 
@@ -119,6 +176,7 @@ bin/viv --socket ./keeper.sock ping
 
 # Daemon and agent status
 bin/viv status
+bin/viv tui
 
 # Agent management
 bin/viv agent list
@@ -184,15 +242,15 @@ container.  Override with `--tool-sock` or the `WARD_TOOL_SOCK` env var.
 
 ---
 
-## cap-cli (capability CLI binary)
+## capwrap (capability wrapper binary)
 
-`cap-cli` is the generic capability CLI deployed inside each nspawn container.
+`capwrap` is the generic capability wrapper deployed inside each nspawn container.
 It determines the capability to invoke from its binary name (argv[0]).
 For manual testing, you can symlink it:
 
 ```sh
-ln -s cap-cli bin/Browser_Page_Read
-ln -s cap-cli bin/Filesystem_File_Write
+ln -s capwrap bin/Browser_Page_Read
+ln -s capwrap bin/Filesystem_File_Write
 
 # Print the JSON Schema for a capability
 bin/Browser_Page_Read --help
@@ -244,16 +302,17 @@ task dev:vivlog CLI_ARGS="tail --n 5"
 
 | Feature | Phase | Notes |
 |---|---|---|
-| End-to-end prompt run (keeperd → Ward → Claude) | MVP | Prompt forwarding wired; Ward tool-socket and LLM subprocess implemented; full run needs a live agent + Claude CLI |
-| Headless Chrome sidecar | 3.2 | keeperd launches Chrome automatically at startup; non-fatal if `chromium` not in PATH |
-| BubbleTea TUI | 1.3 | CLI is fully functional; TUI is scaffolded |
+| Live Claude-backed prompt run | MVP | keeperd↔Ward prompt-run paths are tested; a real Claude CLI run still needs an actual provisioned agent and provider setup |
+| Live Chrome verification | 3.2 | keeperd launches Chrome automatically at startup; remaining gap is verification against a real sidecar process |
 | Multi-agent routing | Phase 5 | Intentionally deferred until MVP exit tests pass |
 
 ### What is now working
 
 | Feature | Notes |
 |---|---|
+| BubbleTea TUI | `bin/viv tui` is wired up against the current MUS control-plane/status flow |
 | Nix distrobuild | `nix build .#distrobuild` and `.#distrobuild-runtime` produce LXD-importable tarballs |
+| Runtime container refresh | `task distro:push` rebuilds and syncs runtime binaries into a running LXD container |
 | nftables veth egress | Applied at nspawn spawn time; restricted to provider IPs when `--provider` is set |
 | providers.kdl | Registry of LLM provider API endpoints; controls nftables IP allowlist |
-| Prompt forwarding | keeperd → Ward via `MsgType_CtlPrompt` MUS frame |
+| Prompt forwarding | keeperd → Ward via `MsgType_CtlPrompt` MUS frame with prompt/completion/failure coverage at the keeperd↔Ward boundary |

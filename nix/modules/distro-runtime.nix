@@ -18,14 +18,14 @@
     "d /var/log/vivary              0750 vivary vivary -"
     "d /etc/vivary                  0750 root   root   -"
 
-    # LSB helper-binary directory: ward and cap-cli live here so keeperd can
+    # LSB helper-binary directory: ward and capwrap live here so keeperd can
     # bind-mount them read-only into each nspawn container at a known path.
     "d /usr/lib/vivary              0755 root   root   -"
   ] ++ lib.optionals (vivaryPackages != null) [
     # Symlink the two internal helpers to their canonical LSB paths.
     # keeperd hard-codes /usr/lib/vivary/ward as the bind-mount source.
     "L+ /usr/lib/vivary/ward    - - - - ${vivaryPackages}/bin/ward"
-    "L+ /usr/lib/vivary/cap-cli - - - - ${vivaryPackages}/bin/cap-cli"
+    "L+ /usr/lib/vivary/capwrap - - - - ${vivaryPackages}/bin/capwrap"
   ];
 
   # User-facing binaries (keeperd, viv, vivlog) land in PATH via
@@ -39,6 +39,6 @@
     runtime-home=/var/lib/vivary
     runtime-logs=/var/log/vivary
     ward-path=/usr/lib/vivary/ward
-    cap-cli-path=/usr/lib/vivary/cap-cli
+    capwrap-path=/usr/lib/vivary/capwrap
   '';
 }

@@ -4,6 +4,8 @@ vars:
   BIN_DIR: ./bin
   WORKSPACE: '{{default "." .WORKSPACE}}'
   CLI_ARGS: '{{default "" .CLI_ARGS}}'
+  CONTAINER: '{{default "vivary" .CONTAINER}}'
+  KEEPERD_WORKSPACE: '{{default "/var/lib/vivary/workspace" .KEEPERD_WORKSPACE}}'
 
 tasks:
   default:
@@ -23,7 +25,7 @@ tasks:
       - build:ward
       - build:viv
       - build:vivlog
-      - build:cap-cli
+      - build:capwrap
       - build:vivgen
 
   build:keeperd:
@@ -50,11 +52,11 @@ tasks:
       - mkdir -p {{.BIN_DIR}}
       - go build -o {{.BIN_DIR}}/vivlog ./cmd/vivlog
 
-  build:cap-cli:
-    desc: Build cap-cli
+  build:capwrap:
+    desc: Build capwrap
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/cap-cli ./cmd/cap-cli
+      - go build -o {{.BIN_DIR}}/capwrap ./cmd/capwrap
 
   build:vivgen:
     desc: Build vivgen
@@ -107,3 +109,30 @@ tasks:
     desc: Export an LXD image alias to tarballs
     cmds:
       - ./scripts/distro-lxd.sh export {{.CLI_ARGS}}
+
+  distro:push:
+    desc: Rebuild and push runtime binaries into an existing LXD container
+    deps:
+      - build
+    cmds:
+      - lxc exec {{.CONTAINER}} -- mkdir -p /usr/local/bin /usr/lib/vivary
+      - lxc file push {{.BIN_DIR}}/keeperd {{.CONTAINER}}/usr/local/bin/keeperd
+      - lxc file push {{.BIN_DIR}}/viv {{.CONTAINER}}/usr/local/bin/viv
+      - lxc file push {{.BIN_DIR}}/vivlog {{.CONTAINER}}/usr/local/bin/vivlog
+      - lxc file push {{.BIN_DIR}}/ward {{.CONTAINER}}/usr/lib/vivary/ward
+      - lxc file push {{.BIN_DIR}}/capwrap {{.CONTAINER}}/usr/lib/vivary/capwrap
+
+  distro:restart:keeperd:
+    desc: Restart keeperd inside a running LXD container
+    cmds:
+      - lxc exec {{.CONTAINER}} -- sh -lc 'mkdir -p /var/log/vivary {{.KEEPERD_WORKSPACE}} && pkill -f "/usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}}" || true; nohup /usr/local/bin/keeperd --workspace {{.KEEPERD_WORKSPACE}} >/var/log/vivary/keeperd.log 2>&1 &'
+
+  distro:push:restart:
+    desc: Push runtime binaries and restart keeperd inside the LXD container
+    deps:
+      - distro:push
+    cmds:
+      - task: distro:restart:keeperd
+        vars:
+          CONTAINER: '{{.CONTAINER}}'
+          KEEPERD_WORKSPACE: '{{.KEEPERD_WORKSPACE}}'

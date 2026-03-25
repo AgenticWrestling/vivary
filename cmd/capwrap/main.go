@@ -1,6 +1,6 @@
-// cap-cli is the generic capability CLI binary deployed inside each nspawn
+// capwrap is the generic capability wrapper binary deployed inside each nspawn
 // container.  It is symlinked (or copied) once per registered capability name,
-// e.g. Browser_Page_Read → /usr/local/bin/Browser_Page_Read.
+// e.g. Browser_Page_Read → /usr/bin/Browser_Page_Read.
 //
 // When invoked:
 //   - With --help: prints the capability's JSON Schema to stdout and exits 0.

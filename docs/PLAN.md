@@ -25,7 +25,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 **Remaining MVP deliverables:**
 
 1. Keep Ward's now-wired schema validation and malformed-call failure reporting covered by prompt-run tests so the prompt -> tool -> capability response -> completion path stays fully coherent.
-2. Close the remaining browser mediation gaps: document/profile isolation clarity and full prompt-run allow/deny coverage against the shipped proxy path.
+2. Close the remaining browser mediation gaps: document/profile isolation clarity and live-Chrome allow/deny verification against the shipped proxy path.
 3. Finish `keeperd` runtime state and CLI/TUI status parity so operator views are fully truthful and consistent across both surfaces.
 4. Finish audit payload sensitivity policy so stored payload behavior matches capability categories beyond the currently wired per-capability hook.
 5. Make provisioning behavior safe and predictable on Linux.
@@ -48,7 +48,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 **Already done:**
 
 - Flake exists and builds base/runtime images.
-- Runtime image includes `keeperd`, `viv`, `vivlog`, `ward`, and `cap-cli`.
+- Runtime image includes `keeperd`, `viv`, `vivlog`, `ward`, and `capwrap`.
 - Chrome stays outside the guest image.
 
 **Remaining work:**
@@ -97,6 +97,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - `ContainerRuntime` interface exists.
 - Linux and stub runtimes exist.
 - Provisioning uses a cleanup stack for create-time rollback.
+- Stub-runtime tests now cover spawn-failure rollback and destroy-time teardown of ACL, network, terminate, and subvolume cleanup paths.
 
 **Remaining work:**
 
@@ -104,8 +105,8 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - Treat the direct Ward subprocess path on non-Linux as a development/testing fallback only, not as the target runtime story.
 - Move agent ACL creation away from hard-coded default grants and toward config-driven installation from validated agent policy.
 - Make nftables setup and teardown reliable; decide which failures are fatal versus degraded but acceptable.
-- Add tests around partial-failure cleanup for subvolume creation, process spawn, and network rule application.
-- Make agent destroy symmetric with create, including teardown of network rules, process lifetime, router registration, and ACL removal.
+- Add the remaining partial-failure cleanup tests around earlier create stages such as capability CLI installation and Linux-specific network-rule application behavior.
+- Keep agent destroy symmetry covered, including teardown of network rules, process lifetime, router registration, ACL removal, and subvolume cleanup.
 
 ---
 
@@ -227,14 +228,14 @@ This plan tracks the MVP runtime core first and distinguishes between:
 #### 3.2b Whitelisting Proxy
 
 - Keep capability-layer whitelist checks and the now-wired proxy-layer whitelist enforcement aligned as defence-in-depth.
-- Browser allow/deny coverage now exists at the proxy layer, capability->proxy handoff layer, and keeperd response/audit layer; extend it to broader prompt-run assertions so the shipped path stays obviously correct.
+- Browser allow/deny coverage now exists at the proxy layer, capability->proxy handoff layer, keeperd response/audit layer, and prompt-run boundary tests; extend it to live-Chrome assertions so the shipped path stays obviously correct.
 - Emit clear `capability_denied`/security records for blocked browser targets.
 
 #### 3.2c `Browser_Page_Read`
 
 - Keep `Browser_Page_Read` as the only browser capability in MVP.
 - Ensure navigation, wait strategy, and readable text extraction are deterministic enough for testing.
-- Keep explicit allow/deny integration coverage in place before expanding browser surface area; remaining gaps are full prompt-run and live-Chrome assertions.
+- Keep explicit allow/deny integration coverage in place before expanding browser surface area; the main remaining gaps are live-Chrome assertions and profile/context-isolation clarity.
 - Make failure behavior legible when Chrome is unavailable, the target is denied, or extraction fails.
 
 ### 3.3 Filesystem Output Capability
@@ -274,8 +275,9 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 This is now the most important section of the plan.
 
-- Keep browser mediation obviously correct by preserving the proxy whitelist checks already in place and extending the remaining prompt-run/live-Chrome integration coverage before adding more capability families.
+- Keep browser mediation obviously correct by preserving the proxy whitelist checks already in place and extending the remaining live-Chrome integration coverage before adding more capability families.
 - Make provisioning safe and recoverable: cleanup-on-failure, correct runtime registration, predictable Linux behavior.
+- Provisioning rollback/destroy coverage now exists for spawn failure and destroy teardown under the stub runtime; remaining gaps are earlier create-stage failures and Linux-specific behavior.
 - Make ctl/event semantics explicit and stable so the TUI, CLI, and audit log all agree on message behavior.
 - Finish keeper-owned status details and CLI/TUI parity on top of the existing prompt/event/cost state.
 - Keep Ward malformed-call validation/failure handling on the single clear runtime path and extend coverage to the broader end-to-end prompt flow.
@@ -422,7 +424,7 @@ If the goal is to finish the MVP cleanly, work should happen in this order:
 2. Extend browser mediation validation and test coverage.
    - keep whitelist policy enforced in both the capability layer and proxy layer
    - make profile/context isolation match the docs or simplify the docs
-   - add the remaining broader allow/deny prompt-run and live-Chrome integration tests around the shipped path
+   - add the remaining broader allow/deny live-Chrome integration tests around the shipped path
 3. Make `keeperd` runtime state/status authoritative.
    - keep tracking prompt seq, last event, outcome, cost, token counts, and tool-call counts in keeper-owned state
    - extend/return the remaining status details consistently to CLI/TUI callers and keep CLI/TUI rendering aligned

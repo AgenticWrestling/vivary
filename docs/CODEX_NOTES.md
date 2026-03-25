@@ -52,7 +52,7 @@ The biggest gaps are not missing binaries; they are incomplete enforcement and i
 #### 1.1 `distrobuild`
 
 - Implemented in flake form rather than as a standalone script: the flake builds base and runtime LXD image artifacts; see `flake.nix`
-- The runtime image includes `keeperd`, `viv`, `vivlog`, `ward`, and `cap-cli`
+- The runtime image includes `keeperd`, `viv`, `vivlog`, `ward`, and `capwrap`
 - Chrome is kept out of the guest image, matching the docs
 - Cross-platform validation and the broader operational story described in the plan are not evident in the codebase itself
 

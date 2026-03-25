@@ -140,9 +140,9 @@ PLAN.md §1.4: _"Move agent ACL creation away from hard-coded default grants and
 
 `Browser_Page_Screenshot`, `Browser_Page_GetTitle`, and `Browser_Form_Submit` are in the KDL and may be partially registered. They should be explicitly gated or removed from the dispatch registry for MVP. Having registered capabilities with no tested execution path creates a false completeness impression and makes it harder to reason about the security surface.
 
-### 3.6 `cap-cli` Symlink Setup Should Be Part of Provisioning
+### 3.6 `capwrap` Symlink Setup Should Be Part of Provisioning
 
-The `cap-cli` binary is designed to be symlinked inside nspawn containers by capability name. Verify that `LinuxRuntime` provisions these symlinks as part of `ProvisionWorkspace()`. If this is done manually or only in documentation, a newly provisioned agent will have no capability CLIs and the Ward's tool-socket server will be unreachable.
+The `capwrap` binary is designed to be symlinked inside nspawn containers by capability name. Verify that `LinuxRuntime` provisions these symlinks as part of `ProvisionWorkspace()`. If this is done manually or only in documentation, a newly provisioned agent will have no capability CLIs and the Ward's tool-socket server will be unreachable.
 
 ---
 
@@ -187,7 +187,7 @@ PLAN.md §4.2 end-to-end tests: none of the integration tests listed there appea
 2. **Remove chromproxy allow-all fallback** — make proxy-layer whitelist enforcement real. Add allow/deny proxy-layer tests.
 3. **Add keeperd runtime state tracking** — last SeqNo, last completion, last failure, last event timestamp, token counts, cost. Wire into ctl status responses.
 4. **Wire `Capability.AuditPayload()` into keeper storage** — replace stub with real per-capability policy. Add tests.
-5. **Verify and harden Linux provisioning** — audit create/destroy symmetry, partial-failure cleanup, cap-cli symlink setup.
+5. **Verify and harden Linux provisioning** — audit create/destroy symmetry, partial-failure cleanup, capwrap symlink setup.
 6. **Migrate scope model** — complete typed domain/path-prefix scope and retire raw-string path.
 7. **Remove non-MVP capabilities from registry** — gate or stub out everything except `Browser_Page_Read` and `Filesystem_File_Write` for MVP dispatch.
 8. **Write MVP end-to-end tests** — prompt run, browser allow/deny, filesystem allow/deny, provisioning cleanup, audit/debug workflow.

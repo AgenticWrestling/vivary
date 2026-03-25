@@ -20,8 +20,8 @@ type ContainerRuntime interface {
 	DestroySubvolume(agentID, subvolPath string) error
 
 	// InstallCapabilityCLIs creates symlinks inside subvolPath so each
-	// capability name resolves to the cap-cli binary at runtime.
-	// Symlinks live at <subvolPath>/usr/bin/<capName> → cap-cli.
+	// capability name resolves to the capwrap binary at runtime.
+	// Symlinks live at <subvolPath>/usr/bin/<capName> → capwrap.
 	InstallCapabilityCLIs(subvolPath string, capNames []string) error
 
 	// SpawnWard starts the Ward process for the agent.
@@ -46,10 +46,10 @@ type WardConfig struct {
 
 // LinuxRuntime is the production implementation of ContainerRuntime.
 type LinuxRuntime struct {
-	NspawnRootBase   string
-	WardBinaryPath   string
-	CapCLIBinaryPath string
-	UseSystemdRun    bool
+	NspawnRootBase    string
+	WardBinaryPath    string
+	CapwrapBinaryPath string
+	UseSystemdRun     bool
 }
 
 func (r *LinuxRuntime) ProvisionSubvolume(agentID, templatePath string) (string, error) {
@@ -91,7 +91,7 @@ func (r *LinuxRuntime) DestroySubvolume(agentID, subvolPath string) error {
 
 func (r *LinuxRuntime) SpawnWard(ctx context.Context, agentID, subvolPath string, cfg WardConfig) (*exec.Cmd, error) {
 	wardBin := "/usr/bin/ward"
-	
+
 	// Apply cgroup v2 limits via systemd-run wrapper around nspawn.
 	cpuWeight := max(1, min(10000, cfg.CPUShares/1024*100))
 
@@ -165,16 +165,16 @@ func (r *LinuxRuntime) InstallCapabilityCLIs(subvolPath string, capNames []strin
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir cap bin dir: %w", err)
 	}
-	capCLI := r.CapCLIBinaryPath
-	if capCLI == "" {
-		capCLI = "/usr/bin/cap-cli"
+	capwrap := r.CapwrapBinaryPath
+	if capwrap == "" {
+		capwrap = "/usr/bin/capwrap"
 	}
 	for _, name := range capNames {
 		link := filepath.Join(binDir, name)
 		// Remove stale symlink if present.
 		_ = os.Remove(link)
-		if err := os.Symlink(capCLI, link); err != nil {
-			return fmt.Errorf("symlink cap-cli for %s: %w", name, err)
+		if err := os.Symlink(capwrap, link); err != nil {
+			return fmt.Errorf("symlink capwrap for %s: %w", name, err)
 		}
 	}
 	return nil
@@ -186,8 +186,8 @@ func (r *LinuxRuntime) Terminate(agentID string) error {
 
 // StubRuntime is a development/test implementation.
 type StubRuntime struct {
-	ProvisionFunc      func(agentID, templatePath string) (string, error)
-	SpawnFunc          func(ctx context.Context, agentID, subvolPath string, cfg WardConfig) (*exec.Cmd, error)
+	ProvisionFunc func(agentID, templatePath string) (string, error)
+	SpawnFunc     func(ctx context.Context, agentID, subvolPath string, cfg WardConfig) (*exec.Cmd, error)
 }
 
 func (r *StubRuntime) ProvisionSubvolume(agentID, templatePath string) (string, error) {

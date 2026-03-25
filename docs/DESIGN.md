@@ -276,6 +276,7 @@ A single headless Chrome instance runs on the **host OS** (outside all nspawn co
 - `keeperd` validates the verb against the agent's ACL in `agent.kdl`.
 - Validated requests are translated to Chrome DevTools Protocol JSON-RPC and forwarded to port 9222.
 - The runtime now enforces browser whitelist policy in two places: first in the capability layer during ACL/scope validation, then again in the Chrome proxy before any CDP traffic is sent. This defence-in-depth behavior is part of the MVP runtime and should remain testable at both layers.
+- Current tests cover browser allow/deny behavior at the proxy layer, capability-to-proxy handoff layer, keeperd response/audit layer, and prompt-run boundary. What is still missing is live-Chrome verification against the real sidecar process.
 - The current implementation uses a single shared headless Chrome process plus per-agent target/session bookkeeping inside `keeperd`. The originally-described per-agent `--user-data-dir` profile isolation is **not** implemented in the current MVP and should be treated as a future hardening/clarification task rather than an existing guarantee.
 - Because Chrome runs on the host OS, the nspawn container image requires no display server, window manager, or GPU drivers.
 

@@ -2,9 +2,10 @@ package main
 
 // chrome.go manages the headless Chromium sidecar process.
 //
-// keeperd launches a single shared Chromium instance at startup.  Per-agent
-// isolation is achieved through separate --user-data-dir subdirectories
-// (one per agent, created at agent spawn time).
+// keeperd launches a single shared Chromium instance at startup. The current
+// MVP does not provide per-agent Chrome profile isolation; browser isolation is
+// limited to keeper-side target/session bookkeeping plus capability/proxy
+// whitelist enforcement.
 //
 // The sidecar is non-fatal: if Chromium is not found or fails to start,
 // keeperd logs a warning and continues.  Browser_Page_Read capability

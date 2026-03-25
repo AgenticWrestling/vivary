@@ -24,7 +24,7 @@
           "cmd/viv"
           "cmd/vivlog"
           "cmd/ward"
-          "cmd/cap-cli"
+          "cmd/capwrap"
         ];
         # vivary-gen is a dev/codegen tool; not shipped in the runtime image.
       };
@@ -150,7 +150,7 @@ Then launch:
   scripts/distro-lxd.sh launch vivary-runtime vivary
 
 Includes base image plus: keeperd, viv, vivlog in PATH;
-ward and cap-cli at /usr/lib/vivary/ for nspawn bind-mounting.
+ward and capwrap at /usr/lib/vivary/ for agent-rootfs bind-mounting into /usr/bin/.
 Chromium runs at the host OS layer.
             '';
           };
