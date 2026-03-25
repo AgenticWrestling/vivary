@@ -914,6 +914,199 @@ func TestCtlPromptRun_FailureUpdatesStatusAndAudit(t *testing.T) {
 	}
 }
 
+func TestCtlPromptRun_BrowserAllowRoundTrip(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+	d.ctx = context.Background()
+
+	d.dispatcher.Register(&capabilities.BrowserPageRead{ChromeProxy: func(_ context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error) {
+		if agentID != "browser-prompt-allow" {
+			t.Fatalf("agentID = %q", agentID)
+		}
+		if targetURL != "https://example.com/page" {
+			t.Fatalf("targetURL = %q", targetURL)
+		}
+		if len(policy.Domains) != 1 || policy.Domains[0] != "example.com" {
+			t.Fatalf("policy.Domains = %#v", policy.Domains)
+		}
+		return "browser text", nil
+	}})
+
+	const agentID = "browser-prompt-allow"
+	d.dispatcher.SetACL(&capabilities.ACL{
+		AgentID: agentID,
+		Entries: []capabilities.ACLEntry{{
+			CapabilityName: capabilities.BrowserPageReadName,
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "Link",
+				Constraints: capabilities.ConstraintSet{"domain": {"example.com"}},
+			}},
+		}},
+	})
+
+	keeperToWardReader, wardToKeeperWriter := registerIntegrationAgentPipe(t, d, agentID)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hdr, _, err := switchboard.ReadFrame(keeperToWardReader)
+		if err != nil {
+			t.Errorf("fake ward read prompt: %v", err)
+			return
+		}
+		if hdr.Type != switchboard.MsgType_CtlPrompt {
+			t.Errorf("prompt frame type = %v, want CtlPrompt", hdr.Type)
+			return
+		}
+
+		req := capabilities.CapabilityRequestPayload{
+			Capability: capabilities.BrowserPageReadName,
+			Args:       []byte(`{"url":"https://example.com/page"}`),
+		}
+		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_CapabilityRequest, 1, req.MarshalMUS())
+
+		respHdr, respPayload, err := switchboard.ReadFrame(keeperToWardReader)
+		if err != nil {
+			t.Errorf("fake ward read capability response: %v", err)
+			return
+		}
+		if respHdr.Type != switchboard.MsgType_CapabilityResponse {
+			t.Errorf("response frame type = %v, want CapabilityResponse", respHdr.Type)
+			return
+		}
+		var resp capabilities.CapabilityResponsePayload
+		if err := resp.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
+			t.Errorf("decode capability response: %v", err)
+			return
+		}
+		if !resp.OK || !bytes.Contains(resp.Data, []byte("browser text")) {
+			t.Errorf("unexpected capability response: ok=%v data=%s code=%s detail=%s", resp.OK, resp.Data, resp.ErrorCode, resp.ErrorDetail)
+			return
+		}
+
+		cev := audit.CompletionEvent{AgentID: agentID, PromptSeq: 46, Outcome: "success", ToolCalls: 1}
+		b, err := audit.MarshalEvent(&cev)
+		if err != nil {
+			t.Errorf("marshal completion event: %v", err)
+			return
+		}
+		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_CompletionEvent, 2, b)
+	}()
+
+	c := dialCtl(t, sockPath)
+	prompt := ctl.PromptPayload{AgentID: agentID, Seq: 46, Text: "read the page"}
+	c.send(t, switchboard.MsgType_CtlPrompt, prompt.MarshalMUS())
+	hdr, payload := c.recv(t)
+	if hdr.Type != switchboard.MsgType_CtlPrompt || len(payload) == 0 || payload[0] != 1 {
+		t.Fatalf("prompt ack not ok: hdr=%v payload=%v", hdr.Type, payload)
+	}
+	<-done
+
+	status := fetchCtlStatus(t, sockPath)
+	found := findAgentStatus(t, status, agentID)
+	if found.LastOutcome != "success" {
+		t.Fatalf("LastOutcome = %q, want success", found.LastOutcome)
+	}
+
+	denials := queryDeniedSecurityEvents(t, d, agentID)
+	if len(denials) != 0 {
+		t.Fatalf("expected no denial events, got %d", len(denials))
+	}
+}
+
+func TestCtlPromptRun_BrowserDenyRoundTrip(t *testing.T) {
+	d, sockPath, cancel := newTestDaemon(t)
+	defer cancel()
+	d.ctx = context.Background()
+
+	d.dispatcher.Register(&capabilities.BrowserPageRead{ChromeProxy: func(context.Context, string, string, chromproxy.WhitelistPolicy, string, int) (string, error) {
+		t.Fatal("proxy should not be called when browser scope denies")
+		return "", nil
+	}})
+
+	const agentID = "browser-prompt-deny"
+	d.dispatcher.SetACL(&capabilities.ACL{
+		AgentID: agentID,
+		Entries: []capabilities.ACLEntry{{
+			CapabilityName: capabilities.BrowserPageReadName,
+			Constraints: []capabilities.ScopeConstraint{{
+				Entity:      "Link",
+				Constraints: capabilities.ConstraintSet{"domain": {"example.com"}},
+			}},
+		}},
+	})
+
+	keeperToWardReader, wardToKeeperWriter := registerIntegrationAgentPipe(t, d, agentID)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hdr, _, err := switchboard.ReadFrame(keeperToWardReader)
+		if err != nil {
+			t.Errorf("fake ward read prompt: %v", err)
+			return
+		}
+		if hdr.Type != switchboard.MsgType_CtlPrompt {
+			t.Errorf("prompt frame type = %v, want CtlPrompt", hdr.Type)
+			return
+		}
+
+		req := capabilities.CapabilityRequestPayload{
+			Capability: capabilities.BrowserPageReadName,
+			Args:       []byte(`{"url":"https://evil.com/page"}`),
+		}
+		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_CapabilityRequest, 1, req.MarshalMUS())
+
+		respHdr, respPayload, err := switchboard.ReadFrame(keeperToWardReader)
+		if err != nil {
+			t.Errorf("fake ward read capability response: %v", err)
+			return
+		}
+		if respHdr.Type != switchboard.MsgType_CapabilityResponse {
+			t.Errorf("response frame type = %v, want CapabilityResponse", respHdr.Type)
+			return
+		}
+		var resp capabilities.CapabilityResponsePayload
+		if err := resp.UnmarshalMUS(bytes.NewReader(respPayload)); err != nil {
+			t.Errorf("decode capability response: %v", err)
+			return
+		}
+		if resp.OK || resp.ErrorCode != "capability_denied" {
+			t.Errorf("unexpected denial response: ok=%v code=%s detail=%s", resp.OK, resp.ErrorCode, resp.ErrorDetail)
+			return
+		}
+
+		fev := audit.FailureEvent{AgentID: agentID, PromptSeq: 47, Kind: "capability_denied", Detail: resp.ErrorDetail}
+		b, err := audit.MarshalEvent(&fev)
+		if err != nil {
+			t.Errorf("marshal failure event: %v", err)
+			return
+		}
+		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_FailureEvent, 2, b)
+	}()
+
+	c := dialCtl(t, sockPath)
+	prompt := ctl.PromptPayload{AgentID: agentID, Seq: 47, Text: "try the denied page"}
+	c.send(t, switchboard.MsgType_CtlPrompt, prompt.MarshalMUS())
+	hdr, payload := c.recv(t)
+	if hdr.Type != switchboard.MsgType_CtlPrompt || len(payload) == 0 || payload[0] != 1 {
+		t.Fatalf("prompt ack not ok: hdr=%v payload=%v", hdr.Type, payload)
+	}
+	<-done
+
+	status := fetchCtlStatus(t, sockPath)
+	found := findAgentStatus(t, status, agentID)
+	if found.LastOutcome != "capability_denied" {
+		t.Fatalf("LastOutcome = %q, want capability_denied", found.LastOutcome)
+	}
+
+	denials := queryDeniedSecurityEvents(t, d, agentID)
+	if len(denials) != 1 {
+		t.Fatalf("expected 1 denial event, got %d", len(denials))
+	}
+	if !strings.Contains(denials[0].Detail, "cap=Browser_Page_Read") {
+		t.Fatalf("unexpected denial detail: %q", denials[0].Detail)
+	}
+}
+
 // TestAuditPayloadPolicy verifies that shouldAuditPayload correctly delegates
 // to the Capability.AuditPayload() method for CapabilityRequest frames.
 func TestAuditPayloadPolicy_KnownCapabilityTrue(t *testing.T) {
