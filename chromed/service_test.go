@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -128,6 +130,45 @@ func TestManagerAcquireReadyFailureKillsProcess(t *testing.T) {
 	}
 	if !proc.killed {
 		t.Fatal("expected process to be killed after readiness failure")
+	}
+}
+
+func TestManagerConcurrentAcquire(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	const n = 50
+	var wg sync.WaitGroup
+	wg.Add(n)
+
+	results := make(chan string, n)
+	for i := 0; i < n; i++ {
+		go func(id int) {
+			defer wg.Done()
+			// Alternate between the same agent and unique agents.
+			agentID := "same-agent"
+			if id%2 == 0 {
+				agentID = fmt.Sprintf("unique-agent-%d", id)
+			}
+			acq, err := mgr.Acquire(context.Background(), chromedapi.AcquireRequest{
+				AgentID: agentID,
+			})
+			if err != nil {
+				t.Errorf("Acquire(%s) failed: %v", agentID, err)
+				return
+			}
+			results <- acq.DebugAddr
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	if len(results) != n {
+		t.Errorf("got %d results, want %d", len(results), n)
+	}
+	for addr := range results {
+		if addr != "127.0.0.1:45555" {
+			t.Errorf("got addr %q, want 127.0.0.1:45555", addr)
+		}
 	}
 }
 
