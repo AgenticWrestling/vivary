@@ -39,12 +39,39 @@ func VarintLen(v uint64) int {
 
 // ReadVarint reads a single LEB128 unsigned integer from r.
 func ReadVarint(r io.Reader) (uint64, error) {
+	if br, ok := r.(io.ByteReader); ok {
+		return readVarintByte(br)
+	}
+	return readVarintSlow(r)
+}
+
+func readVarintByte(r io.ByteReader) (uint64, error) {
 	var result uint64
 	var shift uint
-	buf := [1]byte{}
+	for i := 0; i < 10; i++ {
+		b, err := r.ReadByte()
+		if err != nil {
+			if err == io.EOF {
+				return 0, io.ErrUnexpectedEOF
+			}
+			return 0, err
+		}
+		result |= uint64(b&0x7F) << shift
+		if b < 0x80 {
+			return result, nil
+		}
+		shift += 7
+	}
+	return 0, ErrVarintOverflow
+}
+
+func readVarintSlow(r io.Reader) (uint64, error) {
+	var result uint64
+	var shift uint
+	var buf [1]byte
 	for i := 0; i < 10; i++ {
 		if _, err := io.ReadFull(r, buf[:]); err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
+			if err == io.EOF {
 				return 0, io.ErrUnexpectedEOF
 			}
 			return 0, err
