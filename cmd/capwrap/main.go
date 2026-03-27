@@ -45,12 +45,7 @@ func main() {
 	// All capabilities use --field_name value syntax matching their JSON schema.
 	args := parseArgs(os.Args[1:])
 
-	sockPath := os.Getenv("WARD_TOOL_SOCK")
-	if sockPath == "" {
-		sockPath = "/run/ward-tool.sock"
-	}
-
-	resp, err := callWard(sockPath, capName, args)
+	resp, err := callWard(capName, args, 60*time.Second)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", capName, err)
 		os.Exit(1)
@@ -117,7 +112,12 @@ func parseArgs(argv []string) map[string]any {
 }
 
 // callWard connects to the Ward tool socket and sends the capability request.
-func callWard(sockPath, capName string, args map[string]any) (*toolResponse, error) {
+func callWard(capName string, args any, timeout time.Duration) (*toolResponse, error) {
+	sockPath := os.Getenv("WARD_TOOL_SOCK")
+	if sockPath == "" {
+		sockPath = "/run/ward-tool.sock"
+	}
+
 	argsJSON, err := json.Marshal(args)
 	if err != nil {
 		return nil, fmt.Errorf("marshal args: %w", err)
@@ -133,7 +133,7 @@ func callWard(sockPath, capName string, args map[string]any) (*toolResponse, err
 		return nil, fmt.Errorf("connect to Ward: %w", err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	if _, err := conn.Write(req); err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
@@ -157,35 +157,8 @@ func callWard(sockPath, capName string, args map[string]any) (*toolResponse, err
 
 // fetchSchema requests the JSON Schema for capName from the Ward tool socket.
 func fetchSchema(capName string) (string, error) {
-	return callWardSchema(os.Getenv("WARD_TOOL_SOCK"), capName)
-}
-
-func callWardSchema(sockPath, capName string) (string, error) {
-	if sockPath == "" {
-		sockPath = "/run/ward-tool.sock"
-	}
-	req, _ := json.Marshal(map[string]any{
-		"capability": capName,
-		"args":       json.RawMessage(`{"__schema_only":true}`),
-	})
-	conn, err := net.DialTimeout("unix", sockPath, 3*time.Second)
+	resp, err := callWard(capName, map[string]any{"__schema_only": true}, 5*time.Second)
 	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := conn.Write(req); err != nil {
-		return "", err
-	}
-	if uc, ok := conn.(*net.UnixConn); ok {
-		_ = uc.CloseWrite()
-	}
-	respBytes, err := io.ReadAll(conn)
-	if err != nil {
-		return "", err
-	}
-	var resp toolResponse
-	if err := json.Unmarshal(respBytes, &resp); err != nil {
 		return "", err
 	}
 	if !resp.OK {
