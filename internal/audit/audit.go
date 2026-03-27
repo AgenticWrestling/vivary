@@ -176,7 +176,10 @@ func scanFrames(rows *sql.Rows) ([]FrameRecord, error) {
 		if err := rows.Scan(&r.ID, &tsStr, &r.MsgType, &r.FromID, &r.ToID, &r.SeqNo, &payload); err != nil {
 			return nil, err
 		}
-		t, _ := time.Parse(time.RFC3339Nano, tsStr)
+		t, err := time.Parse(time.RFC3339Nano, tsStr)
+		if err != nil {
+			return nil, fmt.Errorf("audit: parse timestamp %q: %w", tsStr, err)
+		}
 		r.Ts = t
 		r.Payload = payload
 		records = append(records, r)
@@ -214,7 +217,10 @@ func (d *DB) QuerySecurityEvents(f SecurityEventFilter) ([]SecurityEventRecord, 
 		if err := rows.Scan(&r.ID, &tsStr, &r.Agent, &r.Kind, &r.Detail); err != nil {
 			return nil, err
 		}
-		t, _ := time.Parse(time.RFC3339Nano, tsStr)
+		t, err := time.Parse(time.RFC3339Nano, tsStr)
+		if err != nil {
+			return nil, fmt.Errorf("audit: parse timestamp %q: %w", tsStr, err)
+		}
 		r.Ts = t
 		records = append(records, r)
 	}
