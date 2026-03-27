@@ -123,6 +123,42 @@ func TestVivaryLog_SecurityEvents(t *testing.T) {
 	}
 }
 
+func TestAuditDB_BusyTimeout(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "busy.db")
+	db1, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db1.Close()
+
+	db2, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+
+	// Lock the database by starting an EXCLUSIVE transaction in db1.
+	_, err = db1.db.Exec("BEGIN EXCLUSIVE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Note: DB should be locked now.
+
+	start := time.Now()
+	// This should wait for up to 5 seconds.
+	err = db2.WriteFrame(time.Now(), "Ping", "c", "d", 2, nil)
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Error("expected error due to locked database, got nil")
+	}
+	if duration < 100*time.Millisecond {
+		t.Errorf("WriteFrame returned too quickly (%v), busy timeout might not be working", duration)
+	}
+
+	_, _ = db1.db.Exec("ROLLBACK")
+}
+
 func TestCompletionEventRoundTrip(t *testing.T) {
 	ev := CompletionEvent{
 		AgentID: "a", PromptSeq: 7, Model: "claude-3-5-sonnet",

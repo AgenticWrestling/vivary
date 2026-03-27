@@ -22,9 +22,13 @@ type DB struct {
 // Open opens (or creates) the SQLite database at path, applies the schema, and
 // returns a ready-to-use DB.  The WAL journal mode is set for write concurrency.
 func Open(path string) (*DB, error) {
-	db, err := sql.Open("sqlite", path+"?_journal=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", path+"?_journal=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("audit: open %q: %w", path, err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("audit: set busy_timeout: %w", err)
 	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
