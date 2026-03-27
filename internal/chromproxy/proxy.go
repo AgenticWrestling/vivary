@@ -12,6 +12,7 @@
 package chromproxy
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -469,51 +470,47 @@ func dialCDP(ctx context.Context, wsURL string, unixSocketPath string) (cdpConn,
 
 	var d net.Dialer
 	network := "tcp"
+	dialAddr := addr
 	if unixSocketPath != "" {
 		network = "unix"
-		addr = unixSocketPath
+		dialAddr = unixSocketPath
 	}
-	conn, err := d.DialContext(ctx, network, addr)
+	conn, err := d.DialContext(ctx, network, dialAddr)
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", addr, err)
+		return nil, fmt.Errorf("dial %s: %w", dialAddr, err)
 	}
 
-	// Send HTTP upgrade request.
-	key := "dGhlIHNhbXBsZSBub25jZQ==" // static key is fine for localhost-only CDP
-	req := fmt.Sprintf(
-		"GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
-			"Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n",
-		path, hostHeader(addr, unixSocketPath), key,
-	)
-	if _, err := io.WriteString(conn, req); err != nil {
+	// Build HTTP upgrade request.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+path, nil)
+	if err != nil {
 		conn.Close()
 		return nil, err
 	}
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	req.Header.Set("Sec-WebSocket-Version", "13")
 
-	// Read the 101 response (consume until double CRLF).
-	buf := make([]byte, 1024)
-	total := 0
-	for {
-		n, err := conn.Read(buf[total:])
-		if err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("read HTTP upgrade response: %w", err)
-		}
-		total += n
-		if strings.Contains(string(buf[:total]), "\r\n\r\n") {
-			break
-		}
-		if total >= len(buf) {
-			conn.Close()
-			return nil, fmt.Errorf("HTTP upgrade response too large")
-		}
-	}
-	if !strings.Contains(string(buf[:total]), "101") {
+	if err := req.Write(conn); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("unexpected HTTP upgrade response")
+		return nil, fmt.Errorf("send upgrade request: %w", err)
 	}
 
-	return &wsConn{conn: conn}, nil
+	// Read and parse the 101 response.
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, req)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("read upgrade response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		conn.Close()
+		return nil, fmt.Errorf("unexpected upgrade status: %d", resp.StatusCode)
+	}
+
+	return &wsConn{conn: conn, br: br}, nil
 }
 
 func hostHeader(addr, unixSocketPath string) string {
@@ -536,6 +533,7 @@ func parseWSURL(wsURL string) (addr, path string, err error) {
 type wsConn struct {
 	mu   sync.Mutex
 	conn net.Conn
+	br   *bufio.Reader
 }
 
 func (w *wsConn) Send(msg []byte) error {
@@ -551,7 +549,7 @@ func (w *wsConn) Send(msg []byte) error {
 func (w *wsConn) Recv() ([]byte, error) {
 	// Read 2-byte header.
 	header := make([]byte, 2)
-	if _, err := io.ReadFull(w.conn, header); err != nil {
+	if _, err := io.ReadFull(w.br, header); err != nil {
 		return nil, err
 	}
 	// fin := (header[0] & 0x80) != 0
@@ -561,13 +559,13 @@ func (w *wsConn) Recv() ([]byte, error) {
 	switch payloadLen {
 	case 126:
 		ext := make([]byte, 2)
-		if _, err := io.ReadFull(w.conn, ext); err != nil {
+		if _, err := io.ReadFull(w.br, ext); err != nil {
 			return nil, err
 		}
 		payloadLen = int64(ext[0])<<8 | int64(ext[1])
 	case 127:
 		ext := make([]byte, 8)
-		if _, err := io.ReadFull(w.conn, ext); err != nil {
+		if _, err := io.ReadFull(w.br, ext); err != nil {
 			return nil, err
 		}
 		payloadLen = 0
@@ -578,13 +576,13 @@ func (w *wsConn) Recv() ([]byte, error) {
 
 	var maskKey [4]byte
 	if masked {
-		if _, err := io.ReadFull(w.conn, maskKey[:]); err != nil {
+		if _, err := io.ReadFull(w.br, maskKey[:]); err != nil {
 			return nil, err
 		}
 	}
 
 	payload := make([]byte, payloadLen)
-	if _, err := io.ReadFull(w.conn, payload); err != nil {
+	if _, err := io.ReadFull(w.br, payload); err != nil {
 		return nil, err
 	}
 	if masked {
