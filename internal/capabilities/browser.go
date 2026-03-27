@@ -132,8 +132,20 @@ func (s browserScope) allowsURL(rawURL string) bool {
 			}
 		}
 	}
-	if len(s.pathPrefixes) == 0 {
-		return domainAllowed
+	if !domainAllowed {
+		return false
 	}
-	return domainAllowed
+	if len(s.pathPrefixes) == 0 {
+		return true
+	}
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+	for _, prefix := range s.pathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }

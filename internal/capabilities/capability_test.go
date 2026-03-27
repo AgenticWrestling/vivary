@@ -559,6 +559,33 @@ func TestURLMatchesConstraints(t *testing.T) {
 			ok: true,
 		},
 		{
+			name: "path-prefix mismatch with matching domain denies",
+			url:  "https://example.com/disallowed",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain":      {"example.com"},
+				"path-prefix": {"/allowed"},
+			}}},
+			ok: false,
+		},
+		{
+			name: "path-prefix with matching domain-suffix allows",
+			url:  "https://en.wikipedia.org/allowed/page",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain-suffix": {"wikipedia.org"},
+				"path-prefix":    {"/allowed"},
+			}}},
+			ok: true,
+		},
+		{
+			name: "path-prefix mismatch with matching domain-suffix denies",
+			url:  "https://en.wikipedia.org/wiki/Go",
+			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
+				"domain-suffix": {"wikipedia.org"},
+				"path-prefix":    {"/allowed"},
+			}}},
+			ok: false,
+		},
+		{
 			name: "wrong entity ignored",
 			url:  "https://example.com/",
 			constraints: []ScopeConstraint{{Entity: "File", Constraints: ConstraintSet{

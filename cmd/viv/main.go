@@ -158,13 +158,14 @@ func formatStatus(status ctl.StatusPayload) string {
 		return b.String()
 	}
 	tw := tabwriter.NewWriter(&b, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "AGENT\tSTATE\tLAST PROMPT\tOUTCOME\tTOKENS\tCOST\tTOOLS\tLAST EVENT")
+	fmt.Fprintln(tw, "AGENT\tSTATE\tMODEL\tLAST PROMPT\tOUTCOME\tTOKENS\tCOST\tTOOLS\tLAST EVENT")
 	for _, a := range status.Agents {
 		fmt.Fprintf(
 			tw,
-			"%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\n",
+			"%s\t%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\n",
 			a.ID,
 			a.State,
+			statusValue(a.Model),
 			a.LastPromptSeq,
 			statusValue(a.LastOutcome),
 			formatTokenSummary(a),

@@ -1,0 +1,23 @@
+id "developer"
+provider "anthropic"
+cpu-shares 2048
+memory-max-bytes 4294967296 // 4GB
+
+browser {
+    headless true
+}
+
+capabilities "Browser_Page_Read" {
+    Link {
+        domain "github.com"
+        domain "pkg.go.dev"
+        domain "docs.anthropic.com"
+        domain "stackoverflow.com"
+    }
+}
+
+capabilities "Filesystem_File_Write" {
+    File {
+        path-prefix "/var/lib/vivary/agents/developer/output"
+    }
+}

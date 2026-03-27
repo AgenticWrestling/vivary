@@ -157,6 +157,37 @@ func TestParseAgentKDL_BrowserHeadless(t *testing.T) {
 	}
 }
 
+func TestParseAgentKDL_Capabilities(t *testing.T) {
+	kdl := `id "test-agent"
+capabilities "Browser_Page_Read" {
+    Link {
+        domain "example.com"
+        path-prefix "/wiki"
+    }
+}
+capabilities "Filesystem_File_Write"
+`
+	cfg, err := ParseAgentKDL([]byte(kdl))
+	if err != nil {
+		t.Fatalf("ParseAgentKDL: %v", err)
+	}
+	if len(cfg.Capabilities) != 2 {
+		t.Fatalf("expected 2 capabilities, got %d", len(cfg.Capabilities))
+	}
+	if cfg.Capabilities[0].Name != "Browser_Page_Read" {
+		t.Errorf("cap 0 name = %q", cfg.Capabilities[0].Name)
+	}
+	if len(cfg.Capabilities[0].Scopes) != 1 || cfg.Capabilities[0].Scopes[0].Entity != "Link" {
+		t.Fatalf("cap 0 scopes = %v", cfg.Capabilities[0].Scopes)
+	}
+	if len(cfg.Capabilities[0].Scopes[0].Domains) != 1 || cfg.Capabilities[0].Scopes[0].Domains[0] != "example.com" {
+		t.Errorf("cap 0 scope domains = %v", cfg.Capabilities[0].Scopes[0].Domains)
+	}
+	if cfg.Capabilities[1].Name != "Filesystem_File_Write" {
+		t.Errorf("cap 1 name = %q", cfg.Capabilities[1].Name)
+	}
+}
+
 func TestValidateAgentConfig_InvalidID(t *testing.T) {
 	cfg := AgentConfig{ID: "INVALID_ID!"}
 	if err := ValidateAgentConfig(cfg); err == nil {

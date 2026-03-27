@@ -15,6 +15,7 @@ import (
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
 	chromedapi "vivary.dev/vivary/internal/chromed"
+	"vivary.dev/vivary/internal/chromproxy"
 	"vivary.dev/vivary/internal/ctl"
 	agentruntime "vivary.dev/vivary/internal/runtime"
 	"vivary.dev/vivary/internal/switchboard"
@@ -121,16 +122,16 @@ func (r *recordingRuntime) Terminate(agentID string) error {
 	return nil
 }
 
-func TestLoadTemplateBrowserConfig(t *testing.T) {
+func TestLoadTemplateAgentConfig(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "agent.kdl"), []byte("id \"template-agent\"\nbrowser {\n    headless true\n}\n"), 0o644); err != nil {
 		t.Fatalf("write agent.kdl: %v", err)
 	}
-	browserCfg, err := loadTemplateBrowserConfig(root)
+	cfg, err := loadTemplateAgentConfig(root)
 	if err != nil {
-		t.Fatalf("loadTemplateBrowserConfig: %v", err)
+		t.Fatalf("loadTemplateAgentConfig: %v", err)
 	}
-	if !browserCfg.Headless {
+	if !cfg.Browser.Headless {
 		t.Fatal("Headless = false, want true")
 	}
 }
@@ -172,14 +173,25 @@ func newTestDaemonWithRuntime(t *testing.T) (*daemon, string, context.CancelFunc
 
 	reg := capabilities.NewRegistry()
 	reg.Register(&capabilities.FilesystemFileWrite{})
-	reg.Register(&capabilities.BrowserPageRead{})
+	reg.Register(&capabilities.BrowserPageRead{
+		ChromeProxy: func(_ context.Context, agentID, targetURL string, policy chromproxy.WhitelistPolicy, waitFor string, maxChars int) (string, error) {
+			return "stub text", nil
+		},
+	})
 	dispatcher := capabilities.NewDispatcher(reg)
 
 	stub := &agentruntime.StubRuntime{
-		ProvisionFunc: func(agentID, _ string) (string, error) {
+		ProvisionFunc: func(agentID, template string) (string, error) {
 			p := filepath.Join(dir, "agents", agentID)
 			if err := os.MkdirAll(filepath.Join(p, "output"), 0o750); err != nil {
 				return "", err
+			}
+			if template != "" {
+				tplKDL := filepath.Join(template, "agent.kdl")
+				if _, err := os.Stat(tplKDL); err == nil {
+					data, _ := os.ReadFile(tplKDL)
+					_ = os.WriteFile(filepath.Join(p, "agent.kdl"), data, 0o644)
+				}
 			}
 			return p, nil
 		},
@@ -242,6 +254,86 @@ func sendDestroy(t *testing.T, c *ctlClient, id string) []byte {
 }
 
 // TestProvisioningRoundTrip: create an agent and immediately destroy it.
+func TestProvisioning_InstallsACLFromTemplate(t *testing.T) {
+	d, sockPath, cancel := newTestDaemonWithRuntime(t)
+	defer cancel()
+
+	// Prepare a template with specific capabilities and scopes.
+	root := t.TempDir()
+	kdl := `id "tpl"
+capabilities "Browser_Page_Read" {
+    Link {
+        domain "example.com"
+        domain-suffix "wikipedia.org"
+        path-prefix "/wiki"
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "agent.kdl"), []byte(kdl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := dialCtl(t, sockPath)
+	req := ctl.AgentCreatePayload{ID: "agent-scoped", Template: root}
+	c.send(t, switchboard.MsgType_CtlAgentCreate, req.MarshalMUS())
+	_, payload := c.recv(t)
+	if len(payload) == 0 || payload[0] != 1 {
+		t.Fatalf("create failed")
+	}
+
+	// Verify the ACL entry.
+	resp, err := d.dispatcher.Dispatch(context.Background(), capabilities.Request{
+		Name:    capabilities.BrowserPageReadName,
+		AgentID: "agent-scoped",
+		SeqNo:   1,
+		Args:    []byte(`{"url":"https://en.wikipedia.org/wiki/Go"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected allowed, got %s %s", resp.ErrorCode, resp.ErrorDetail)
+	}
+
+	// Verify denial for out-of-scope URL.
+	resp, err = d.dispatcher.Dispatch(context.Background(), capabilities.Request{
+		Name:    capabilities.BrowserPageReadName,
+		AgentID: "agent-scoped",
+		SeqNo:   2,
+		Args:    []byte(`{"url":"https://en.wikipedia.org/other"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatal("expected denial for out-of-scope URL")
+	}
+}
+
+func TestProvisioning_ProvisionSubvolumeFailure(t *testing.T) {
+	d, _, cancel := newTestDaemonWithRuntime(t)
+	defer cancel()
+
+	rt := &recordingRuntime{
+		provisionSubvolume: func(agentID, templatePath string) (string, error) {
+			return "", fmt.Errorf("btrfs boom")
+		},
+	}
+	d.runtime = rt
+
+	err := d.agentCreate(context.Background(), ctl.AgentCreatePayload{ID: "agent-subvol-fail"})
+	if err == nil || !strings.Contains(err.Error(), "provision subvolume") {
+		t.Fatalf("expected provision subvolume error, got %v", err)
+	}
+
+	d.mu.RLock()
+	_, exists := d.agents["agent-subvol-fail"]
+	d.mu.RUnlock()
+	if exists {
+		t.Fatal("agent should not exist after subvolume failure")
+	}
+}
+
 func TestProvisioningRoundTrip(t *testing.T) {
 	d, sockPath, cancel := newTestDaemonWithRuntime(t)
 	defer cancel()

@@ -500,6 +500,63 @@ func TestHandlePrompt_EmitsMalformedToolCallFailureViaToolSocket(t *testing.T) {
 	}
 }
 
+func TestHandlePrompt_EmitsSchemaInvalidFailureViaToolSocket(t *testing.T) {
+	capRegistry = capabilities.GeneratedRegistry()
+	writeFakeClaude(t, "#!/bin/sh\nsleep 5\n")
+	w, out := newPromptTestWard(t)
+	sockPath := filepath.Join(t.TempDir(), "ward-tool.sock")
+	w.toolSockPath = sockPath
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ts := &toolServer{sockPath: sockPath, w: w}
+	go func() { _ = ts.run(ctx) }()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	prompt := ctl.PromptPayload{AgentID: w.agentID, Seq: 101, Text: "test prompt"}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.handlePrompt(context.Background(), prompt.MarshalMUS())
+	}()
+
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if w.activeCmd.Load() != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Send schema-invalid tool request: missing "url" field for Browser_Page_Read.
+	resp := toolRoundTrip(t, sockPath, ToolRequest{
+		Capability: "Browser_Page_Read",
+		Args:       json.RawMessage(`{"wait_for":"load"}`),
+	})
+	if resp.OK {
+		t.Fatal("schema-invalid tool request unexpectedly succeeded")
+	}
+	if resp.ErrorCode != "schema_invalid" {
+		t.Fatalf("error code = %q, want %q", resp.ErrorCode, "schema_invalid")
+	}
+
+	<-done
+
+	ev := readFailureEventFromBuffer(t, out)
+	if ev.Kind != "schema_invalid" {
+		t.Fatalf("failure kind = %q, want %q", ev.Kind, "schema_invalid")
+	}
+	if ev.PromptSeq != 101 {
+		t.Fatalf("prompt seq = %d, want 101", ev.PromptSeq)
+	}
+}
+
 func TestHandlePrompt_ExecutesToolAndEmitsCompletionEvent(t *testing.T) {
 	capRegistry = capabilities.GeneratedRegistry()
 	writeFakeClaude(t, "#!/bin/sh\nsleep 1\nprintf '%s\n' '{\"type\":\"tool_use\"}' '{\"type\":\"message_stop\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7}}'\n")

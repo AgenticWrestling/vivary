@@ -40,20 +40,47 @@ func TestWhitelistPolicy_MatchingPrefix(t *testing.T) {
 
 func TestWhitelistPolicy_TypedConstraints(t *testing.T) {
 	policy := WhitelistPolicy{
-		Domains:        []string{"example.com:8443"},
+		Domains:        []string{"example.com:8443", "specific.test"},
 		DomainSuffixes: []string{"wikipedia.org"},
-		PathPrefixes:   []string{"/allowed"},
+		PathPrefixes:   []string{"/allowed", "/api/v1"},
 	}
 	cases := []struct {
 		url  string
 		want bool
 	}{
-		{"https://example.com:8443/page", true},
-		{"https://en.wikipedia.org/wiki/VIVARY", true},
+		// Domain match + allowed path.
 		{"https://example.com:8443/allowed/page", true},
+		{"https://specific.test/api/v1/resource", true},
+		// Domain match + disallowed path.
+		{"https://example.com:8443/disallowed", false},
+		{"https://specific.test/other", false},
+		// Domain suffix match + allowed path.
+		{"https://en.wikipedia.org/allowed/VIVARY", true},
+		// Domain suffix match + disallowed path.
+		{"https://en.wikipedia.org/wiki/VIVARY", false},
+		// No domain match.
 		{"https://random.test/allowed/page", false},
-		{"https://example.com/page", false},
-		{"https://evil.com/page", false},
+	}
+	for _, tc := range cases {
+		got := policy.Allows(tc.url)
+		if got != tc.want {
+			t.Errorf("policy.Allows(%q) = %v, want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
+func TestWhitelistPolicy_PathPrefixesEmpty(t *testing.T) {
+	// If PathPrefixes is empty, any path on an allowed domain should work.
+	policy := WhitelistPolicy{
+		Domains: []string{"example.com"},
+	}
+	cases := []struct {
+		url  string
+		want bool
+	}{
+		{"https://example.com/", true},
+		{"https://example.com/any/path", true},
+		{"https://other.com/", false},
 	}
 	for _, tc := range cases {
 		got := policy.Allows(tc.url)

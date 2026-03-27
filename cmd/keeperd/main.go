@@ -150,6 +150,8 @@ type agentState struct {
 	lastPromptSeq uint64
 	lastEventAt   time.Time
 	lastOutcome   string // "success", failure kind, etc.
+	lastFailureDetail string
+	model         string
 	inputTokens   uint32
 	outputTokens  uint32
 	costUSD       float64
@@ -460,6 +462,8 @@ func (d *daemon) buildAgentStatusList() []ctl.AgentStatus {
 			LastPromptSeq: a.lastPromptSeq,
 			LastEventAt:   lastEventAt,
 			LastOutcome:   a.lastOutcome,
+			LastFailureDetail: a.lastFailureDetail,
+			Model:         a.model,
 			InputTokens:   a.inputTokens,
 			OutputTokens:  a.outputTokens,
 			CostUSD:       costUSD,

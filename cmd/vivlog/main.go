@@ -54,6 +54,8 @@ func main() {
 		l.cmdGrep(args[1:])
 	case "decode":
 		l.cmdDecode(args[1:])
+	case "security":
+		l.cmdSecurity(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", args[0])
 		printUsage()
@@ -71,13 +73,47 @@ Commands:
   tail [--n <count>]              Show the most recent N frames (default 20)
   show --agent <id>               Show all frames for an agent
   grep --msg-type <type>          Filter by MsgType name
-  decode --seq <n>                Decode a specific frame by SeqNo`)
+  decode --seq <n>                Decode a specific frame by SeqNo
+  security [--agent <id>]         Show security events`)
 }
 
 // ---- CLI -------------------------------------------------------------------
 
 type logCLI struct {
 	db *audit.DB
+}
+
+func (l *logCLI) cmdSecurity(args []string) {
+	fs := flag.NewFlagSet("security", flag.ExitOnError)
+	agentID := fs.String("agent", "", "agent ID")
+	jsonOut := fs.Bool("json", false, "output as JSON lines")
+	_ = fs.Parse(args)
+
+	events, err := l.db.QuerySecurityEvents(audit.SecurityEventFilter{Agent: *agentID})
+	if err != nil {
+		fatal("security: %v", err)
+	}
+
+	if *jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		for _, e := range events {
+			_ = enc.Encode(e)
+		}
+		return
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tTS\tAGENT\tKIND\tDETAIL")
+	for _, e := range events {
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n",
+			e.ID,
+			e.Ts.Format("2006-01-02T15:04:05Z"),
+			e.Agent,
+			e.Kind,
+			e.Detail,
+		)
+	}
+	tw.Flush()
 }
 
 func (l *logCLI) cmdTail(args []string) {

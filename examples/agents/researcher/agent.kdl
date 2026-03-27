@@ -1,0 +1,22 @@
+id "researcher"
+provider "anthropic"
+cpu-shares 1024
+memory-max-bytes 2147483648 // 2GB
+
+browser {
+    headless true
+}
+
+capabilities "Browser_Page_Read" {
+    Link {
+        domain-suffix "wikipedia.org"
+        domain-suffix "arxiv.org"
+        domain "github.com"
+    }
+}
+
+capabilities "Filesystem_File_Write" {
+    File {
+        path-prefix "/var/lib/vivary/agents/researcher/output"
+    }
+}

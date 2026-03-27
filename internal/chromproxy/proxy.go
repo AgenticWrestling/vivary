@@ -2,14 +2,13 @@
 // (CDP) remote debug port, enforces per-agent URL whitelists, and extracts
 // readable page text via the accessibility tree.
 //
-// The proxy is invoked by keeperd when a Ward issues a Browser_Page_Read
-// capability request.  keeperd passes the agent's scope (comma-separated URL
-// prefixes) to Proxy.ReadPage; the proxy rejects requests for out-of-scope
-// URLs before sending any CDP command to Chrome.
+// The proxy is invoked by keeperd via the Browser_Page_Read capability.
+// keeperd connects to a host-side 'chromed' service to acquire a dedicated
+// headless Chrome instance for the agent, with a separate --user-data-dir
+// profile.  The chromproxy then connects to that instance's CDP port,
+// enforces the agent's whitelist policy, and extracts accessible text.
 //
-// CDP transport: HTTP + WebSocket to 127.0.0.1:<debugPort>.
-// One Chrome instance is shared across all agents; each agent gets a
-// dedicated browser context (--user-data-dir is set per-agent at spawn time).
+// CDP transport: HTTP + WebSocket to the agent's dedicated debug address.
 package chromproxy
 
 import (
@@ -415,10 +414,22 @@ func (p WhitelistPolicy) Allows(rawURL string) bool {
 			}
 		}
 	}
-	if len(p.PathPrefixes) == 0 {
-		return domainAllowed
+	if !domainAllowed {
+		return false
 	}
-	return domainAllowed
+	if len(p.PathPrefixes) == 0 {
+		return true
+	}
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+	for _, prefix := range p.PathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p WhitelistPolicy) allowsByPrefix(rawURL string) bool {

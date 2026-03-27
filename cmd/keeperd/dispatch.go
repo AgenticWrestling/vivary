@@ -184,10 +184,12 @@ func (d *daemon) updateAgentCompletionState(ev audit.CompletionEvent) {
 	if a, ok := d.agents[ev.AgentID]; ok {
 		a.lastEventAt = time.Now()
 		a.lastOutcome = ev.Outcome
+		a.model = ev.Model
 		a.inputTokens = ev.InputTokens
 		a.outputTokens = ev.OutputTokens
 		a.costUSD = ev.CostUSD
 		a.toolCalls = ev.ToolCalls
+		a.lastFailureDetail = "" // clear on success
 	}
 	d.mu.Unlock()
 }
@@ -197,6 +199,7 @@ func (d *daemon) updateAgentFailureState(ev audit.FailureEvent) {
 	if a, ok := d.agents[ev.AgentID]; ok {
 		a.lastEventAt = time.Now()
 		a.lastOutcome = ev.Kind
+		a.lastFailureDetail = ev.Detail
 	}
 	d.mu.Unlock()
 }

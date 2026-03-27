@@ -254,10 +254,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		snap.Status.LastPromptSeq = msg.Event.PromptSeq
 		snap.Status.LastEventAt = time.Now().Format(time.RFC3339)
 		snap.Status.LastOutcome = msg.Event.Outcome
+		snap.Status.Model = msg.Event.Model
 		snap.Status.InputTokens = msg.Event.InputTokens
 		snap.Status.OutputTokens = msg.Event.OutputTokens
 		snap.Status.CostUSD = fmt.Sprintf("%.6f", msg.Event.CostUSD)
 		snap.Status.ToolCalls = msg.Event.ToolCalls
+		snap.Status.LastFailureDetail = ""
 		m.flash = fmt.Sprintf("completion: %s seq %d", msg.Event.AgentID, msg.Event.PromptSeq)
 		return m, m.waitForMessage()
 	case tuiFailureMsg:
@@ -268,6 +270,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		snap.Status.LastPromptSeq = msg.Event.PromptSeq
 		snap.Status.LastEventAt = time.Now().Format(time.RFC3339)
 		snap.Status.LastOutcome = msg.Event.Kind
+		snap.Status.LastFailureDetail = msg.Event.Detail
 		m.flash = fmt.Sprintf("failure: %s %s", msg.Event.AgentID, msg.Event.Kind)
 		return m, m.waitForMessage()
 	case tuiPromptAckMsg:
@@ -308,9 +311,15 @@ func (m tuiModel) View() string {
 		snap := m.agentMetrics[agent.ID]
 		b.WriteString(fmt.Sprintf("agent:       %s\n", agent.ID))
 		b.WriteString(fmt.Sprintf("state:       %s\n", orDefault(agent.State, snap.Status.State)))
+		if snap.Status.Model != "" {
+			b.WriteString(fmt.Sprintf("model:       %s\n", snap.Status.Model))
+		}
 		b.WriteString(fmt.Sprintf("prompt seq:  %d\n", maxUint64(agent.LastPromptSeq, snap.Status.LastPromptSeq)))
 		b.WriteString(fmt.Sprintf("last event:  %s\n", m.lastEventSummary(snap)))
 		b.WriteString(fmt.Sprintf("outcome:     %s\n", m.lastOutcomeSummary(snap)))
+		if snap.Status.LastFailureDetail != "" {
+			b.WriteString(fmt.Sprintf("error:       %s\n", snap.Status.LastFailureDetail))
+		}
 		b.WriteString(fmt.Sprintf("last cost:   %s\n", m.lastCostSummary(snap)))
 		b.WriteString(fmt.Sprintf("last tokens: %s\n", m.lastTokenSummary(snap)))
 		b.WriteString(fmt.Sprintf("tool calls:  %s\n", m.lastToolCallSummary(snap)))

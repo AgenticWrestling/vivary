@@ -184,6 +184,8 @@ type AgentStatus struct {
 	LastPromptSeq uint64
 	LastEventAt   string // RFC3339 timestamp of last event; empty if no event yet
 	LastOutcome   string // "success", "loop_detected", "subprocess_crash", etc.
+	LastFailureDetail string
+	Model         string
 	InputTokens   uint32
 	OutputTokens  uint32
 	CostUSD       string // formatted float; empty if unknown
@@ -197,6 +199,8 @@ func (a *AgentStatus) marshalMUS() []byte {
 	b = mus.AppendVarint(b, a.LastPromptSeq)
 	b = mus.AppendString(b, a.LastEventAt)
 	b = mus.AppendString(b, a.LastOutcome)
+	b = mus.AppendString(b, a.LastFailureDetail)
+	b = mus.AppendString(b, a.Model)
 	b = mus.AppendVarint(b, uint64(a.InputTokens))
 	b = mus.AppendVarint(b, uint64(a.OutputTokens))
 	b = mus.AppendString(b, a.CostUSD)
@@ -219,6 +223,12 @@ func (a *AgentStatus) unmarshalMUS(r io.Reader) error {
 		return err
 	}
 	if a.LastOutcome, err = mus.ReadString(r, 64); err != nil {
+		return err
+	}
+	if a.LastFailureDetail, err = mus.ReadString(r, 4096); err != nil {
+		return err
+	}
+	if a.Model, err = mus.ReadString(r, 64); err != nil {
 		return err
 	}
 	v, err := mus.ReadVarint(r)

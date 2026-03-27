@@ -83,10 +83,11 @@ func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) er
 	cleanup = append(cleanup, func() {
 		_ = d.runtime.DestroySubvolume(req.ID, subvolPath)
 	})
-	if browserCfg, err := loadTemplateBrowserConfig(subvolPath); err != nil {
-		return fmt.Errorf("load template browser config: %w", err)
+	if templateCfg, err := loadTemplateAgentConfig(subvolPath); err != nil {
+		return fmt.Errorf("load template agent config: %w", err)
 	} else {
-		agentCfg.Browser = browserCfg
+		agentCfg.Browser = templateCfg.Browser
+		agentCfg.Capabilities = templateCfg.Capabilities
 	}
 
 	// Write agent.kdl into the subvolume.
@@ -108,23 +109,50 @@ func (d *daemon) agentCreate(ctx context.Context, req ctl.AgentCreatePayload) er
 
 	// Install capability ACL.
 	acl := &capabilities.ACL{AgentID: req.ID}
-	// TODO: read capability list from agent.kdl / AgentCreatePayload extension.
-	// For the MVP: grant both MVP capabilities with default scopes.
-	acl.Entries = []capabilities.ACLEntry{
-		{
-			CapabilityName: capabilities.FilesystemFileWriteName,
-			Constraints: []capabilities.ScopeConstraint{{
-				Entity:      "File",
-				Constraints: capabilities.ConstraintSet{"path-prefix": {filepath.Join(subvolPath, "output")}},
-			}},
-		},
-		{
-			CapabilityName: capabilities.BrowserPageReadName,
-			Constraints: []capabilities.ScopeConstraint{{
-				Entity:      "Link",
-				Constraints: capabilities.ConstraintSet{"domain": {"en.wikipedia.org", "github.com"}},
-			}},
-		},
+	if len(agentCfg.Capabilities) > 0 {
+		for _, cap := range agentCfg.Capabilities {
+			entry := capabilities.ACLEntry{CapabilityName: cap.Name}
+			for _, s := range cap.Scopes {
+				sc := capabilities.ScopeConstraint{
+					Entity:      s.Entity,
+					Constraints: make(capabilities.ConstraintSet),
+				}
+				if len(s.Domains) > 0 {
+					sc.Constraints["domain"] = s.Domains
+				}
+				if len(s.Suffixes) > 0 {
+					sc.Constraints["domain-suffix"] = s.Suffixes
+				}
+				if len(s.PathPrefixes) > 0 {
+					sc.Constraints["path-prefix"] = s.PathPrefixes
+				}
+				entry.Constraints = append(entry.Constraints, sc)
+			}
+			acl.Entries = append(acl.Entries, entry)
+		}
+	} else {
+		// Fallback for MVP if no capabilities specified: grant both with default scopes.
+		acl.Entries = []capabilities.ACLEntry{
+			{
+				CapabilityName: capabilities.FilesystemFileWriteName,
+				Constraints: []capabilities.ScopeConstraint{{
+					Entity:      "File",
+					Constraints: capabilities.ConstraintSet{"path-prefix": {filepath.Join(subvolPath, "output")}},
+				}},
+			},
+			{
+				CapabilityName: capabilities.BrowserPageReadName,
+				Constraints: []capabilities.ScopeConstraint{{
+					Entity:      "Link",
+					Constraints: capabilities.ConstraintSet{"domain": {"en.wikipedia.org", "github.com"}},
+				}},
+			},
+		}
+		// Also update agentCfg so it's written back to agent.kdl.
+		agentCfg.Capabilities = []AgentCapabilityEntry{
+			{Name: capabilities.FilesystemFileWriteName},
+			{Name: capabilities.BrowserPageReadName},
+		}
 	}
 	d.dispatcher.SetACL(acl)
 	cleanup = append(cleanup, func() {
@@ -225,33 +253,48 @@ func writeAgentKDL(subvolPath string, cfg AgentConfig) error {
 	sb.WriteString("browser {\n")
 	fmt.Fprintf(&sb, "    headless %t\n", cfg.Browser.Headless)
 	sb.WriteString("}\n")
+
 	if len(cfg.Capabilities) > 0 {
 		sb.WriteString("\ncapabilities {\n")
 		for _, c := range cfg.Capabilities {
-			if c.Scope != "" {
-				fmt.Fprintf(&sb, "    %s scope=%q\n", c.Name, c.Scope)
-			} else {
+			if len(c.Scopes) == 0 {
 				fmt.Fprintf(&sb, "    %s\n", c.Name)
+				continue
 			}
+			fmt.Fprintf(&sb, "    %s {\n", c.Name)
+			for _, s := range c.Scopes {
+				fmt.Fprintf(&sb, "        %s {\n", s.Entity)
+				for _, d := range s.Domains {
+					fmt.Fprintf(&sb, "            domain %q\n", d)
+				}
+				for _, s := range s.Suffixes {
+					fmt.Fprintf(&sb, "            domain-suffix %q\n", s)
+				}
+				for _, p := range s.PathPrefixes {
+					fmt.Fprintf(&sb, "            path-prefix %q\n", p)
+				}
+				sb.WriteString("        }\n")
+			}
+			sb.WriteString("    }\n")
 		}
 		sb.WriteString("}\n")
 	}
 	return os.WriteFile(filepath.Join(subvolPath, "agent.kdl"), []byte(sb.String()), 0o640)
 }
 
-func loadTemplateBrowserConfig(subvolPath string) (AgentBrowserConfig, error) {
+func loadTemplateAgentConfig(subvolPath string) (AgentConfig, error) {
 	data, err := os.ReadFile(filepath.Join(subvolPath, "agent.kdl"))
 	if os.IsNotExist(err) {
-		return AgentBrowserConfig{}, nil
+		return AgentConfig{}, nil
 	}
 	if err != nil {
-		return AgentBrowserConfig{}, err
+		return AgentConfig{}, err
 	}
 	cfg, err := ParseAgentKDL(data)
 	if err != nil {
-		return AgentBrowserConfig{}, err
+		return AgentConfig{}, err
 	}
-	return cfg.Browser, nil
+	return cfg, nil
 }
 
 // agentDestroy is fully implemented — tears down nspawn, removes the subvolume.

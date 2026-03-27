@@ -97,8 +97,8 @@ func TestFormatStatus_SnapshotForCompletionFields(t *testing.T) {
 	want := strings.Join([]string{
 		fmt.Sprintf("keeperd %s  uptime 2m5s", status.DaemonVersion),
 		"",
-		"AGENT    STATE    LAST PROMPT  OUTCOME  TOKENS         COST      TOOLS  LAST EVENT",
-		"agent-a  running  23           success  in=120 out=55  0.002500  4      2026-03-24T12:34:56Z",
+		"AGENT    STATE    MODEL  LAST PROMPT  OUTCOME  TOKENS         COST      TOOLS  LAST EVENT",
+		"agent-a  running  -      23           success  in=120 out=55  0.002500  4      2026-03-24T12:34:56Z",
 		"",
 	}, "\n")
 

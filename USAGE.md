@@ -129,18 +129,39 @@ visible desktop Chrome window or profile switcher to pop up on the host while
 those tests run. Host-side profile state is still created under the matching
 `chromed` profile root, one directory per agent ID.
 
-Each agent's generated `agent.kdl` also carries a browser setting:
+Each agent's generated `agent.kdl` also carries a browser setting and capability scopes:
 
 ```kdl
+id "my-agent"
 browser {
-    headless false
+    headless true
+}
+capabilities "Browser_Page_Read" {
+    Link {
+        domain "en.wikipedia.org"
+        path-prefix "/wiki"
+    }
+}
+capabilities "Filesystem_File_Write" {
+    File {
+        path-prefix "/var/lib/vivary/agents/my-agent/output"
+    }
 }
 ```
 
 `headless` defaults to `false`. When set to `true`, `chromed` launches Chrome
 with `--headless=new`. When left `false`, `chromed` attempts a normal visible
-Chrome window for that agent profile instead. In practice, visible windows only
-work when the host-side `chromed` process has access to a graphical session.
+Chrome window for that agent profile instead.
+
+Capability scopes are enforced by `keeperd`. For browser access, `domain`,
+`domain-suffix`, and `path-prefix` constraints are supported. For filesystem
+access, `path-prefix` is used to restrict writes to a specific directory.
+Multiple `capabilities` nodes can be specified, and each can have multiple
+entity nodes (like `Link` or `File`) with multiple constraints.
+If no capabilities are specified in the template's `agent.kdl`, `keeperd`
+grants default MVP scopes for both `Browser_Page_Read` and `Filesystem_File_Write`.
+
+Examples of agent policies can be found in the `examples/agents/` directory.
 
 Inside the runtime container:
 
@@ -302,7 +323,10 @@ bin/vivlog show --agent my-agent
 # Filter by message type
 bin/vivlog grep --msg-type CompletionEvent
 bin/vivlog grep --msg-type FailureEvent
-bin/vivlog grep --msg-type capability_denied
+
+# Show security events (e.g. capability denials)
+bin/vivlog security
+bin/vivlog security --agent my-agent
 
 # Decode a specific frame by sequence number
 bin/vivlog decode --seq 42
@@ -397,7 +421,6 @@ task dev:vivlog CLI_ARGS="tail --n 5"
 | Feature | Phase | Notes |
 |---|---|---|
 | Live Claude-backed prompt run | MVP | keeperd↔Ward prompt-run paths are tested; a real Claude CLI run still needs an actual provisioned agent and provider setup |
-| Live Chrome verification | 3.2 | keeperd launches Chrome automatically at startup; remaining gap is verification against a real sidecar process |
 | Multi-agent routing | Phase 5 | Intentionally deferred until MVP exit tests pass |
 
 ### What is now working
@@ -410,3 +433,7 @@ task dev:vivlog CLI_ARGS="tail --n 5"
 | nftables veth egress | Applied at nspawn spawn time; restricted to provider IPs when `--provider` is set |
 | providers.kdl | Registry of LLM provider API endpoints; controls nftables IP allowlist |
 | Prompt forwarding | keeperd → Ward via `MsgType_CtlPrompt` MUS frame with prompt/completion/failure coverage at the keeperd↔Ward boundary |
+| Browser mediation | Whitelist policy enforced at both capability and proxy layers; per-agent profile isolation via `chromed` |
+| Filesystem isolation | Scoped writes enforced with path-prefix and symlink-escape protection |
+| Structured scopes | Capability scopes (domains, path-prefixes) can be specified in `agent.kdl` |
+| Audit trail | All frames and security events recorded in SQLite; inspected via `vivlog` |

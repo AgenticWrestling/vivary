@@ -19,16 +19,14 @@ var (
 type OrchestratorConfig struct {
 	SocketPath              string `kdl:"socket-path"`
 	AuditDBPath             string `kdl:"audit-db"`
-	ChromeRemoteDebugAddr   string `kdl:"chrome-debug-addr"`
 	VaultPath               string `kdl:"vault-path"`
 	MaxAgentPipeBytesPerSec uint64 `kdl:"max-pipe-bytes-per-sec"`
 	LogLevel                string `kdl:"log-level"`
 	ProvidersFile           string `kdl:"providers-file"`
-	ChromeBinaryPath        string `kdl:"chrome-binary"`
-	ChromeUserDataDir       string `kdl:"chrome-user-data-dir"`
 	ChromedSocketPath       string `kdl:"chromed-socket-path"`
 	ChromeProxyServer       string `kdl:"chrome-proxy-server"`
 }
+
 
 // ProviderConfig is one entry from providers.kdl.
 type ProviderConfig struct {
@@ -39,12 +37,12 @@ type ProviderConfig struct {
 
 // AgentConfig is parsed from <agent-subvolume>/agent.kdl.
 type AgentConfig struct {
-	ID             string                 `kdl:"id"`
-	Provider       string                 `kdl:"provider"`
-	CPUShares      uint32                 `kdl:"cpu-shares"`
-	MemoryMaxBytes uint64                 `kdl:"memory-max-bytes"`
-	Browser        AgentBrowserConfig     `kdl:"browser,child"`
-	Capabilities   []AgentCapabilityEntry `kdl:"capabilities,child"`
+	ID             string             `kdl:"id"`
+	Provider       string             `kdl:"provider"`
+	CPUShares      uint32             `kdl:"cpu-shares"`
+	MemoryMaxBytes uint64             `kdl:"memory-max-bytes"`
+	Browser        AgentBrowserConfig `kdl:"browser,child"`
+	Capabilities   []AgentCapabilityEntry `kdl:"-"`
 }
 
 type AgentBrowserConfig struct {
@@ -53,8 +51,17 @@ type AgentBrowserConfig struct {
 
 // AgentCapabilityEntry is one entry in agent.kdl's capabilities block.
 type AgentCapabilityEntry struct {
-	Name  string `kdl:",arg"`
-	Scope string `kdl:"scope,attr"`
+	Name   string                 `kdl:",arg"`
+	Scopes []AgentCapabilityScope `kdl:",child"`
+}
+
+// AgentCapabilityScope represents a scoped grant for a capability,
+// mapping an entity (e.g. Link, File) to its constraints.
+type AgentCapabilityScope struct {
+	Entity       string   `kdl:",arg"`
+	Domains      []string `kdl:"domain"`
+	Suffixes     []string `kdl:"domain-suffix"`
+	PathPrefixes []string `kdl:"path-prefix"`
 }
 
 // DefaultOrchestratorConfig returns the config with all defaults populated.
@@ -62,17 +69,15 @@ func DefaultOrchestratorConfig(workspaceRoot string) OrchestratorConfig {
 	return OrchestratorConfig{
 		SocketPath:              workspaceRoot + "/keeper.sock",
 		AuditDBPath:             workspaceRoot + "/audit.db",
-		ChromeRemoteDebugAddr:   "127.0.0.1:9222",
 		VaultPath:               workspaceRoot + "/vault.enc",
 		MaxAgentPipeBytesPerSec: 1 * 1024 * 1024,
 		LogLevel:                "info",
 		ProvidersFile:           workspaceRoot + "/providers.kdl",
-		ChromeBinaryPath:        "chromium",
-		ChromeUserDataDir:       workspaceRoot + "/chrome-data",
 		ChromedSocketPath:       "/run/vivary/chromed-host/chromed.sock",
 		ChromeProxyServer:       "",
 	}
 }
+
 
 // LoadOrchestratorConfig reads orchestrator.kdl from workspaceRoot, applying
 // values on top of the defaults. Returns the defaults if the file does not
@@ -154,9 +159,88 @@ func unquote(s string) string {
 // ParseAgentKDL parses an agent.kdl file.
 func ParseAgentKDL(data []byte) (AgentConfig, error) {
 	cfg := AgentConfig{CPUShares: 1024}
-	if err := kdl.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("agent config: unmarshal: %w", err)
+
+	doc, err := kdl.Parse(bytes.NewReader(data))
+	if err != nil {
+		return cfg, fmt.Errorf("agent config: parse: %w", err)
 	}
+
+	for _, node := range doc.Nodes {
+		name := node.Name.String()
+		switch name {
+		case "id":
+			if len(node.Arguments) > 0 {
+				cfg.ID = unquote(node.Arguments[0].String())
+			}
+		case "provider":
+			if len(node.Arguments) > 0 {
+				cfg.Provider = unquote(node.Arguments[0].String())
+			}
+		case "cpu-shares":
+			if len(node.Arguments) > 0 {
+				fmt.Sscanf(node.Arguments[0].String(), "%d", &cfg.CPUShares)
+			}
+		case "memory-max-bytes":
+			if len(node.Arguments) > 0 {
+				fmt.Sscanf(node.Arguments[0].String(), "%d", &cfg.MemoryMaxBytes)
+			}
+		case "browser":
+			for _, child := range node.Children {
+				if child.Name.String() == "headless" && len(child.Arguments) > 0 {
+					cfg.Browser.Headless = child.Arguments[0].String() == "true"
+				}
+			}
+		case "capabilities":
+			// If it's a block of capabilities: capabilities { Browser_Page_Read { ... } }
+			if len(node.Children) > 0 && len(node.Arguments) == 0 {
+				for _, capNode := range node.Children {
+					cap := AgentCapabilityEntry{Name: unquote(capNode.Name.String())}
+					for _, scopeNode := range capNode.Children {
+						s := AgentCapabilityScope{Entity: unquote(scopeNode.Name.String())}
+						for _, constraintNode := range scopeNode.Children {
+							if len(constraintNode.Arguments) == 0 {
+								continue
+							}
+							val := unquote(constraintNode.Arguments[0].String())
+							switch constraintNode.Name.String() {
+							case "domain":
+								s.Domains = append(s.Domains, val)
+							case "domain-suffix":
+								s.Suffixes = append(s.Suffixes, val)
+							case "path-prefix":
+								s.PathPrefixes = append(s.PathPrefixes, val)
+							}
+						}
+						cap.Scopes = append(cap.Scopes, s)
+					}
+					cfg.Capabilities = append(cfg.Capabilities, cap)
+				}
+			} else if len(node.Arguments) > 0 {
+				// If it's a single capability: capabilities "Browser_Page_Read" { ... }
+				cap := AgentCapabilityEntry{Name: unquote(node.Arguments[0].String())}
+				for _, scopeNode := range node.Children {
+					s := AgentCapabilityScope{Entity: unquote(scopeNode.Name.String())}
+					for _, constraintNode := range scopeNode.Children {
+						if len(constraintNode.Arguments) == 0 {
+							continue
+						}
+						val := unquote(constraintNode.Arguments[0].String())
+						switch constraintNode.Name.String() {
+						case "domain":
+							s.Domains = append(s.Domains, val)
+						case "domain-suffix":
+							s.Suffixes = append(s.Suffixes, val)
+						case "path-prefix":
+							s.PathPrefixes = append(s.PathPrefixes, val)
+						}
+					}
+					cap.Scopes = append(cap.Scopes, s)
+				}
+				cfg.Capabilities = append(cfg.Capabilities, cap)
+			}
+		}
+	}
+
 	return cfg, nil
 }
 
