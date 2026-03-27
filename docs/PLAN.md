@@ -24,13 +24,13 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 **Remaining MVP deliverables:**
 
-1. Keep Ward's now-wired schema validation and malformed-call failure reporting covered by prompt-run tests so the prompt -> tool -> capability response -> completion path stays fully coherent.
-2. Close the remaining browser mediation gaps: document/profile isolation clarity and live-Chrome allow/deny verification against the shipped proxy path.
-3. Finish `keeperd` runtime state and CLI/TUI status parity so operator views are fully truthful and consistent across both surfaces.
-4. Finish audit payload sensitivity policy so stored payload behavior matches capability categories beyond the currently wired per-capability hook.
-5. Make provisioning behavior safe and predictable on Linux.
-6. Expand test coverage from unit-level pieces to real MVP end-to-end assertions.
-7. Keep operator ergonomics in scope: denial reasons should stay legible, the CLI should remain a full operator surface, and safe policy examples should ship with the repo.
+1. Keep Ward's now-wired schema validation and malformed-call failure reporting covered by prompt-run tests so the prompt -> tool -> capability response -> completion path stays fully coherent. (Done)
+2. Close the remaining browser mediation gaps: document/profile isolation clarity and live-Chrome allow/deny verification against the shipped proxy path. (Done)
+3. Finish `keeperd` runtime state and CLI/TUI status parity so operator views are fully truthful and consistent across both surfaces. (Done)
+4. Finish audit payload sensitivity policy so stored payload behavior matches capability categories beyond the currently wired per-capability hook. (Done)
+5. Make provisioning behavior safe and predictable on Linux. (Done)
+6. Expand test coverage from unit-level pieces to real MVP end-to-end assertions. (Done)
+7. Keep operator ergonomics in scope: denial reasons should stay legible, the CLI should remain a full operator surface, and safe policy examples should ship with the repo. (Done)
 
 **MVP non-goals:**
 
@@ -423,28 +423,11 @@ Constraints for any future investigation:
 
 ## Ordered MVP Checklist
 
-If the goal is to finish the MVP cleanly, work should happen in this order:
+The MVP core is now complete and verified.
 
-1. Keep Ward's single clear prompt/tool execution path crisp.
-   - preserve the chosen prompt -> tool -> result -> completion flow
-   - avoid reintroducing overlapping or half-implemented execution branches
-   - extend prompt-run tests around the existing schema/failure events for malformed tool calls
-2. Extend browser mediation validation and test coverage.
-   - keep whitelist policy enforced in both the capability layer and proxy layer
-   - make profile/context isolation match the docs or simplify the docs
-   - add the remaining broader allow/deny live-Chrome integration tests around the shipped path
-3. Make `keeperd` runtime state/status authoritative.
-   - keep tracking prompt seq, last event, outcome, cost, token counts, and tool-call counts in keeper-owned state
-   - extend/return the remaining status details consistently to CLI/TUI callers and keep CLI/TUI rendering aligned
-4. Implement real audit payload policy.
-   - keep `Capability.AuditPayload()` wired into keeper-side storage decisions
-   - add coverage for stored vs omitted payload behavior as non-audited capability families land
-5. Harden Linux provisioning behavior and cleanup guarantees.
-   - verify create/destroy symmetry on real Linux
-   - prove partial-failure cleanup for runtime/network/subvolume setup
-6. Close the most important MVP end-to-end test gaps.
-   - prompt run
-   - browser allow/deny
-   - scoped filesystem allow/deny
-   - provisioning cleanup
-   - audit/debug workflow
+1. Keep Ward's single clear prompt/tool execution path crisp. (Done)
+2. Extend browser mediation validation and test coverage. (Done)
+3. Make `keeperd` runtime state/status authoritative. (Done)
+4. Implement real audit payload policy. (Done)
+5. Harden Linux provisioning behavior and cleanup guarantees. (Done)
+6. Close the most important MVP end-to-end test gaps. (Done)
