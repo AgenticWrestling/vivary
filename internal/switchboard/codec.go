@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"vivary.dev/vivary/pkg/mus"
 )
@@ -39,6 +40,13 @@ var (
 
 // ---- SwarmHeader -----------------------------------------------------------
 
+var headerBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, MaxHeaderBytes)
+		return &b
+	},
+}
+
 // SwarmHeader is the fixed framing header prepended to every MUS frame on all
 // VIVARY pipes (agent stdio, ctl socket).
 type SwarmHeader struct {
@@ -61,18 +69,33 @@ func (h *SwarmHeader) MarshalMUS() []byte {
 	return b
 }
 
+// MarshalMUSInto serialises h into the provided byte slice.
+// It returns the slice with the header appended.
+func (h *SwarmHeader) MarshalMUSInto(b []byte) []byte {
+	b = append(b, h.Version, byte(h.Type))
+	b = mus.AppendString(b, h.FromID)
+	b = mus.AppendString(b, h.ToID)
+	b = mus.AppendVarint(b, h.SeqNo)
+	b = mus.AppendVarint(b, uint64(h.PayloadLen))
+	return b
+}
+
 // WriteTo writes the header to w without allocating a full slice for the header
-// itself (the two fixed bytes are written directly; strings and varints use a
-// small stack buffer that is flushed to w).
+// itself.
 func (h *SwarmHeader) WriteTo(w io.Writer) (int64, error) {
-	hdr := h.MarshalMUS()
-	n, err := w.Write(hdr)
+	ptr := headerBufPool.Get().(*[]byte)
+	buf := (*ptr)[:0]
+	defer headerBufPool.Put(ptr)
+
+	buf = h.MarshalMUSInto(buf)
+	n, err := w.Write(buf)
 	return int64(n), err
 }
 
 // UnmarshalMUS reads exactly one SwarmHeader from r.
 // On any decoding error the caller should treat the connection as broken.
 func UnmarshalMUS(r io.Reader) (SwarmHeader, error) {
+	var h SwarmHeader
 	var fixed [2]byte
 	if _, err := io.ReadFull(r, fixed[:]); err != nil {
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -81,16 +104,17 @@ func UnmarshalMUS(r io.Reader) (SwarmHeader, error) {
 		return SwarmHeader{}, err
 	}
 
-	fromID, err := mus.ReadString(r, MaxIDLen)
-	if err != nil {
+	h.Version = fixed[0]
+	h.Type = MsgType(fixed[1])
+
+	var err error
+	if h.FromID, err = mus.ReadString(r, MaxIDLen); err != nil {
 		return SwarmHeader{}, fmt.Errorf("from_id: %w", err)
 	}
-	toID, err := mus.ReadString(r, MaxIDLen)
-	if err != nil {
+	if h.ToID, err = mus.ReadString(r, MaxIDLen); err != nil {
 		return SwarmHeader{}, fmt.Errorf("to_id: %w", err)
 	}
-	seqNo, err := mus.ReadVarint(r)
-	if err != nil {
+	if h.SeqNo, err = mus.ReadVarint(r); err != nil {
 		return SwarmHeader{}, fmt.Errorf("seq_no: %w", err)
 	}
 	payloadLen, err := mus.ReadVarint(r)
@@ -100,15 +124,9 @@ func UnmarshalMUS(r io.Reader) (SwarmHeader, error) {
 	if payloadLen > uint64(mus.MaxPayloadBytes) {
 		return SwarmHeader{}, ErrPayloadTooLarge
 	}
+	h.PayloadLen = uint32(payloadLen)
 
-	return SwarmHeader{
-		Version:    fixed[0],
-		Type:       MsgType(fixed[1]),
-		FromID:     fromID,
-		ToID:       toID,
-		SeqNo:      seqNo,
-		PayloadLen: uint32(payloadLen),
-	}, nil
+	return h, nil
 }
 
 // ReadFrame reads a complete frame (header + payload) from r.
