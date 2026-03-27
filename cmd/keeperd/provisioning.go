@@ -16,6 +16,7 @@ package main
 // by a direct Ward subprocess spawn for development convenience.
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
@@ -205,10 +206,11 @@ func (d *daemon) spawnAgent(ctx context.Context, agentID, subvolPath string, cfg
 
 	pipe := &switchboard.Pipe{
 		AgentID: agentID,
-		Reader:  stdout,
+		Reader:  bufio.NewReader(stdout),
 		Writer:  stdin,
 		Limiter: switchboard.NewByteRateLimiter(d.cfg.MaxAgentPipeBytesPerSec),
 	}
+
 
 	d.router.AddPipe(ctx, pipe)
 

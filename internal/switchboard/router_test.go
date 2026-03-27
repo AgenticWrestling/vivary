@@ -1,15 +1,25 @@
 package switchboard
 
 import (
+	"bufio"
 	"bytes"
 	"context"
-	"log/slog"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"testing"
 	"time"
 )
+
+// newPipe creates a Pipe with a bufio.Reader.
+func newPipe(agentID string, r io.Reader, w io.Writer) *Pipe {
+	return &Pipe{
+		AgentID: agentID,
+		Reader:  bufio.NewReader(r),
+		Writer:  w,
+	}
+}
 
 // testLogger returns a discard logger for test use.
 func testLogger() *slog.Logger {
@@ -60,11 +70,7 @@ func TestRouterIdentityStamping(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	pipe := &Pipe{
-		AgentID: "real-agent",
-		Reader:  buf,
-		Writer:  io.Discard,
-	}
+	pipe := newPipe("real-agent", buf, io.Discard)
 	router.AddPipe(ctx, pipe)
 
 	// Wait for the frame to be processed.
@@ -125,7 +131,7 @@ func TestRouterIdentityCorrect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	pipe := &Pipe{AgentID: "agent-x", Reader: buf, Writer: io.Discard}
+	pipe := newPipe("agent-x", buf, io.Discard)
 	router.AddPipe(ctx, pipe)
 
 	deadline := time.Now().Add(time.Second)
@@ -217,12 +223,8 @@ func TestRouterPipeFlood(t *testing.T) {
 	defer cancel()
 
 	// A limit of 1 byte/sec means Allow(2) for the peek will immediately fail.
-	pipe := &Pipe{
-		AgentID: "flood-agent",
-		Reader:  buf,
-		Writer:  io.Discard,
-		Limiter: NewByteRateLimiter(1),
-	}
+	pipe := newPipe("flood-agent", buf, io.Discard)
+	pipe.Limiter = NewByteRateLimiter(1)
 	router.AddPipe(ctx, pipe)
 
 	time.Sleep(50 * time.Millisecond)
@@ -281,7 +283,7 @@ func TestRouterSeqNoMonotonicity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	pipe := &Pipe{AgentID: "agent-y", Reader: &buf, Writer: io.Discard}
+	pipe := newPipe("agent-y", &buf, io.Discard)
 	router.AddPipe(ctx, pipe)
 
 	// Wait until the pipe drains.

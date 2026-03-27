@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -160,7 +161,7 @@ func registerTestAgentPipe(t *testing.T, d *daemon, agentID string) *io.PipeWrit
 	pr, pw := io.Pipe()
 	pipe := &switchboard.Pipe{
 		AgentID: agentID,
-		Reader:  pr,
+		Reader:  bufio.NewReader(pr),
 		Writer:  io.Discard,
 		Limiter: switchboard.NewByteRateLimiter(1 << 20),
 	}
@@ -181,7 +182,7 @@ func registerIntegrationAgentPipe(t *testing.T, d *daemon, agentID string) (*io.
 	keeperToWardReader, keeperToWardWriter := io.Pipe()
 	pipe := &switchboard.Pipe{
 		AgentID: agentID,
-		Reader:  wardToKeeperReader,
+		Reader:  bufio.NewReader(wardToKeeperReader),
 		Writer:  keeperToWardWriter,
 		Limiter: switchboard.NewByteRateLimiter(1 << 20),
 	}
@@ -199,7 +200,7 @@ func registerIntegrationAgentPipe(t *testing.T, d *daemon, agentID string) (*io.
 
 func registerResponsePipe(t *testing.T, d *daemon, agentID string, w io.Writer) {
 	t.Helper()
-	pipe := &switchboard.Pipe{AgentID: agentID, Reader: bytes.NewReader(nil), Writer: w}
+	pipe := &switchboard.Pipe{AgentID: agentID, Reader: bufio.NewReader(bytes.NewReader(nil)), Writer: w}
 	d.router.AddPipe(context.Background(), pipe)
 	t.Cleanup(func() { d.router.RemovePipe(agentID) })
 }

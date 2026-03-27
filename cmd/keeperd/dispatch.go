@@ -11,6 +11,7 @@ package main
 //       → if Ping: Pong
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -271,7 +272,7 @@ func (d *daemon) spawnWardPipe(ctx context.Context, agentID string, wardBin stri
 
 	pipe := &switchboard.Pipe{
 		AgentID: agentID,
-		Reader:  stdout,
+		Reader:  bufio.NewReader(stdout),
 		Writer:  stdin,
 		Limiter: switchboard.NewByteRateLimiter(d.cfg.MaxAgentPipeBytesPerSec),
 	}

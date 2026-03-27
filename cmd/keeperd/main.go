@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"flag"
@@ -19,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
 
 	"vivary.dev/vivary/internal/audit"
 	"vivary.dev/vivary/internal/capabilities"
@@ -238,6 +240,8 @@ func (d *daemon) handleCtlConn(ctx context.Context, conn net.Conn) {
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
 
+	br := bufio.NewReader(conn)
+
 	// Push goroutine: forwards queued events to the ctl connection.
 	go func() {
 		for {
@@ -265,7 +269,7 @@ func (d *daemon) handleCtlConn(ctx context.Context, conn net.Conn) {
 		default:
 		}
 
-		hdr, payload, err := switchboard.ReadFrame(conn)
+		hdr, payload, err := switchboard.ReadFrame(br)
 		if err != nil {
 			return
 		}

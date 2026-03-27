@@ -1,6 +1,7 @@
 package switchboard
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ func (l *ByteRateLimiter) Allow(n uint64) bool {
 // Pipe represents one stdio connection to a Ward (or the ctl socket).
 type Pipe struct {
 	AgentID   string // identity stamped into FromID on all inbound frames
-	Reader    io.Reader
+	Reader    *bufio.Reader
 	Writer    io.Writer
 	Limiter   *ByteRateLimiter
 	lastSeqNo atomic.Uint64
@@ -146,11 +147,11 @@ func (r *Router) readLoop(ctx context.Context, p *Pipe) {
 		}
 
 		// --- byte-rate gate (raw bytes) ---
-		// We read exactly 2 fixed bytes first to sample the stream rate before
+		// We peek exactly 2 fixed bytes first to sample the stream rate before
 		// doing heap allocation for IDs.  If the limiter is exceeded at this
 		// point we drop the whole connection read until the window resets.
-		var peek [2]byte
-		if _, err := io.ReadFull(p.Reader, peek[:]); err != nil {
+		_, err := p.Reader.Peek(2)
+		if err != nil {
 			if err != io.EOF {
 				r.log.Warn("pipe read error", "agent", p.AgentID, "err", err)
 			}
@@ -170,9 +171,7 @@ func (r *Router) readLoop(ctx context.Context, p *Pipe) {
 			return
 		}
 
-		// Prepend the two bytes we already consumed into a joined reader.
-		joined := io.MultiReader(newByteReader(peek[:]), p.Reader)
-		hdr, payload, err := ReadFrame(joined)
+		hdr, payload, err := ReadFrame(p.Reader)
 		if err != nil {
 			if err == io.EOF {
 				return // clean close
@@ -240,23 +239,4 @@ func (r *Router) emit(ev SecurityEvent) {
 		r.security(ev)
 	}
 	r.log.Warn("security event", "kind", ev.Kind, "agent", ev.AgentID, "detail", ev.Detail)
-}
-
-// ---- byteReader ------------------------------------------------------------
-
-// byteReader wraps a []byte as an io.Reader (avoids importing bytes package).
-type byteReader struct {
-	b   []byte
-	pos int
-}
-
-func newByteReader(b []byte) *byteReader { return &byteReader{b: b} }
-
-func (br *byteReader) Read(p []byte) (int, error) {
-	if br.pos >= len(br.b) {
-		return 0, io.EOF
-	}
-	n := copy(p, br.b[br.pos:])
-	br.pos += n
-	return n, nil
 }
