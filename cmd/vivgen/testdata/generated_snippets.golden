@@ -1,64 +1,3 @@
-func GeneratedRegistry() map[string]string {
-	return map[string]string{
-		"Browser_Form_Submit":          Browser_Form_SubmitSchema,
-		"Browser_Link_List":            Browser_Link_ListSchema,
-		"Browser_Page_GetTitle":        Browser_Page_GetTitleSchema,
-		"Browser_Page_Read":            Browser_Page_ReadSchema,
-		"Browser_Page_Screenshot":      Browser_Page_ScreenshotSchema,
-		"Calendar_Event_Create":        Calendar_Event_CreateSchema,
-		"Calendar_Event_List":          Calendar_Event_ListSchema,
-		"Calendar_Event_Read":          Calendar_Event_ReadSchema,
-		"Calendar_Slot_Find":           Calendar_Slot_FindSchema,
-		"Code_Lint_Run":                Code_Lint_RunSchema,
-		"Code_Script_Exec":             Code_Script_ExecSchema,
-		"Code_Test_Run":                Code_Test_RunSchema,
-		"Database_Query_Exec":          Database_Query_ExecSchema,
-		"Database_Schema_Read":         Database_Schema_ReadSchema,
-		"Database_Table_List":          Database_Table_ListSchema,
-		"Document_Content_Append":      Document_Content_AppendSchema,
-		"Document_Content_Read":        Document_Content_ReadSchema,
-		"Document_Content_Replace":     Document_Content_ReplaceSchema,
-		"Document_Doc_List":            Document_Doc_ListSchema,
-		"Email_Message_Create":         Email_Message_CreateSchema,
-		"Email_Message_List":           Email_Message_ListSchema,
-		"Email_Message_Read":           Email_Message_ReadSchema,
-		"Email_Message_Send":           Email_Message_SendSchema,
-		"Filesystem_Dir_Create":        Filesystem_Dir_CreateSchema,
-		"Filesystem_Dir_List":          Filesystem_Dir_ListSchema,
-		"Filesystem_File_Delete":       Filesystem_File_DeleteSchema,
-		"Filesystem_File_Move":         Filesystem_File_MoveSchema,
-		"Filesystem_File_Read":         Filesystem_File_ReadSchema,
-		"Filesystem_File_Write":        Filesystem_File_WriteSchema,
-		"Media_Audio_Transcribe":       Media_Audio_TranscribeSchema,
-		"Media_Image_Analyze":          Media_Image_AnalyzeSchema,
-		"Memory_Fact_Delete":           Memory_Fact_DeleteSchema,
-		"Memory_Fact_List":             Memory_Fact_ListSchema,
-		"Memory_Fact_Search":           Memory_Fact_SearchSchema,
-		"Memory_Fact_Store":            Memory_Fact_StoreSchema,
-		"Search_Corpus_Query":          Search_Corpus_QuerySchema,
-		"Search_Web_Query":             Search_Web_QuerySchema,
-		"Spreadsheet_Range_Read":       Spreadsheet_Range_ReadSchema,
-		"Spreadsheet_Range_Update":     Spreadsheet_Range_UpdateSchema,
-		"Spreadsheet_Row_Create":       Spreadsheet_Row_CreateSchema,
-		"Spreadsheet_Sheet_List":       Spreadsheet_Sheet_ListSchema,
-		"Swarm_Agent_List":             Swarm_Agent_ListSchema,
-		"Swarm_Group_Send":             Swarm_Group_SendSchema,
-		"Swarm_Message_Send":           Swarm_Message_SendSchema,
-		"System_Process_Exec":          System_Process_ExecSchema,
-		"System_Process_Kill":          System_Process_KillSchema,
-		"System_Process_List":          System_Process_ListSchema,
-		"VersionControl_Branch_Create": VersionControl_Branch_CreateSchema,
-		"VersionControl_Branch_List":   VersionControl_Branch_ListSchema,
-		"VersionControl_Commit_Create": VersionControl_Commit_CreateSchema,
-		"VersionControl_Diff_Read":     VersionControl_Diff_ReadSchema,
-		"VersionControl_Log_List":      VersionControl_Log_ListSchema,
-		"VersionControl_Remote_Push":   VersionControl_Remote_PushSchema,
-		"VersionControl_Status_Read":   VersionControl_Status_ReadSchema,
-	}
-}
-
----SNIP---
-
 const Browser_Page_ReadSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Browser_Page_Read",
@@ -220,6 +159,36 @@ func (a *Filesystem_File_Write) UnmarshalMUS(r io.Reader) error {
 	}
 	if a.Encoding, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "encoding", err)
+	}
+	return nil
+}
+
+// Filesystem_File_Write_Result is the typed MUS result payload.
+// Object with fields: path, bytes_written
+type Filesystem_File_Write_Result struct {
+	Path         string `json:"path"`
+	BytesWritten int    `json:"bytes_written"`
+}
+
+func (a *Filesystem_File_Write_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Path)
+	b = mus.AppendVarint(b, uint64(a.BytesWritten))
+	return b
+}
+
+func (a *Filesystem_File_Write_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Path, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "path", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "bytes_written", err)
+		}
+		a.BytesWritten = int(v)
 	}
 	return nil
 }

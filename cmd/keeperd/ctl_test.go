@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -533,7 +532,7 @@ func TestKeeperWardPipe_FailureEventUpdatesCtlStatus(t *testing.T) {
 		AgentID:   agentID,
 		PromptSeq: 17,
 		Kind:      "malformed_tool_call",
-		Detail:    "malformed JSON: invalid character 'x' looking for beginning of value",
+		Detail:    "malformed MUS payload: unexpected EOF",
 	}
 	payload, err := audit.MarshalEvent(&fev)
 	if err != nil {
@@ -635,7 +634,7 @@ func TestBrowserCapabilityRequest_DeniedWritesSecurityEvent(t *testing.T) {
 	var out bytes.Buffer
 	registerResponsePipe(t, d, agentID, &out)
 
-	args, _ := json.Marshal(capabilities.Browser_Page_Read{URL: "https://evil.com/page"})
+	args := (&capabilities.Browser_Page_Read{URL: "https://evil.com/page"}).MarshalMUS()
 	req := capabilities.CapabilityRequestPayload{Capability: capabilities.BrowserPageReadName, Args: args}
 	d.handleFrame(switchboard.Frame{Header: switchboard.SwarmHeader{Version: 0, Type: switchboard.MsgType_CapabilityRequest, FromID: agentID, ToID: "keeper", SeqNo: 11}, Payload: req.MarshalMUS()})
 
@@ -689,7 +688,7 @@ func TestBrowserCapabilityRequest_AllowedDoesNotWriteSecurityEvent(t *testing.T)
 	var out bytes.Buffer
 	registerResponsePipe(t, d, agentID, &out)
 
-	args, _ := json.Marshal(capabilities.Browser_Page_Read{URL: "https://example.com/page"})
+	args := (&capabilities.Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS()
 	req := capabilities.CapabilityRequestPayload{Capability: capabilities.BrowserPageReadName, Args: args}
 	d.handleFrame(switchboard.Frame{Header: switchboard.SwarmHeader{Version: 0, Type: switchboard.MsgType_CapabilityRequest, FromID: agentID, ToID: "keeper", SeqNo: 12}, Payload: req.MarshalMUS()})
 
@@ -846,7 +845,7 @@ func TestCtlPromptRun_FailureUpdatesStatusAndAudit(t *testing.T) {
 			AgentID:   agentID,
 			PromptSeq: prompt.Seq,
 			Kind:      "malformed_tool_call",
-			Detail:    "malformed JSON from tool socket",
+			Detail:    "malformed MUS payload from tool socket",
 		}
 		b, err := audit.MarshalEvent(&fev)
 		if err != nil {
@@ -961,7 +960,7 @@ func TestCtlPromptRun_BrowserAllowRoundTrip(t *testing.T) {
 
 		req := capabilities.CapabilityRequestPayload{
 			Capability: capabilities.BrowserPageReadName,
-			Args:       []byte(`{"url":"https://example.com/page"}`),
+			Args:       (&capabilities.Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS(),
 		}
 		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_CapabilityRequest, 1, req.MarshalMUS())
 
@@ -979,7 +978,12 @@ func TestCtlPromptRun_BrowserAllowRoundTrip(t *testing.T) {
 			t.Errorf("decode capability response: %v", err)
 			return
 		}
-		if !resp.OK || !bytes.Contains(resp.Data, []byte("browser text")) {
+		text, err := mus.ReadString(bytes.NewReader(resp.Data), mus.MaxPayloadBytes)
+		if err != nil {
+			t.Errorf("decode browser response text: %v", err)
+			return
+		}
+		if !resp.OK || text != "browser text" {
 			t.Errorf("unexpected capability response: ok=%v data=%s code=%s detail=%s", resp.OK, resp.Data, resp.ErrorCode, resp.ErrorDetail)
 			return
 		}
@@ -1055,7 +1059,7 @@ func TestCtlPromptRun_BrowserDenyRoundTrip(t *testing.T) {
 
 		req := capabilities.CapabilityRequestPayload{
 			Capability: capabilities.BrowserPageReadName,
-			Args:       []byte(`{"url":"https://evil.com/page"}`),
+			Args:       (&capabilities.Browser_Page_Read{URL: "https://evil.com/page"}).MarshalMUS(),
 		}
 		sendAgentFrame(t, wardToKeeperWriter, agentID, switchboard.MsgType_CapabilityRequest, 1, req.MarshalMUS())
 
@@ -1249,7 +1253,7 @@ func TestAuditPayloadPolicy_KnownCapability_StoresPayload(t *testing.T) {
 	var out bytes.Buffer
 	registerResponsePipe(t, d, agentID, &out)
 
-	args := []byte(`{"path":"note.txt","content":"hello"}`)
+	args := (&capabilities.Filesystem_File_Write{Path: "note.txt", Content: "hello"}).MarshalMUS()
 	req := capabilities.CapabilityRequestPayload{Capability: capabilities.FilesystemFileWriteName, Args: args}
 	encoded := req.MarshalMUS()
 	d.handleFrame(switchboard.Frame{

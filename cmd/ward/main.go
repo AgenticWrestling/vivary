@@ -458,7 +458,7 @@ func newLoopDetector(threshold int) *loopDetector {
 	return &loopDetector{threshold: threshold, counts: make(map[uint64]int)}
 }
 
-func (l *loopDetector) check(toolName string, args json.RawMessage) bool {
+func (l *loopDetector) check(toolName string, args []byte) bool {
 	h := fnv.New64a()
 	h.Write([]byte(toolName))
 	h.Write(args)

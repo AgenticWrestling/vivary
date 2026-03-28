@@ -122,6 +122,9 @@ This plan tracks the MVP runtime core first and distinguishes between:
 - `pkg/mus` provides public binary encoding/decoding helpers.
 - All core communications (viv ↔ keeperd, keeperd ↔ Ward) are fully binary MUS encoded.
 - Capability argument structs and control plane payloads have binary MUS marshallers.
+- The capability execution path is now fully typed MUS end-to-end, including `capwrap` ↔ Ward tool-socket requests and capability args/results on the Ward ↔ `keeperd` path.
+- `vivgen` now generates capability metadata for both typed argument decoding and typed result decoding/rendering on the operator-facing path.
+- `capabilities/capabilities.kdl` now carries explicit structured return fields for object/list-object results instead of relying on prose-only return descriptions.
 - Round-trip and malformed-frame tests exist.
 
 **Remaining work:**

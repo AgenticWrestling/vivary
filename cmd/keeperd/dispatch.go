@@ -11,14 +11,11 @@ package main
 //       → if Ping: Pong
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
 	"time"
 
 	"vivary.dev/vivary/internal/audit"
@@ -90,15 +87,11 @@ func (d *daemon) dispatchCapabilityRequest(f switchboard.Frame, payload capabili
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
-	// bridge legacy JSON Args until all capabilities are fully MUS
-	var jsonArgs json.RawMessage
-	_ = json.Unmarshal(payload.Args, &jsonArgs)
-
 	resp, err := d.dispatcher.Dispatch(ctx, capabilities.Request{
 		Name:    payload.Capability,
 		AgentID: f.Header.FromID,
 		SeqNo:   f.Header.SeqNo,
-		Args:    jsonArgs,
+		Args:    payload.Args,
 	})
 	if err != nil {
 		d.log.Error("capability execution error", "cap", payload.Capability, "agent", f.Header.FromID, "err", err)
@@ -119,7 +112,7 @@ func (d *daemon) auditCapabilityDenial(agentID, capability string, resp capabili
 func (d *daemon) sendCapabilityResponse(f switchboard.Frame, resp capabilities.Response) {
 	respPayload := capabilities.CapabilityResponsePayload{
 		OK:          resp.OK,
-		Data:        resp.Data, // bridge JSON Data for now
+		Data:        resp.Data,
 		ErrorCode:   resp.ErrorCode,
 		ErrorDetail: resp.ErrorDetail,
 	}
@@ -242,57 +235,6 @@ func (d *daemon) pushToCtlSubscribers(f switchboard.Frame) {
 		default: // subscriber is slow; drop rather than block
 		}
 	}
-}
-
-// ---- Ward stdio pipe spawning ----------------------------------------------
-
-// spawnWardPipe opens the Ward binary as a subprocess (for testing / local
-// mode where nspawn is not available) and registers its stdio as a pipe with
-// the Router.
-//
-// In full nspawn mode, keeperd instead opens the Ward stdio pipe that was
-// created at nspawn spawn time (see provisioning.go).
-func (d *daemon) spawnWardPipe(ctx context.Context, agentID string, wardBin string, extraArgs []string) error {
-	args := append([]string{"--agent-id", agentID}, extraArgs...)
-	cmd := exec.CommandContext(ctx, wardBin, args...)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("ward stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("ward stdout pipe: %w", err)
-	}
-	cmd.Stderr = writerSink{log: d.log, agentID: agentID}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("ward start: %w", err)
-	}
-
-	pipe := &switchboard.Pipe{
-		AgentID: agentID,
-		Reader:  bufio.NewReader(stdout),
-		Writer:  stdin,
-		Limiter: switchboard.NewByteRateLimiter(d.cfg.MaxAgentPipeBytesPerSec),
-	}
-
-	d.router.AddPipe(ctx, pipe)
-
-	d.mu.Lock()
-	if a, ok := d.agents[agentID]; ok {
-		a.pipe = pipe
-	}
-	d.mu.Unlock()
-
-	// Reap the subprocess when it exits and remove the pipe.
-	go func() {
-		_ = cmd.Wait()
-		d.router.RemovePipe(agentID)
-		d.log.Info("ward subprocess exited", "agent", agentID)
-	}()
-
-	return nil
 }
 
 // writerSink returns an io.Writer that logs lines from a Ward's stderr.

@@ -1,92 +1,63 @@
 package main
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 func TestValidateToolArgs(t *testing.T) {
-	// Initialize the capability registry for tests.
-	capRegistry = capabilities.GeneratedRegistry()
-
 	tests := []struct {
 		name       string
 		capability string
-		args       string
+		args       []byte
 		wantErr    string
 	}{
 		{
 			name:       "valid browser read",
-			capability: "Browser_Page_Read",
-			args:       `{"url":"https://example.com","timeout":10,"wait_for":"load"}`,
-			wantErr:    "",
+			capability: capabilities.BrowserPageReadName,
+			args:       (&capabilities.Browser_Page_Read{URL: "https://example.com", Timeout: 10, WaitFor: "load"}).MarshalMUS(),
 		},
 		{
-			name:       "missing required field",
-			capability: "Browser_Page_Read",
-			args:       `{"timeout":10}`,
-			wantErr:    `missing required field "url"`,
+			name:       "truncated payload",
+			capability: capabilities.BrowserPageReadName,
+			args:       mus.AppendString(nil, "https://example.com"),
+			wantErr:    `args must satisfy Browser_Page_Read schema`,
 		},
 		{
-			name:       "type mismatch integer for string",
-			capability: "Browser_Page_Read",
-			args:       `{"url":123}`,
-			wantErr:    `field "url" must be a string`,
-		},
-		{
-			name:       "type mismatch string for integer",
-			capability: "Browser_Page_Read",
-			args:       `{"url":"https://example.com","timeout":"fast"}`,
-			wantErr:    `field "timeout" must be an integer`,
-		},
-		{
-			name:       "enum mismatch",
-			capability: "Browser_Page_Read",
-			args:       `{"url":"https://example.com","wait_for":"immediately"}`,
-			wantErr:    `field "wait_for" must be one of "domcontentloaded", "load", "networkidle"`,
-		},
-		{
-			name:       "unknown field",
-			capability: "Browser_Page_Read",
-			args:       `{"url":"https://example.com","extra":"field"}`,
-			wantErr:    `unknown field "extra"`,
+			name:       "trailing bytes",
+			capability: capabilities.BrowserPageReadName,
+			args:       append((&capabilities.Browser_Page_Read{URL: "https://example.com"}).MarshalMUS(), 0xff),
+			wantErr:    `trailing payload bytes`,
 		},
 		{
 			name:       "valid filesystem write",
-			capability: "Filesystem_File_Write",
-			args:       `{"path":"out.txt","content":"hello","append":true,"encoding":"utf-8"}`,
-			wantErr:    "",
+			capability: capabilities.FilesystemFileWriteName,
+			args:       (&capabilities.Filesystem_File_Write{Path: "out.txt", Content: "hello", Append: true, Encoding: "utf-8"}).MarshalMUS(),
 		},
 		{
-			name:       "bool type mismatch",
-			capability: "Filesystem_File_Write",
-			args:       `{"path":"out.txt","content":"hello","append":"yes"}`,
-			wantErr:    `field "append" must be a boolean`,
-		},
-		{
-			name:       "unknown capability (no schema)",
+			name:       "unknown capability",
 			capability: "Nonexistent_Cap",
-			args:       `{"any":"args"}`,
-			wantErr:    "", // Should pass if no schema is found
+			args:       []byte("anything"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateToolArgs(tt.capability, json.RawMessage(tt.args))
+			err := validateToolArgs(tt.capability, tt.args)
 			if tt.wantErr == "" {
 				if err != nil {
-					t.Errorf("validateToolArgs() unexpected error: %v", err)
+					t.Fatalf("validateToolArgs() unexpected error: %v", err)
 				}
-			} else {
-				if err == nil {
-					t.Error("validateToolArgs() expected error, got nil")
-				} else if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("validateToolArgs() error = %v, wantErr %v", err, tt.wantErr)
-				}
+				return
+			}
+			if err == nil {
+				t.Fatal("validateToolArgs() expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validateToolArgs() error = %v, want substring %q", err, tt.wantErr)
 			}
 		})
 	}

@@ -91,7 +91,7 @@ From `internal/switchboard/msgtype.go`:
 
 ## Payload Encoding by Path
 
-The MUS header is binary, and the current implementation now uses MUS for the top-level payload structs on the control plane, capability path, and telemetry path. JSON still appears mainly inside capability args/results where the concrete capability implementations still consume or return JSON blobs.
+The MUS header is binary, and the current implementation uses MUS for the control plane, Ward pipe traffic, Ward tool-socket traffic, capability args/results, and telemetry payloads. JSON remains part of the generated human-facing schema/help surface and is still used where backend protocols require it (for example CDP and Claude stream parsing), but it is no longer used as an embedded transport format for capability args/results.
 
 ### `vivary` <-> `keeperd`
 
@@ -132,13 +132,31 @@ Capability path:
 
 - `ward -> keeperd`: `MsgType_CapabilityRequest` carrying MUS `capabilities.CapabilityRequestPayload`
   - `Capability`: MUS string
-  - `Args`: length-prefixed bytes; today these bytes are still typically JSON for the concrete capability args object
+  - `Args`: length-prefixed bytes containing the capability-specific typed MUS argument payload
 
 - `keeperd -> ward`: `MsgType_CapabilityResponse` carrying MUS `capabilities.CapabilityResponsePayload`
   - `OK`: 1 byte
-  - `Data`: length-prefixed bytes; today these bytes are still typically JSON for capability-specific result data
+  - `Data`: length-prefixed bytes containing the capability-specific typed MUS result payload
   - `ErrorCode`: MUS string
   - `ErrorDetail`: MUS string
+
+### `capwrap` <-> `ward`
+
+Tool invocation path inside the agent container:
+
+- `capwrap -> ward`: MUS `capabilities.ToolRequestPayload`
+  - `Capability`: MUS string
+  - `Mode`: 1 byte (`invoke` or `schema`)
+  - `Args`: length-prefixed bytes containing the capability-specific typed MUS argument payload for `invoke`
+
+- `ward -> capwrap`: MUS `capabilities.CapabilityResponsePayload`
+  - `OK`: 1 byte
+  - `Data`: length-prefixed bytes containing either the schema string (`schema` mode) or the capability-specific typed MUS result payload (`invoke` mode)
+  - `ErrorCode`: MUS string
+  - `ErrorDetail`: MUS string
+
+`vivgen` now generates enough metadata for `capwrap` to decode primitive and structured MUS result payloads for operator-facing output without reintroducing JSON transport blobs.
+For structured returns, that metadata now comes from explicit `returns { field ... }` declarations in `capabilities/capabilities.kdl`, not by parsing field names back out of free-form description text.
 
 Telemetry path:
 
@@ -299,21 +317,7 @@ The implementation requires:
 
 That is close, but not the same handshake.
 
-#### 6. Capability args/results still bridge through JSON blobs in places
-
-The design sometimes reads as if typed MUS payload structs exist end-to-end.
-
-The implementation today is:
-
-- MUS for framing/header
-- MUS for ctl payload structs
-- MUS for capability request/response envelopes
-- MUS for completion/failure payloads
-- JSON still inside some capability `Args` / `Data` byte blobs while concrete capabilities continue to use JSON objects internally
-
-This is fully workable, but the remaining JSON-at-the-edges should be described explicitly.
-
-#### 7. ctl traffic is codec-compatible with agent traffic, but not routed by the same router path
+#### 6. ctl traffic is codec-compatible with agent traffic, but not routed by the same router path
 
 The design says the ctl socket is handled by the same router path.
 
@@ -328,7 +332,7 @@ The frame codec is shared, but the routing path is not yet unified.
 
 If `docs/DESIGN.md` is meant to describe current reality rather than target architecture, these are the main updates to make:
 
-- say explicitly that current MUS usage is `binary header + MUS payload structs`, with JSON still embedded in some capability args/result byte blobs
+- say explicitly that current MUS usage now covers framed control traffic, tool-socket requests, and capability args/results end-to-end
 - replace `MsgType_CtlEvent` with direct pushed `CompletionEvent` and `FailureEvent`, or mark `CtlEvent` as planned
 - mark approval message families as planned, not implemented
 - note that `ctl` uses the same frame format but not yet the same router implementation
@@ -363,14 +367,14 @@ If `docs/DESIGN.md` is meant to describe current reality rather than target arch
 - Ward frames are written by the switchboard/dispatch path
 - completion and failure events are always stored
 
-### Remaining JSON bridges
+### Capability payloads
 
-- `CapabilityRequestPayload.Args` is MUS length-prefixed bytes, but those bytes are still decoded as JSON by `keeperd` before capability dispatch
-- `CapabilityResponsePayload.Data` is MUS length-prefixed bytes, but many capabilities still return JSON result blobs inside it
-- capability implementations such as `Browser_Page_Read` and `Filesystem_File_Write` still consume JSON args structs internally
+- `CapabilityRequestPayload.Args` carries the capability-specific MUS argument struct bytes generated by `vivgen`
+- `CapabilityResponsePayload.Data` carries the capability-specific MUS result bytes produced by the capability implementation
+- `capwrap` uses generated schema metadata only for CLI parsing and `--help`; it does not send JSON over the tool socket
 
 ## Conclusion
 
 The current implementation is directionally aligned with `docs/DESIGN.md`, especially around the single framed control plane, identity handling, capability routing, and telemetry flow.
 
-But it is still a narrower MVP protocol than the design document describes. The biggest differences are the reduced header, the remaining JSON bridges inside capability args/result byte blobs, direct event pushes instead of a ctl event wrapper, and the absence of the approval and unified ctl-router layers.
+But it is still a narrower MVP protocol than the design document describes. The biggest differences are the reduced header, direct event pushes instead of a ctl event wrapper, and the absence of the approval and unified ctl-router layers.

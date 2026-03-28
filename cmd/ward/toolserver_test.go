@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -18,6 +18,7 @@ import (
 	"vivary.dev/vivary/internal/capabilities"
 	"vivary.dev/vivary/internal/ctl"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 // ---- Helpers ---------------------------------------------------------------
@@ -74,7 +75,11 @@ func dialToolSocket(t *testing.T, sockPath string) *net.UnixConn {
 func readToolResponse(t *testing.T, conn *net.UnixConn) ToolResponse {
 	t.Helper()
 	var resp ToolResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+	data, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if err := resp.UnmarshalMUS(bytes.NewReader(data)); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	return resp
@@ -116,18 +121,69 @@ func buildFakeToolCaller(t *testing.T) string {
 	const program = `package main
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
+
+	"vivary.dev/vivary/pkg/mus"
 )
 
-type toolResponse struct {
-	OK          bool            ` + "`json:\"ok\"`" + `
-	Data        json.RawMessage ` + "`json:\"data\"`" + `
-	ErrorCode   string          ` + "`json:\"error_code\"`" + `
-	ErrorDetail string          ` + "`json:\"error_detail\"`" + `
+type toolRequestMode uint8
+
+const toolRequestInvoke toolRequestMode = 0
+
+type toolRequestPayload struct {
+	Capability string
+	Mode       toolRequestMode
+	Args       []byte
+}
+
+func (p toolRequestPayload) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, p.Capability)
+	b = append(b, byte(p.Mode))
+	b = mus.AppendVarint(b, uint64(len(p.Args)))
+	b = append(b, p.Args...)
+	return b
+}
+
+type toolResponsePayload struct {
+	OK          bool
+	Data        []byte
+	ErrorCode   string
+	ErrorDetail string
+}
+
+func (p *toolResponsePayload) UnmarshalMUS(r io.Reader) error {
+	var fixed [1]byte
+	if _, err := io.ReadFull(r, fixed[:]); err != nil {
+		return err
+	}
+	p.OK = fixed[0] != 0
+	l, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	p.Data = make([]byte, l)
+	if _, err := io.ReadFull(r, p.Data); err != nil {
+		return err
+	}
+	if p.ErrorCode, err = mus.ReadString(r, 256); err != nil {
+		return err
+	}
+	p.ErrorDetail, err = mus.ReadString(r, 1024)
+	return err
+}
+
+func marshalBrowserPageRead(url string) []byte {
+	var b []byte
+	b = mus.AppendString(b, url)
+	b = mus.AppendVarint(b, 0)
+	b = mus.AppendString(b, "")
+	return b
 }
 
 func main() {
@@ -141,19 +197,25 @@ func main() {
 		os.Exit(1)
 	}
 	defer conn.Close()
-	req := map[string]any{
-		"capability": "Browser_Page_Read",
-		"args": map[string]any{"url": "https://example.com/page"},
+	req := toolRequestPayload{
+		Capability: "Browser_Page_Read",
+		Mode:       toolRequestInvoke,
+		Args:       marshalBrowserPageRead("https://example.com/page"),
 	}
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
+	if _, err := conn.Write(req.MarshalMUS()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
 		_ = cw.CloseWrite()
 	}
-	var resp toolResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+	var resp toolResponsePayload
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(conn); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := resp.UnmarshalMUS(bytes.NewReader(buf.Bytes())); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -161,8 +223,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", resp.ErrorCode, resp.ErrorDetail)
 		os.Exit(1)
 	}
-	if !strings.Contains(string(resp.Data), "page text") {
-		fmt.Fprintf(os.Stderr, "unexpected response: %s\n", resp.Data)
+	text, err := mus.ReadString(bytes.NewReader(resp.Data), mus.MaxPayloadBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if !strings.Contains(text, "page text") {
+		fmt.Fprintf(os.Stderr, "unexpected response: %s\n", text)
 		os.Exit(1)
 	}
 }
@@ -216,8 +283,7 @@ func (w *frameCaptureWriter) Write(p []byte) (int, error) {
 		w.requests = append(w.requests, req)
 		w.mu.Unlock()
 
-		respData, _ := json.Marshal(map[string]string{"text": "page text"})
-		respPayload := capabilities.CapabilityResponsePayload{OK: true, Data: respData}
+		respPayload := capabilities.CapabilityResponsePayload{OK: true, Data: mus.AppendString(nil, "page text")}
 		w.ward.deliverCapabilityResponse(switchboard.SwarmHeader{Type: switchboard.MsgType_CapabilityResponse, SeqNo: hdr.SeqNo}, respPayload.MarshalMUS())
 		return len(p), nil
 	}
@@ -262,42 +328,10 @@ func (w *frameCaptureWriter) counts() (int, int) {
 	return len(w.requests), len(w.frames)
 }
 
-// toolRoundTrip dials sockPath, sends req as JSON, signals EOF, and returns
-// the decoded ToolResponse.
+// toolRoundTrip dials sockPath, sends one MUS request, and returns the decoded response.
 func toolRoundTrip(t *testing.T, sockPath string, req ToolRequest) ToolResponse {
 	t.Helper()
-	data, _ := json.Marshal(req)
-	return sendRawToolPayload(t, sockPath, data)
-}
-
-// ---- isSchemaOnly unit tests -----------------------------------------------
-
-func TestIsSchemaOnly_True(t *testing.T) {
-	if !isSchemaOnly(json.RawMessage(`{"__schema_only":true}`)) {
-		t.Error("expected true for schema-only sentinel")
-	}
-}
-
-func TestIsSchemaOnly_ExtraKey(t *testing.T) {
-	// Must have exactly one key.
-	if isSchemaOnly(json.RawMessage(`{"__schema_only":true,"extra":"x"}`)) {
-		t.Error("extra key should make isSchemaOnly return false")
-	}
-}
-
-func TestIsSchemaOnly_False(t *testing.T) {
-	cases := []json.RawMessage{
-		json.RawMessage(`{}`),
-		json.RawMessage(`{"url":"https://example.com"}`),
-		json.RawMessage(`null`),
-		nil,
-		json.RawMessage(`not-json`),
-	}
-	for _, c := range cases {
-		if isSchemaOnly(c) {
-			t.Errorf("isSchemaOnly(%s) should be false", c)
-		}
-	}
+	return sendRawToolPayload(t, sockPath, req.MarshalMUS())
 }
 
 // ---- parentDir unit tests --------------------------------------------------
@@ -334,7 +368,7 @@ func TestExecuteTool_LoopDetected(t *testing.T) {
 	w.activeLoop.Store(ld)
 	// No activeCmd — executeTool handles a nil cmd gracefully.
 
-	args := json.RawMessage(`{"url":"https://example.com"}`)
+	args := (&capabilities.Browser_Page_Read{URL: "https://example.com"}).MarshalMUS()
 
 	// Warm the detector to threshold-1 without going through executeTool.
 	for range threshold - 1 {
@@ -365,7 +399,7 @@ func TestExecuteTool_SchemaInvalid_MissingRequiredField(t *testing.T) {
 	w := newTestWardForServer(t)
 	resp := w.executeTool(context.Background(), ToolRequest{
 		Capability: "Browser_Page_Read",
-		Args:       json.RawMessage(`{"wait_for":"networkidle"}`),
+		Args:       mus.AppendString(nil, "https://example.com"),
 	})
 
 	if resp.OK {
@@ -374,7 +408,7 @@ func TestExecuteTool_SchemaInvalid_MissingRequiredField(t *testing.T) {
 	if resp.ErrorCode != "schema_invalid" {
 		t.Fatalf("error_code = %q, want %q", resp.ErrorCode, "schema_invalid")
 	}
-	if !strings.Contains(resp.ErrorDetail, `missing required field "url"`) {
+	if !strings.Contains(resp.ErrorDetail, `args must satisfy Browser_Page_Read schema`) {
 		t.Fatalf("unexpected error detail: %q", resp.ErrorDetail)
 	}
 	abort := w.activeAbort.Load()
@@ -387,7 +421,7 @@ func TestExecuteTool_SchemaInvalid_UnknownField(t *testing.T) {
 	w := newTestWardForServer(t)
 	resp := w.executeTool(context.Background(), ToolRequest{
 		Capability: "Filesystem_File_Write",
-		Args:       json.RawMessage(`{"path":"out.txt","content":"ok","extra":true}`),
+		Args:       append((&capabilities.Filesystem_File_Write{Path: "out.txt", Content: "ok"}).MarshalMUS(), 0xff),
 	})
 
 	if resp.OK {
@@ -396,7 +430,7 @@ func TestExecuteTool_SchemaInvalid_UnknownField(t *testing.T) {
 	if resp.ErrorCode != "schema_invalid" {
 		t.Fatalf("error_code = %q, want %q", resp.ErrorCode, "schema_invalid")
 	}
-	if !strings.Contains(resp.ErrorDetail, `unknown field "extra"`) {
+	if !strings.Contains(resp.ErrorDetail, `trailing payload bytes`) {
 		t.Fatalf("unexpected error detail: %q", resp.ErrorDetail)
 	}
 }
@@ -407,7 +441,7 @@ func TestToolServer_MalformedJSON_SetsAbortKind(t *testing.T) {
 
 	resp := sendRawToolPayload(t, sockPath, []byte("this is not json"))
 	if resp.OK {
-		t.Error("expected OK=false for malformed JSON")
+		t.Error("expected OK=false for malformed MUS payload")
 	}
 	abort := w.activeAbort.Load()
 	if abort == nil || *abort != "malformed_tool_call" {
@@ -537,7 +571,7 @@ func TestHandlePrompt_EmitsSchemaInvalidFailureViaToolSocket(t *testing.T) {
 	// Send schema-invalid tool request: missing "url" field for Browser_Page_Read.
 	resp := toolRoundTrip(t, sockPath, ToolRequest{
 		Capability: "Browser_Page_Read",
-		Args:       json.RawMessage(`{"wait_for":"load"}`),
+		Args:       mus.AppendString(nil, "https://example.com"),
 	})
 	if resp.OK {
 		t.Fatal("schema-invalid tool request unexpectedly succeeded")
@@ -575,7 +609,7 @@ func TestHandlePrompt_ExecutesToolAndEmitsCompletionEvent(t *testing.T) {
 
 	resp := toolRoundTrip(t, sockPath, ToolRequest{
 		Capability: "Browser_Page_Read",
-		Args:       json.RawMessage(`{"url":"https://example.com/page"}`),
+		Args:       (&capabilities.Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS(),
 	})
 	if !resp.OK {
 		t.Fatalf("tool round trip failed: %s %s", resp.ErrorCode, resp.ErrorDetail)
@@ -586,8 +620,12 @@ func TestHandlePrompt_ExecutesToolAndEmitsCompletionEvent(t *testing.T) {
 	if req.Capability != "Browser_Page_Read" {
 		t.Fatalf("capability = %q, want Browser_Page_Read", req.Capability)
 	}
-	if !bytes.Contains(req.Args, []byte(`"url":"https://example.com/page"`)) {
-		t.Fatalf("unexpected capability args: %s", req.Args)
+	var args capabilities.Browser_Page_Read
+	if err := args.UnmarshalMUS(bytes.NewReader(req.Args)); err != nil {
+		t.Fatalf("decode capability args: %v", err)
+	}
+	if args.URL != "https://example.com/page" {
+		t.Fatalf("url = %q, want https://example.com/page", args.URL)
 	}
 
 	hdr, payload, err := capture.singleFrame(t)
@@ -644,8 +682,12 @@ func TestHandlePrompt_FakeClaudeInvokesToolAndEmitsCompletionEvent(t *testing.T)
 	if req.Capability != "Browser_Page_Read" {
 		t.Fatalf("capability = %q, want Browser_Page_Read", req.Capability)
 	}
-	if !bytes.Contains(req.Args, []byte(`"url":"https://example.com/page"`)) {
-		t.Fatalf("unexpected capability args: %s", req.Args)
+	var args capabilities.Browser_Page_Read
+	if err := args.UnmarshalMUS(bytes.NewReader(req.Args)); err != nil {
+		t.Fatalf("decode capability args: %v", err)
+	}
+	if args.URL != "https://example.com/page" {
+		t.Fatalf("url = %q, want https://example.com/page", args.URL)
 	}
 
 	hdr, payload, err := capture.singleFrame(t)
@@ -681,7 +723,7 @@ func TestToolServer_MalformedJSON(t *testing.T) {
 
 	resp := sendRawToolPayload(t, sockPath, []byte("this is not json"))
 	if resp.OK {
-		t.Error("expected OK=false for malformed JSON")
+		t.Error("expected OK=false for malformed MUS payload")
 	}
 	if resp.ErrorCode != "bad_request" {
 		t.Errorf("error_code = %q, want %q", resp.ErrorCode, "bad_request")
@@ -694,7 +736,7 @@ func TestToolServer_MissingCapabilityName(t *testing.T) {
 
 	resp := toolRoundTrip(t, sockPath, ToolRequest{
 		Capability: "", // omitted
-		Args:       json.RawMessage(`{"url":"https://example.com"}`),
+		Args:       (&capabilities.Browser_Page_Read{URL: "https://example.com"}).MarshalMUS(),
 	})
 	if resp.OK {
 		t.Error("expected OK=false for missing capability name")
@@ -710,17 +752,16 @@ func TestToolServer_SchemaOnly_KnownCapability(t *testing.T) {
 
 	resp := toolRoundTrip(t, sockPath, ToolRequest{
 		Capability: "Browser_Page_Read",
-		Args:       json.RawMessage(`{"__schema_only":true}`),
+		Mode:       capabilities.ToolRequestSchema,
 	})
 	if !resp.OK {
 		t.Fatalf("schema-only for known capability should succeed: %s %s", resp.ErrorCode, resp.ErrorDetail)
 	}
-	// Data must contain a "schema" key with non-empty value.
-	var data map[string]string
-	if err := json.Unmarshal(resp.Data, &data); err != nil {
-		t.Fatalf("response data not a JSON object: %v", err)
+	schema, err := mus.ReadString(bytes.NewReader(resp.Data), mus.MaxPayloadBytes)
+	if err != nil {
+		t.Fatalf("response data not a MUS string: %v", err)
 	}
-	if data["schema"] == "" {
+	if schema == "" {
 		t.Error("expected non-empty schema in response data")
 	}
 }
@@ -731,7 +772,7 @@ func TestToolServer_SchemaOnly_UnknownCapability(t *testing.T) {
 
 	resp := toolRoundTrip(t, sockPath, ToolRequest{
 		Capability: "Nonexistent_Cap_Do",
-		Args:       json.RawMessage(`{"__schema_only":true}`),
+		Mode:       capabilities.ToolRequestSchema,
 	})
 	if resp.OK {
 		t.Error("expected OK=false for unknown capability schema request")

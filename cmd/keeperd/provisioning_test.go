@@ -286,7 +286,7 @@ capabilities "Browser_Page_Read" {
 		Name:    capabilities.BrowserPageReadName,
 		AgentID: "agent-scoped",
 		SeqNo:   1,
-		Args:    []byte(`{"url":"https://en.wikipedia.org/wiki/Go"}`),
+		Args:    (&capabilities.Browser_Page_Read{URL: "https://en.wikipedia.org/wiki/Go"}).MarshalMUS(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +300,7 @@ capabilities "Browser_Page_Read" {
 		Name:    capabilities.BrowserPageReadName,
 		AgentID: "agent-scoped",
 		SeqNo:   2,
-		Args:    []byte(`{"url":"https://en.wikipedia.org/other"}`),
+		Args:    (&capabilities.Browser_Page_Read{URL: "https://en.wikipedia.org/other"}).MarshalMUS(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -417,7 +417,7 @@ func TestProvisioningACLCleanupOnDestroy(t *testing.T) {
 		Name:    capabilities.FilesystemFileWriteName,
 		AgentID: "agent-acl",
 		SeqNo:   1,
-		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+		Args:    (&capabilities.Filesystem_File_Write{Path: "x.txt", Content: "y"}).MarshalMUS(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -437,7 +437,7 @@ func TestProvisioningACLCleanupOnDestroy(t *testing.T) {
 		Name:    capabilities.FilesystemFileWriteName,
 		AgentID: "agent-acl",
 		SeqNo:   1,
-		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+		Args:    (&capabilities.Filesystem_File_Write{Path: "x.txt", Content: "y"}).MarshalMUS(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -481,7 +481,7 @@ func TestProvisioningSpawnFailureCleansUpStateACLAndSubvolume(t *testing.T) {
 		Name:    capabilities.FilesystemFileWriteName,
 		AgentID: "agent-fail",
 		SeqNo:   1,
-		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+		Args:    (&capabilities.Filesystem_File_Write{Path: "x.txt", Content: "y"}).MarshalMUS(),
 	})
 	if dispatchErr != nil {
 		t.Fatal(dispatchErr)
@@ -530,7 +530,7 @@ func TestProvisioningCapabilityInstallFailureCleansUpStateAndSubvolume(t *testin
 		Name:    capabilities.FilesystemFileWriteName,
 		AgentID: "agent-install-fail",
 		SeqNo:   1,
-		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+		Args:    (&capabilities.Filesystem_File_Write{Path: "x.txt", Content: "y"}).MarshalMUS(),
 	})
 	if dispatchErr != nil {
 		t.Fatal(dispatchErr)
@@ -607,7 +607,7 @@ func TestProvisioningDestroyCallsNetworkTerminateAndSubvolumeCleanup(t *testing.
 		Name:    capabilities.FilesystemFileWriteName,
 		AgentID: "agent-clean",
 		SeqNo:   1,
-		Args:    []byte(`{"path":"x.txt","content":"y"}`),
+		Args:    (&capabilities.Filesystem_File_Write{Path: "x.txt", Content: "y"}).MarshalMUS(),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -56,7 +56,12 @@ capability Browser_Page_GetTitle {
     description "Fully-qualified URL to inspect"
     example "https://example.com"
   }
-  returns object description="Object with fields: title, description, canonical_url, status_code"
+  returns object description="Object with fields: title, description, canonical_url, status_code" {
+    field title type=string required=true
+    field description type=string required=true
+    field canonical_url type=string required=true
+    field status_code type=int required=true
+  }
 }
 capability Browser_Form_Submit {
   category Browser
@@ -75,7 +80,11 @@ capability Browser_Form_Submit {
     description "CSS selector of the submit button; omits native form submit if absent"
     example "button[type=submit]"
   }
-  returns object description="Object with fields: final_url, status_code, page_text"
+  returns object description="Object with fields: final_url, status_code, page_text" {
+    field final_url type=string required=true
+    field status_code type=int required=true
+    field page_text type=string required=true
+  }
 }
 capability Browser_Link_List {
   category Browser
@@ -89,7 +98,11 @@ capability Browser_Link_List {
   field same_domain_only type=bool required=false default=true {
     description "Filter results to links sharing the same domain as the source URL"
   }
-  returns list<object> description="List of {text, href, rel} objects"
+  returns list<object> description="List of {text, href, rel} objects" {
+    field text type=string required=true
+    field href type=string required=true
+    field rel type=string required=true
+  }
 }
 
 
@@ -114,7 +127,12 @@ capability Search_Web_Query {
     description "Restrict results to pages published after this date (ISO8601)"
     example 2025-01-01
   }
-  returns list<object> description="List of {title, url, snippet, published_date} objects"
+  returns list<object> description="List of {title, url, snippet, published_date} objects" {
+    field title type=string required=true
+    field url type=string required=true
+    field snippet type=string required=true
+    field published_date type=string required=true
+  }
 }
 capability Search_Corpus_Query {
   category Search
@@ -134,7 +152,11 @@ capability Search_Corpus_Query {
     min 1
     max 20
   }
-  returns list<object> description="List of {content, source, score} objects"
+  returns list<object> description="List of {content, source, score} objects" {
+    field content type=string required=true
+    field source type=string required=true
+    field score type=int required=true
+  }
 }
 
 
@@ -174,7 +196,10 @@ capability Filesystem_File_Write {
   field encoding type=string required=false default=utf-8 {
     enum utf-8 base64
   }
-  returns object description="Object with fields: path, bytes_written"
+  returns object description="Object with fields: path, bytes_written" {
+    field path type=string required=true
+    field bytes_written type=int required=true
+  }
 }
 capability Filesystem_File_Delete {
   category Filesystem
@@ -214,7 +239,12 @@ capability Filesystem_Dir_List {
   field recursive type=bool required=false default=false {
     description "Recurse into subdirectories"
   }
-  returns list<object> description="List of {name, type, size_bytes, modified_at} objects"
+  returns list<object> description="List of {name, type, size_bytes, modified_at} objects" {
+    field name type=string required=true
+    field type type=string required=true
+    field size_bytes type=int required=true
+    field modified_at type=string required=true
+  }
 }
 capability Filesystem_Dir_Create {
   category Filesystem
@@ -250,7 +280,12 @@ capability Code_Script_Exec {
     min 1
     max 300
   }
-  returns object description="Object with fields: stdout, stderr, exit_code, duration_ms"
+  returns object description="Object with fields: stdout, stderr, exit_code, duration_ms" {
+    field stdout type=string required=true
+    field stderr type=string required=true
+    field exit_code type=int required=true
+    field duration_ms type=string required=true
+  }
 }
 capability Code_Test_Run {
   category Execution
@@ -269,7 +304,12 @@ capability Code_Test_Run {
     description "Pattern to filter which tests run"
     example TestSwitchboard
   }
-  returns object description="Object with fields: passed, failed, skipped, output"
+  returns object description="Object with fields: passed, failed, skipped, output" {
+    field passed type=int required=true
+    field failed type=int required=true
+    field skipped type=int required=true
+    field output type=string required=true
+  }
 }
 capability Code_Lint_Run {
   category Execution
@@ -283,7 +323,13 @@ capability Code_Lint_Run {
   field path type=string required=false default=. {
     description "Workspace-relative path to lint"
   }
-  returns list<object> description="List of {file, line, severity, message, rule} objects"
+  returns list<object> description="List of {file, line, severity, message, rule} objects" {
+    field file type=string required=true
+    field line type=string required=true
+    field severity type=string required=true
+    field message type=string required=true
+    field rule type=string required=true
+  }
 }
 
 
@@ -311,7 +357,14 @@ capability Email_Message_List {
     description "Provider search query to filter results"
     example "from:boss@example.com subject:urgent"
   }
-  returns list<object> description="List of {id, from, subject, date, unread, has_attachments} objects"
+  returns list<object> description="List of {id, from, subject, date, unread, has_attachments} objects" {
+    field id type=string required=true
+    field from type=string required=true
+    field subject type=string required=true
+    field date type=string required=true
+    field unread type=bool required=true
+    field has_attachments type=bool required=true
+  }
 }
 capability Email_Message_Read {
   category Email
@@ -324,7 +377,15 @@ capability Email_Message_Read {
   field strip_tracking type=bool required=false default=true {
     description "Remove tracking pixels and link redirects from the body"
   }
-  returns object description="Object with fields: from, to, cc, subject, date, body_markdown, attachments"
+  returns object description="Object with fields: from, to, cc, subject, date, body_markdown, attachments" {
+    field from type=string required=true
+    field to type=string required=true
+    field cc type=string required=true
+    field subject type=string required=true
+    field date type=string required=true
+    field body_markdown type=string required=true
+    field attachments type=string required=true
+  }
 }
 capability Email_Message_Create {
   category Email
@@ -344,7 +405,10 @@ capability Email_Message_Create {
   field cc type=list<string> required=false {
     description "CC recipient addresses"
   }
-  returns object description="Object with fields: draft_id, created_at"
+  returns object description="Object with fields: draft_id, created_at" {
+    field draft_id type=string required=true
+    field created_at type=string required=true
+  }
 }
 capability Email_Message_Send {
   category Email
@@ -355,7 +419,10 @@ capability Email_Message_Send {
   field draft_id type=string required=true {
     description "Draft ID from Mail_Message_Create"
   }
-  returns object description="Object with fields: message_id, sent_at"
+  returns object description="Object with fields: message_id, sent_at" {
+    field message_id type=string required=true
+    field sent_at type=string required=true
+  }
 }
 
 
@@ -378,7 +445,15 @@ capability Calendar_Event_List {
   field calendar_id type=string required=false default=primary {
     description "Calendar identifier; defaults to the primary calendar"
   }
-  returns list<object> description="List of {id, title, start, end, location, attendees, organizer} objects"
+  returns list<object> description="List of {id, title, start, end, location, attendees, organizer} objects" {
+    field id type=string required=true
+    field title type=string required=true
+    field start type=string required=true
+    field end type=string required=true
+    field location type=string required=true
+    field attendees type=list<string> required=true
+    field organizer type=string required=true
+  }
 }
 capability Calendar_Event_Read {
   category Calendar
@@ -388,7 +463,16 @@ capability Calendar_Event_Read {
   field event_id type=string required=true {
     description "Event ID from Calendar_Event_List"
   }
-  returns object description="Object with fields: id, title, start, end, location, description, attendees, status"
+  returns object description="Object with fields: id, title, start, end, location, description, attendees, status" {
+    field id type=string required=true
+    field title type=string required=true
+    field start type=string required=true
+    field end type=string required=true
+    field location type=string required=true
+    field description type=string required=true
+    field attendees type=list<string> required=true
+    field status type=string required=true
+  }
 }
 capability Calendar_Event_Create {
   category Calendar
@@ -416,7 +500,10 @@ capability Calendar_Event_Create {
   field description type=string required=false {
     description "Event body / agenda"
   }
-  returns object description="Object with fields: event_id, html_link"
+  returns object description="Object with fields: event_id, html_link" {
+    field event_id type=string required=true
+    field html_link type=string required=true
+  }
 }
 capability Calendar_Slot_Find {
   category Calendar
@@ -441,7 +528,10 @@ capability Calendar_Slot_Find {
   field working_hours_only type=bool required=false default=true {
     description "Restrict results to 09:00–18:00 local time of the organiser"
   }
-  returns list<object> description="List of {start, end} free slot objects, sorted by start time"
+  returns list<object> description="List of {start, end} free slot objects, sorted by start time" {
+    field start type=string required=true
+    field end type=string required=true
+  }
 }
 
 
@@ -478,7 +568,10 @@ capability Spreadsheet_Range_Update {
   field values type=list<list<string>> required=true {
     description "2D array of values to write"
   }
-  returns object description="Object with fields: updated_range, updated_cells"
+  returns object description="Object with fields: updated_range, updated_cells" {
+    field updated_range type=string required=true
+    field updated_cells type=int required=true
+  }
 }
 capability Spreadsheet_Row_Create {
   category Spreadsheet
@@ -495,7 +588,10 @@ capability Spreadsheet_Row_Create {
   field values type=list<string> required=true {
     description "Ordered list of cell values for the new row"
   }
-  returns object description="Object with fields: range, updated_rows"
+  returns object description="Object with fields: range, updated_rows" {
+    field range type=string required=true
+    field updated_rows type=int required=true
+  }
 }
 capability Spreadsheet_Sheet_List {
   category Spreadsheet
@@ -505,7 +601,12 @@ capability Spreadsheet_Sheet_List {
   field spreadsheet_id type=string required=true {
     description "Provider spreadsheet identifier"
   }
-  returns list<object> description="List of {sheet_id, title, row_count, col_count} objects"
+  returns list<object> description="List of {sheet_id, title, row_count, col_count} objects" {
+    field sheet_id type=string required=true
+    field title type=string required=true
+    field row_count type=int required=true
+    field col_count type=int required=true
+  }
 }
 
 
@@ -533,7 +634,10 @@ capability Document_Content_Append {
   field content type=string required=true {
     description "Markdown text to append"
   }
-  returns object description="Object with fields: document_id, revision_id"
+  returns object description="Object with fields: document_id, revision_id" {
+    field document_id type=string required=true
+    field revision_id type=string required=true
+  }
 }
 capability Document_Content_Replace {
   category Document
@@ -550,7 +654,11 @@ capability Document_Content_Replace {
   field content type=string required=true {
     description "Replacement markdown content"
   }
-  returns object description="Object with fields: document_id, revision_id, replaced_chars"
+  returns object description="Object with fields: document_id, revision_id, replaced_chars" {
+    field document_id type=string required=true
+    field revision_id type=string required=true
+    field replaced_chars type=int required=true
+  }
 }
 capability Document_Doc_List {
   category Document
@@ -565,7 +673,12 @@ capability Document_Doc_List {
     min 1
     max 100
   }
-  returns list<object> description="List of {id, title, modified_at, owner} objects"
+  returns list<object> description="List of {id, title, modified_at, owner} objects" {
+    field id type=string required=true
+    field title type=string required=true
+    field modified_at type=string required=true
+    field owner type=string required=true
+  }
 }
 
 
@@ -588,7 +701,10 @@ capability Memory_Fact_Store {
     description "Categorical tags for filtered retrieval"
     example "[\"preference\", \"user\"]"
   }
-  returns object description="Object with fields: key, stored_at"
+  returns object description="Object with fields: key, stored_at" {
+    field key type=string required=true
+    field stored_at type=string required=true
+  }
 }
 capability Memory_Fact_Search {
   category Memory
@@ -603,7 +719,13 @@ capability Memory_Fact_Search {
     min 1
     max 20
   }
-  returns list<object> description="List of {key, value, tags, score, stored_at} objects"
+  returns list<object> description="List of {key, value, tags, score, stored_at} objects" {
+    field key type=string required=true
+    field value type=string required=true
+    field tags type=list<string> required=true
+    field score type=int required=true
+    field stored_at type=string required=true
+  }
 }
 capability Memory_Fact_Delete {
   category Memory
@@ -627,7 +749,12 @@ capability Memory_Fact_List {
     min 1
     max 200
   }
-  returns list<object> description="List of {key, value, tags, stored_at} objects"
+  returns list<object> description="List of {key, value, tags, stored_at} objects" {
+    field key type=string required=true
+    field value type=string required=true
+    field tags type=list<string> required=true
+    field stored_at type=string required=true
+  }
 }
 
 
@@ -642,7 +769,12 @@ capability VersionControl_Status_Read {
   field path type=string required=false default=. {
     description "Workspace-relative path to the repository root"
   }
-  returns object description="Object with fields: branch, staged, unstaged, untracked"
+  returns object description="Object with fields: branch, staged, unstaged, untracked" {
+    field branch type=string required=true
+    field staged type=string required=true
+    field unstaged type=string required=true
+    field untracked type=string required=true
+  }
 }
 capability VersionControl_Diff_Read {
   category VersionControl
@@ -677,7 +809,12 @@ capability VersionControl_Log_List {
   field branch type=string required=false {
     description "Branch to list commits from; defaults to current branch"
   }
-  returns list<object> description="List of {hash, author, date, subject} objects"
+  returns list<object> description="List of {hash, author, date, subject} objects" {
+    field hash type=string required=true
+    field author type=string required=true
+    field date type=string required=true
+    field subject type=string required=true
+  }
 }
 capability VersionControl_Branch_List {
   category VersionControl
@@ -690,7 +827,12 @@ capability VersionControl_Branch_List {
   field remote type=bool required=false default=false {
     description "Include remote-tracking branches"
   }
-  returns list<object> description="List of {name, is_current, last_commit_hash, last_commit_date} objects"
+  returns list<object> description="List of {name, is_current, last_commit_hash, last_commit_date} objects" {
+    field name type=string required=true
+    field is_current type=bool required=true
+    field last_commit_hash type=string required=true
+    field last_commit_date type=string required=true
+  }
 }
 capability VersionControl_Branch_Create {
   category VersionControl
@@ -707,7 +849,10 @@ capability VersionControl_Branch_Create {
   field from type=string required=false default=HEAD {
     description "Ref to branch from"
   }
-  returns object description="Object with fields: name, from_hash"
+  returns object description="Object with fields: name, from_hash" {
+    field name type=string required=true
+    field from_hash type=string required=true
+  }
 }
 capability VersionControl_Commit_Create {
   category VersionControl
@@ -724,7 +869,11 @@ capability VersionControl_Commit_Create {
   field files type=list<string> required=true {
     description "Workspace-relative file paths to stage; use [\".\"] to stage all changes"
   }
-  returns object description="Object with fields: hash, branch, files_changed"
+  returns object description="Object with fields: hash, branch, files_changed" {
+    field hash type=string required=true
+    field branch type=string required=true
+    field files_changed type=int required=true
+  }
 }
 capability VersionControl_Remote_Push {
   category VersionControl
@@ -740,7 +889,11 @@ capability VersionControl_Remote_Push {
   field force type=bool required=false default=false {
     description "Force push; only permitted if agent.kdl explicitly allows it"
   }
-  returns object description="Object with fields: remote, branch, commits_pushed"
+  returns object description="Object with fields: remote, branch, commits_pushed" {
+    field remote type=bool required=true
+    field branch type=string required=true
+    field commits_pushed type=int required=true
+  }
 }
 
 
@@ -765,7 +918,12 @@ capability Database_Query_Exec {
     min 1
     max 5000
   }
-  returns object description="Object with fields: columns, rows, row_count, truncated"
+  returns object description="Object with fields: columns, rows, row_count, truncated" {
+    field columns type=list<string> required=true
+    field rows type=list<list<string>> required=true
+    field row_count type=int required=true
+    field truncated type=bool required=true
+  }
 }
 capability Database_Table_List {
   category Database
@@ -775,7 +933,11 @@ capability Database_Table_List {
   field source_id type=string required=true {
     description "Data source identifier from agent.kdl data.sources"
   }
-  returns list<object> description="List of {name, row_count, size_bytes} objects"
+  returns list<object> description="List of {name, row_count, size_bytes} objects" {
+    field name type=string required=true
+    field row_count type=int required=true
+    field size_bytes type=int required=true
+  }
 }
 capability Database_Schema_Read {
   category Database
@@ -789,7 +951,12 @@ capability Database_Schema_Read {
     description "Table or collection name"
     example events
   }
-  returns list<object> description="List of {column, type, nullable, default} objects"
+  returns list<object> description="List of {column, type, nullable, default} objects" {
+    field column type=string required=true
+    field type type=string required=true
+    field nullable type=bool required=true
+    field default type=string required=true
+  }
 }
 
 
@@ -816,14 +983,25 @@ capability System_Process_Exec {
   field env type=list<object> required=false {
     description "Additional environment variables as {key, value} objects"
   }
-  returns object description="Object with fields: stdout, stderr, exit_code, duration_ms"
+  returns object description="Object with fields: stdout, stderr, exit_code, duration_ms" {
+    field stdout type=string required=true
+    field stderr type=string required=true
+    field exit_code type=int required=true
+    field duration_ms type=string required=true
+  }
 }
 capability System_Process_List {
   category System
   description "List running processes in the agent jail"
   risk low
   reads entity=Process
-  returns list<object> description="List of {pid, name, cpu_pct, mem_mb, started_at} objects"
+  returns list<object> description="List of {pid, name, cpu_pct, mem_mb, started_at} objects" {
+    field pid type=int required=true
+    field name type=string required=true
+    field cpu_pct type=int required=true
+    field mem_mb type=int required=true
+    field started_at type=string required=true
+  }
 }
 capability System_Process_Kill {
   category System
@@ -872,7 +1050,11 @@ capability Media_Audio_Transcribe {
     description "BCP-47 language code hint; omit for auto-detection"
     example en-US
   }
-  returns object description="Object with fields: text, language, duration_seconds"
+  returns object description="Object with fields: text, language, duration_seconds" {
+    field text type=string required=true
+    field language type=string required=true
+    field duration_seconds type=int required=true
+  }
 }
 
 
@@ -895,7 +1077,10 @@ capability Swarm_Message_Send {
     description "Semantic message type for the receiver to route on"
     enum task result query ack error
   }
-  returns object description="Object with fields: seq_no, delivered_at"
+  returns object description="Object with fields: seq_no, delivered_at" {
+    field seq_no type=int required=true
+    field delivered_at type=string required=true
+  }
 }
 capability Swarm_Group_Send {
   category Swarm
@@ -912,12 +1097,20 @@ capability Swarm_Group_Send {
   field msg_type type=string required=false default=task {
     enum task result query ack error
   }
-  returns object description="Object with fields: seq_no, delivered_to_count"
+  returns object description="Object with fields: seq_no, delivered_to_count" {
+    field seq_no type=int required=true
+    field delivered_to_count type=int required=true
+  }
 }
 capability Swarm_Agent_List {
   category Swarm
   description "List agents currently registered with keeperd"
   risk low
   reads entity=Agent
-  returns list<object> description="List of {id, status, groups, last_seen} objects"
+  returns list<object> description="List of {id, status, groups, last_seen} objects" {
+    field id type=string required=true
+    field status type=string required=true
+    field groups type=list<string> required=true
+    field last_seen type=string required=true
+  }
 }

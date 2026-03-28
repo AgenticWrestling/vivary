@@ -10,13 +10,12 @@ package capabilities
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
 
-	"vivary.dev/vivary/pkg/mus"
 	"vivary.dev/vivary/internal/switchboard"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 // Request carries a decoded capability invocation.
@@ -30,8 +29,8 @@ type Request struct {
 	// SeqNo is the frame SeqNo of the originating CapabilityRequest frame.
 	SeqNo uint64
 
-	// Args is the raw JSON arguments object from the agent's tool invocation.
-	Args json.RawMessage
+	// Args is the binary MUS-encoded argument payload for the capability.
+	Args []byte
 }
 
 // Response is the result returned to the Ward as a CapabilityResponse payload.
@@ -39,8 +38,8 @@ type Response struct {
 	// OK indicates whether the capability succeeded.
 	OK bool `json:"ok"`
 
-	// Data is the capability-specific result (text, JSON, etc).
-	Data json.RawMessage `json:"data,omitempty"`
+	// Data is the capability-specific MUS-encoded result payload.
+	Data []byte `json:"data,omitempty"`
 
 	// ErrorCode is set on failure.
 	ErrorCode string `json:"error_code,omitempty"`
@@ -70,6 +69,12 @@ type Capability interface {
 	// Execute performs the capability action.  keeperd calls this only after
 	// ACL, scope, and approval checks pass.
 	Execute(ctx context.Context, req Request) (Response, error)
+}
+
+// MUSPayload is a generic binary MUS payload.
+type MUSPayload interface {
+	MarshalMUS() []byte
+	UnmarshalMUS(r io.Reader) error
 }
 
 // SwarmCapability adds binary MUS marshalling to the base interface.

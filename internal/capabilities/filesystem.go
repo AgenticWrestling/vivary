@@ -1,8 +1,8 @@
 package capabilities
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,13 +23,13 @@ const FilesystemFileWriteName = "Filesystem_File_Write"
 // FilesystemFileWrite implements Capability for Filesystem_File_Write.
 type FilesystemFileWrite struct{}
 
-func (f *FilesystemFileWrite) Name() string      { return FilesystemFileWriteName }
-func (f *FilesystemFileWrite) Explain() string   { return Filesystem_File_WriteSchema }
+func (f *FilesystemFileWrite) Name() string       { return FilesystemFileWriteName }
+func (f *FilesystemFileWrite) Explain() string    { return Filesystem_File_WriteSchema }
 func (f *FilesystemFileWrite) AuditPayload() bool { return true }
 
 func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Response, error) {
 	var args Filesystem_File_Write
-	if err := json.Unmarshal(req.Args, &args); err != nil {
+	if err := args.UnmarshalMUS(bytes.NewReader(req.Args)); err != nil {
 		return DeniedResponse("args schema mismatch: " + err.Error()), nil
 	}
 
@@ -78,12 +78,13 @@ func (f *FilesystemFileWrite) Execute(ctx context.Context, req Request) (Respons
 	}
 	defer fobj.Close()
 
-	if _, err := fobj.WriteString(args.Content); err != nil {
+	bytesWritten, err := fobj.WriteString(args.Content)
+	if err != nil {
 		return Response{OK: false, ErrorCode: "fs_error", ErrorDetail: err.Error()}, nil
 	}
 
-	data, _ := json.Marshal(map[string]string{"path": clean, "status": "written"})
-	return Response{OK: true, Data: data}, nil
+	result := Filesystem_File_Write_Result{Path: clean, BytesWritten: bytesWritten}
+	return Response{OK: true, Data: result.MarshalMUS()}, nil
 }
 
 // containsDotDot returns true if any path element is "..".

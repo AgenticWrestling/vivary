@@ -68,7 +68,7 @@ Conceptually, Ward is a **syntax/protocol adapter**, not a second policy engine.
 
 **Capabilities as CLI tools:**
 
-Capabilities are installed within the nspawn container as self-documenting CLI binaries. The LLM subprocess invokes them as bash tools. Running any capability with `--help` returns its full JSON schema (generated from the `capabilities/*.kdl` source files by `vivgen`). The Ward intercepts these invocations, parses the LLM-facing tool-call syntax, validates that the call is structurally well-formed against the declared capability schema, translates the valid request into MUS, forwards it to `keeperd`, and injects the response as the tool's stdout. The LLM never sees MUS framing — it sees ordinary CLI tools.
+Capabilities are installed within the nspawn container as self-documenting CLI binaries. The LLM subprocess invokes them as bash tools. Running any capability with `--help` returns its full JSON schema (generated from the `capabilities/*.kdl` source files by `vivgen`). The `capwrap` shim parses CLI flags against generated capability metadata, encodes typed MUS argument payloads, and sends them over the Ward tool socket. Ward validates the typed MUS payload against the generated argument codec, forwards it to `keeperd`, and injects the typed MUS result back through `capwrap` as ordinary tool stdout. `vivgen` now also generates result codecs/metadata for the capability return path so operator-facing rendering can decode MUS results without falling back to JSON transport blobs. The LLM never sees MUS framing — it sees ordinary CLI tools.
 
 **LLM subprocess lifecycle:**
 
@@ -460,6 +460,8 @@ capability "Email_Message_Send" {
 ```
 
 This lets `keeperd` validate at load time that every `entity` block in an `allow` grant references an entity type the capability actually touches.
+
+Capabilities also declare their return shape in `capabilities.kdl`. Primitive returns (`string`, `bool`, `bytes`) are declared directly, while structured returns now carry explicit child `field` entries under the `returns` block so `vivgen` can generate typed MUS result codecs instead of inferring result fields from prose descriptions.
 
 **Go SDK (`SwarmCapability`):**
 

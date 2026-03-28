@@ -2,12 +2,28 @@
 package capabilities
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 
 	"vivary.dev/vivary/pkg/mus"
 )
+
+type GeneratedField struct {
+	Name     string
+	Type     string
+	Required bool
+	Enum     []string
+}
+
+type GeneratedCapabilityInfo struct {
+	Schema     string
+	Fields     []GeneratedField
+	ReturnType string
+	ReturnDesc string
+}
 
 // GeneratedRegistry returns a map of all registered capability names to their JSON schemas.
 func GeneratedRegistry() map[string]string {
@@ -24,7 +40,6 @@ func GeneratedRegistry() map[string]string {
 		"Code_Lint_Run":                Code_Lint_RunSchema,
 		"Code_Script_Exec":             Code_Script_ExecSchema,
 		"Code_Test_Run":                Code_Test_RunSchema,
-		"Commerce_Order_Create":        Commerce_Order_CreateSchema,
 		"Database_Query_Exec":          Database_Query_ExecSchema,
 		"Database_Schema_Read":         Database_Schema_ReadSchema,
 		"Database_Table_List":          Database_Table_ListSchema,
@@ -48,13 +63,8 @@ func GeneratedRegistry() map[string]string {
 		"Memory_Fact_List":             Memory_Fact_ListSchema,
 		"Memory_Fact_Search":           Memory_Fact_SearchSchema,
 		"Memory_Fact_Store":            Memory_Fact_StoreSchema,
-		"Messaging_Channel_List":       Messaging_Channel_ListSchema,
-		"Messaging_Chat_Send":          Messaging_Chat_SendSchema,
-		"Messaging_Message_List":       Messaging_Message_ListSchema,
-		"Messaging_Sms_Send":           Messaging_Sms_SendSchema,
 		"Search_Corpus_Query":          Search_Corpus_QuerySchema,
 		"Search_Web_Query":             Search_Web_QuerySchema,
-		"SmartHome_Device_Invoke":      SmartHome_Device_InvokeSchema,
 		"Spreadsheet_Range_Read":       Spreadsheet_Range_ReadSchema,
 		"Spreadsheet_Range_Update":     Spreadsheet_Range_UpdateSchema,
 		"Spreadsheet_Row_Create":       Spreadsheet_Row_CreateSchema,
@@ -73,6 +83,349 @@ func GeneratedRegistry() map[string]string {
 		"VersionControl_Remote_Push":   VersionControl_Remote_PushSchema,
 		"VersionControl_Status_Read":   VersionControl_Status_ReadSchema,
 	}
+}
+
+// GeneratedCapabilityInfoRegistry returns capability schema metadata used by capwrap and Ward.
+func GeneratedCapabilityInfoRegistry() map[string]GeneratedCapabilityInfo {
+	return map[string]GeneratedCapabilityInfo{
+		"Browser_Form_Submit":          {Schema: Browser_Form_SubmitSchema, Fields: []GeneratedField{{Name: "url", Type: "string", Required: true, Enum: []string(nil)}, {Name: "fields", Type: "list<object>", Required: true, Enum: []string(nil)}, {Name: "submit_selector", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: final_url, status_code, page_text"},
+		"Browser_Link_List":            {Schema: Browser_Link_ListSchema, Fields: []GeneratedField{{Name: "url", Type: "string", Required: true, Enum: []string(nil)}, {Name: "same_domain_only", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {text, href, rel} objects"},
+		"Browser_Page_GetTitle":        {Schema: Browser_Page_GetTitleSchema, Fields: []GeneratedField{{Name: "url", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: title, description, canonical_url, status_code"},
+		"Browser_Page_Read":            {Schema: Browser_Page_ReadSchema, Fields: []GeneratedField{{Name: "url", Type: "string", Required: true, Enum: []string(nil)}, {Name: "timeout", Type: "int", Required: false, Enum: []string(nil)}, {Name: "wait_for", Type: "string", Required: false, Enum: []string{"load", "domcontentloaded", "networkidle"}}}, ReturnType: "string", ReturnDesc: "Readable page text in markdown format"},
+		"Browser_Page_Screenshot":      {Schema: Browser_Page_ScreenshotSchema, Fields: []GeneratedField{{Name: "url", Type: "string", Required: true, Enum: []string(nil)}, {Name: "selector", Type: "string", Required: false, Enum: []string(nil)}, {Name: "full_page", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "bytes", ReturnDesc: "PNG image data"},
+		"Calendar_Event_Create":        {Schema: Calendar_Event_CreateSchema, Fields: []GeneratedField{{Name: "title", Type: "string", Required: true, Enum: []string(nil)}, {Name: "start", Type: "string", Required: true, Enum: []string(nil)}, {Name: "end", Type: "string", Required: true, Enum: []string(nil)}, {Name: "attendees", Type: "list<string>", Required: false, Enum: []string(nil)}, {Name: "location", Type: "string", Required: false, Enum: []string(nil)}, {Name: "description", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: event_id, html_link"},
+		"Calendar_Event_List":          {Schema: Calendar_Event_ListSchema, Fields: []GeneratedField{{Name: "start", Type: "string", Required: true, Enum: []string(nil)}, {Name: "end", Type: "string", Required: true, Enum: []string(nil)}, {Name: "calendar_id", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {id, title, start, end, location, attendees, organizer} objects"},
+		"Calendar_Event_Read":          {Schema: Calendar_Event_ReadSchema, Fields: []GeneratedField{{Name: "event_id", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: id, title, start, end, location, description, attendees, status"},
+		"Calendar_Slot_Find":           {Schema: Calendar_Slot_FindSchema, Fields: []GeneratedField{{Name: "attendees", Type: "list<string>", Required: true, Enum: []string(nil)}, {Name: "duration_minutes", Type: "int", Required: true, Enum: []string(nil)}, {Name: "window_start", Type: "string", Required: true, Enum: []string(nil)}, {Name: "window_end", Type: "string", Required: true, Enum: []string(nil)}, {Name: "working_hours_only", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {start, end} free slot objects, sorted by start time"},
+		"Code_Lint_Run":                {Schema: Code_Lint_RunSchema, Fields: []GeneratedField{{Name: "linter", Type: "string", Required: true, Enum: []string{"golangci-lint", "ruff", "eslint", "rubocop", "clippy"}}, {Name: "path", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {file, line, severity, message, rule} objects"},
+		"Code_Script_Exec":             {Schema: Code_Script_ExecSchema, Fields: []GeneratedField{{Name: "interpreter", Type: "string", Required: true, Enum: []string{"bash", "python3", "node", "ruby"}}, {Name: "script", Type: "string", Required: true, Enum: []string(nil)}, {Name: "timeout", Type: "int", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: stdout, stderr, exit_code, duration_ms"},
+		"Code_Test_Run":                {Schema: Code_Test_RunSchema, Fields: []GeneratedField{{Name: "framework", Type: "string", Required: true, Enum: []string{"go-test", "pytest", "jest", "rspec", "cargo-test"}}, {Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "filter", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: passed, failed, skipped, output"},
+		"Database_Query_Exec":          {Schema: Database_Query_ExecSchema, Fields: []GeneratedField{{Name: "source_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "query", Type: "string", Required: true, Enum: []string(nil)}, {Name: "max_rows", Type: "int", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: columns, rows, row_count, truncated"},
+		"Database_Schema_Read":         {Schema: Database_Schema_ReadSchema, Fields: []GeneratedField{{Name: "source_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "table", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {column, type, nullable, default} objects"},
+		"Database_Table_List":          {Schema: Database_Table_ListSchema, Fields: []GeneratedField{{Name: "source_id", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {name, row_count, size_bytes} objects"},
+		"Document_Content_Append":      {Schema: Document_Content_AppendSchema, Fields: []GeneratedField{{Name: "document_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "content", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: document_id, revision_id"},
+		"Document_Content_Read":        {Schema: Document_Content_ReadSchema, Fields: []GeneratedField{{Name: "document_id", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "string", ReturnDesc: "Document content in markdown format"},
+		"Document_Content_Replace":     {Schema: Document_Content_ReplaceSchema, Fields: []GeneratedField{{Name: "document_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "heading", Type: "string", Required: true, Enum: []string(nil)}, {Name: "content", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: document_id, revision_id, replaced_chars"},
+		"Document_Doc_List":            {Schema: Document_Doc_ListSchema, Fields: []GeneratedField{{Name: "query", Type: "string", Required: false, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {id, title, modified_at, owner} objects"},
+		"Email_Message_Create":         {Schema: Email_Message_CreateSchema, Fields: []GeneratedField{{Name: "to", Type: "list<string>", Required: true, Enum: []string(nil)}, {Name: "subject", Type: "string", Required: true, Enum: []string(nil)}, {Name: "body", Type: "string", Required: true, Enum: []string(nil)}, {Name: "cc", Type: "list<string>", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: draft_id, created_at"},
+		"Email_Message_List":           {Schema: Email_Message_ListSchema, Fields: []GeneratedField{{Name: "folder", Type: "string", Required: false, Enum: []string(nil)}, {Name: "unread_only", Type: "bool", Required: false, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}, {Name: "query", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {id, from, subject, date, unread, has_attachments} objects"},
+		"Email_Message_Read":           {Schema: Email_Message_ReadSchema, Fields: []GeneratedField{{Name: "message_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "strip_tracking", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: from, to, cc, subject, date, body_markdown, attachments"},
+		"Email_Message_Send":           {Schema: Email_Message_SendSchema, Fields: []GeneratedField{{Name: "draft_id", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: message_id, sent_at"},
+		"Filesystem_Dir_Create":        {Schema: Filesystem_Dir_CreateSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "bool", ReturnDesc: "true if the directory was created or already existed"},
+		"Filesystem_Dir_List":          {Schema: Filesystem_Dir_ListSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "recursive", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {name, type, size_bytes, modified_at} objects"},
+		"Filesystem_File_Delete":       {Schema: Filesystem_File_DeleteSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "bool", ReturnDesc: "true if the file was deleted"},
+		"Filesystem_File_Move":         {Schema: Filesystem_File_MoveSchema, Fields: []GeneratedField{{Name: "src", Type: "string", Required: true, Enum: []string(nil)}, {Name: "dst", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "bool", ReturnDesc: "true if the move succeeded"},
+		"Filesystem_File_Read":         {Schema: Filesystem_File_ReadSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: true, Enum: []string(nil)}, {Name: "encoding", Type: "string", Required: false, Enum: []string{"utf-8", "base64"}}}, ReturnType: "string", ReturnDesc: "File contents"},
+		"Filesystem_File_Write":        {Schema: Filesystem_File_WriteSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: true, Enum: []string(nil)}, {Name: "content", Type: "string", Required: true, Enum: []string(nil)}, {Name: "append", Type: "bool", Required: false, Enum: []string(nil)}, {Name: "encoding", Type: "string", Required: false, Enum: []string{"utf-8", "base64"}}}, ReturnType: "object", ReturnDesc: "Object with fields: path, bytes_written"},
+		"Media_Audio_Transcribe":       {Schema: Media_Audio_TranscribeSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: true, Enum: []string(nil)}, {Name: "language", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: text, language, duration_seconds"},
+		"Media_Image_Analyze":          {Schema: Media_Image_AnalyzeSchema, Fields: []GeneratedField{{Name: "source", Type: "string", Required: true, Enum: []string(nil)}, {Name: "prompt", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "string", ReturnDesc: "Vision model response text"},
+		"Memory_Fact_Delete":           {Schema: Memory_Fact_DeleteSchema, Fields: []GeneratedField{{Name: "key", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "bool", ReturnDesc: "true if the memory existed and was deleted"},
+		"Memory_Fact_List":             {Schema: Memory_Fact_ListSchema, Fields: []GeneratedField{{Name: "tag", Type: "string", Required: false, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {key, value, tags, stored_at} objects"},
+		"Memory_Fact_Search":           {Schema: Memory_Fact_SearchSchema, Fields: []GeneratedField{{Name: "query", Type: "string", Required: true, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {key, value, tags, score, stored_at} objects"},
+		"Memory_Fact_Store":            {Schema: Memory_Fact_StoreSchema, Fields: []GeneratedField{{Name: "key", Type: "string", Required: true, Enum: []string(nil)}, {Name: "value", Type: "string", Required: true, Enum: []string(nil)}, {Name: "tags", Type: "list<string>", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: key, stored_at"},
+		"Search_Corpus_Query":          {Schema: Search_Corpus_QuerySchema, Fields: []GeneratedField{{Name: "query", Type: "string", Required: true, Enum: []string(nil)}, {Name: "corpus_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {content, source, score} objects"},
+		"Search_Web_Query":             {Schema: Search_Web_QuerySchema, Fields: []GeneratedField{{Name: "query", Type: "string", Required: true, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}, {Name: "date_after", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {title, url, snippet, published_date} objects"},
+		"Spreadsheet_Range_Read":       {Schema: Spreadsheet_Range_ReadSchema, Fields: []GeneratedField{{Name: "spreadsheet_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "range", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "list<list<string>>", ReturnDesc: "2D array of cell values as strings"},
+		"Spreadsheet_Range_Update":     {Schema: Spreadsheet_Range_UpdateSchema, Fields: []GeneratedField{{Name: "spreadsheet_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "range", Type: "string", Required: true, Enum: []string(nil)}, {Name: "values", Type: "list<list<string>>", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: updated_range, updated_cells"},
+		"Spreadsheet_Row_Create":       {Schema: Spreadsheet_Row_CreateSchema, Fields: []GeneratedField{{Name: "spreadsheet_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "sheet_name", Type: "string", Required: true, Enum: []string(nil)}, {Name: "values", Type: "list<string>", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: range, updated_rows"},
+		"Spreadsheet_Sheet_List":       {Schema: Spreadsheet_Sheet_ListSchema, Fields: []GeneratedField{{Name: "spreadsheet_id", Type: "string", Required: true, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {sheet_id, title, row_count, col_count} objects"},
+		"Swarm_Agent_List":             {Schema: Swarm_Agent_ListSchema, Fields: []GeneratedField{}, ReturnType: "list<object>", ReturnDesc: "List of {id, status, groups, last_seen} objects"},
+		"Swarm_Group_Send":             {Schema: Swarm_Group_SendSchema, Fields: []GeneratedField{{Name: "group", Type: "string", Required: true, Enum: []string(nil)}, {Name: "payload", Type: "string", Required: true, Enum: []string(nil)}, {Name: "msg_type", Type: "string", Required: false, Enum: []string{"task", "result", "query", "ack", "error"}}}, ReturnType: "object", ReturnDesc: "Object with fields: seq_no, delivered_to_count"},
+		"Swarm_Message_Send":           {Schema: Swarm_Message_SendSchema, Fields: []GeneratedField{{Name: "to_id", Type: "string", Required: true, Enum: []string(nil)}, {Name: "payload", Type: "string", Required: true, Enum: []string(nil)}, {Name: "msg_type", Type: "string", Required: false, Enum: []string{"task", "result", "query", "ack", "error"}}}, ReturnType: "object", ReturnDesc: "Object with fields: seq_no, delivered_at"},
+		"System_Process_Exec":          {Schema: System_Process_ExecSchema, Fields: []GeneratedField{{Name: "command", Type: "string", Required: true, Enum: []string(nil)}, {Name: "workdir", Type: "string", Required: false, Enum: []string(nil)}, {Name: "timeout", Type: "int", Required: false, Enum: []string(nil)}, {Name: "env", Type: "list<object>", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: stdout, stderr, exit_code, duration_ms"},
+		"System_Process_Kill":          {Schema: System_Process_KillSchema, Fields: []GeneratedField{{Name: "pid", Type: "int", Required: true, Enum: []string(nil)}, {Name: "signal", Type: "string", Required: false, Enum: []string{"SIGTERM", "SIGKILL", "SIGINT", "SIGHUP"}}}, ReturnType: "bool", ReturnDesc: "true if the signal was delivered"},
+		"System_Process_List":          {Schema: System_Process_ListSchema, Fields: []GeneratedField{}, ReturnType: "list<object>", ReturnDesc: "List of {pid, name, cpu_pct, mem_mb, started_at} objects"},
+		"VersionControl_Branch_Create": {Schema: VersionControl_Branch_CreateSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "name", Type: "string", Required: true, Enum: []string(nil)}, {Name: "from", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: name, from_hash"},
+		"VersionControl_Branch_List":   {Schema: VersionControl_Branch_ListSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "remote", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {name, is_current, last_commit_hash, last_commit_date} objects"},
+		"VersionControl_Commit_Create": {Schema: VersionControl_Commit_CreateSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "message", Type: "string", Required: true, Enum: []string(nil)}, {Name: "files", Type: "list<string>", Required: true, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: hash, branch, files_changed"},
+		"VersionControl_Diff_Read":     {Schema: VersionControl_Diff_ReadSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "base", Type: "string", Required: false, Enum: []string(nil)}, {Name: "head", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "string", ReturnDesc: "Unified diff output"},
+		"VersionControl_Log_List":      {Schema: VersionControl_Log_ListSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "max_results", Type: "int", Required: false, Enum: []string(nil)}, {Name: "branch", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "list<object>", ReturnDesc: "List of {hash, author, date, subject} objects"},
+		"VersionControl_Remote_Push":   {Schema: VersionControl_Remote_PushSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}, {Name: "remote", Type: "string", Required: false, Enum: []string(nil)}, {Name: "force", Type: "bool", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: remote, branch, commits_pushed"},
+		"VersionControl_Status_Read":   {Schema: VersionControl_Status_ReadSchema, Fields: []GeneratedField{{Name: "path", Type: "string", Required: false, Enum: []string(nil)}}, ReturnType: "object", ReturnDesc: "Object with fields: branch, staged, unstaged, untracked"},
+	}
+}
+
+// NewArgumentPayload constructs a typed MUS payload for a capability's arguments.
+func NewArgumentPayload(name string) (interface {
+	MarshalMUS() []byte
+	UnmarshalMUS(io.Reader) error
+}, bool) {
+	switch name {
+	case "Browser_Form_Submit":
+		return &Browser_Form_Submit{}, true
+	case "Browser_Link_List":
+		return &Browser_Link_List{}, true
+	case "Browser_Page_GetTitle":
+		return &Browser_Page_GetTitle{}, true
+	case "Browser_Page_Read":
+		return &Browser_Page_Read{}, true
+	case "Browser_Page_Screenshot":
+		return &Browser_Page_Screenshot{}, true
+	case "Calendar_Event_Create":
+		return &Calendar_Event_Create{}, true
+	case "Calendar_Event_List":
+		return &Calendar_Event_List{}, true
+	case "Calendar_Event_Read":
+		return &Calendar_Event_Read{}, true
+	case "Calendar_Slot_Find":
+		return &Calendar_Slot_Find{}, true
+	case "Code_Lint_Run":
+		return &Code_Lint_Run{}, true
+	case "Code_Script_Exec":
+		return &Code_Script_Exec{}, true
+	case "Code_Test_Run":
+		return &Code_Test_Run{}, true
+	case "Database_Query_Exec":
+		return &Database_Query_Exec{}, true
+	case "Database_Schema_Read":
+		return &Database_Schema_Read{}, true
+	case "Database_Table_List":
+		return &Database_Table_List{}, true
+	case "Document_Content_Append":
+		return &Document_Content_Append{}, true
+	case "Document_Content_Read":
+		return &Document_Content_Read{}, true
+	case "Document_Content_Replace":
+		return &Document_Content_Replace{}, true
+	case "Document_Doc_List":
+		return &Document_Doc_List{}, true
+	case "Email_Message_Create":
+		return &Email_Message_Create{}, true
+	case "Email_Message_List":
+		return &Email_Message_List{}, true
+	case "Email_Message_Read":
+		return &Email_Message_Read{}, true
+	case "Email_Message_Send":
+		return &Email_Message_Send{}, true
+	case "Filesystem_Dir_Create":
+		return &Filesystem_Dir_Create{}, true
+	case "Filesystem_Dir_List":
+		return &Filesystem_Dir_List{}, true
+	case "Filesystem_File_Delete":
+		return &Filesystem_File_Delete{}, true
+	case "Filesystem_File_Move":
+		return &Filesystem_File_Move{}, true
+	case "Filesystem_File_Read":
+		return &Filesystem_File_Read{}, true
+	case "Filesystem_File_Write":
+		return &Filesystem_File_Write{}, true
+	case "Media_Audio_Transcribe":
+		return &Media_Audio_Transcribe{}, true
+	case "Media_Image_Analyze":
+		return &Media_Image_Analyze{}, true
+	case "Memory_Fact_Delete":
+		return &Memory_Fact_Delete{}, true
+	case "Memory_Fact_List":
+		return &Memory_Fact_List{}, true
+	case "Memory_Fact_Search":
+		return &Memory_Fact_Search{}, true
+	case "Memory_Fact_Store":
+		return &Memory_Fact_Store{}, true
+	case "Search_Corpus_Query":
+		return &Search_Corpus_Query{}, true
+	case "Search_Web_Query":
+		return &Search_Web_Query{}, true
+	case "Spreadsheet_Range_Read":
+		return &Spreadsheet_Range_Read{}, true
+	case "Spreadsheet_Range_Update":
+		return &Spreadsheet_Range_Update{}, true
+	case "Spreadsheet_Row_Create":
+		return &Spreadsheet_Row_Create{}, true
+	case "Spreadsheet_Sheet_List":
+		return &Spreadsheet_Sheet_List{}, true
+	case "Swarm_Agent_List":
+		return &Swarm_Agent_List{}, true
+	case "Swarm_Group_Send":
+		return &Swarm_Group_Send{}, true
+	case "Swarm_Message_Send":
+		return &Swarm_Message_Send{}, true
+	case "System_Process_Exec":
+		return &System_Process_Exec{}, true
+	case "System_Process_Kill":
+		return &System_Process_Kill{}, true
+	case "System_Process_List":
+		return &System_Process_List{}, true
+	case "VersionControl_Branch_Create":
+		return &VersionControl_Branch_Create{}, true
+	case "VersionControl_Branch_List":
+		return &VersionControl_Branch_List{}, true
+	case "VersionControl_Commit_Create":
+		return &VersionControl_Commit_Create{}, true
+	case "VersionControl_Diff_Read":
+		return &VersionControl_Diff_Read{}, true
+	case "VersionControl_Log_List":
+		return &VersionControl_Log_List{}, true
+	case "VersionControl_Remote_Push":
+		return &VersionControl_Remote_Push{}, true
+	case "VersionControl_Status_Read":
+		return &VersionControl_Status_Read{}, true
+	default:
+		return nil, false
+	}
+}
+
+// NewResultPayload constructs a typed MUS payload for a capability result when the return metadata is structured enough to generate one.
+func NewResultPayload(name string) (interface {
+	MarshalMUS() []byte
+	UnmarshalMUS(io.Reader) error
+}, bool) {
+	switch name {
+	case "Browser_Form_Submit":
+		return &Browser_Form_Submit_Result{}, true
+	case "Browser_Link_List":
+		return &Browser_Link_List_Result{}, true
+	case "Browser_Page_GetTitle":
+		return &Browser_Page_GetTitle_Result{}, true
+	case "Calendar_Event_Create":
+		return &Calendar_Event_Create_Result{}, true
+	case "Calendar_Event_List":
+		return &Calendar_Event_List_Result{}, true
+	case "Calendar_Event_Read":
+		return &Calendar_Event_Read_Result{}, true
+	case "Calendar_Slot_Find":
+		return &Calendar_Slot_Find_Result{}, true
+	case "Code_Lint_Run":
+		return &Code_Lint_Run_Result{}, true
+	case "Code_Script_Exec":
+		return &Code_Script_Exec_Result{}, true
+	case "Code_Test_Run":
+		return &Code_Test_Run_Result{}, true
+	case "Database_Query_Exec":
+		return &Database_Query_Exec_Result{}, true
+	case "Database_Schema_Read":
+		return &Database_Schema_Read_Result{}, true
+	case "Database_Table_List":
+		return &Database_Table_List_Result{}, true
+	case "Document_Content_Append":
+		return &Document_Content_Append_Result{}, true
+	case "Document_Content_Replace":
+		return &Document_Content_Replace_Result{}, true
+	case "Document_Doc_List":
+		return &Document_Doc_List_Result{}, true
+	case "Email_Message_Create":
+		return &Email_Message_Create_Result{}, true
+	case "Email_Message_List":
+		return &Email_Message_List_Result{}, true
+	case "Email_Message_Read":
+		return &Email_Message_Read_Result{}, true
+	case "Email_Message_Send":
+		return &Email_Message_Send_Result{}, true
+	case "Filesystem_Dir_List":
+		return &Filesystem_Dir_List_Result{}, true
+	case "Filesystem_File_Write":
+		return &Filesystem_File_Write_Result{}, true
+	case "Media_Audio_Transcribe":
+		return &Media_Audio_Transcribe_Result{}, true
+	case "Memory_Fact_List":
+		return &Memory_Fact_List_Result{}, true
+	case "Memory_Fact_Search":
+		return &Memory_Fact_Search_Result{}, true
+	case "Memory_Fact_Store":
+		return &Memory_Fact_Store_Result{}, true
+	case "Search_Corpus_Query":
+		return &Search_Corpus_Query_Result{}, true
+	case "Search_Web_Query":
+		return &Search_Web_Query_Result{}, true
+	case "Spreadsheet_Range_Update":
+		return &Spreadsheet_Range_Update_Result{}, true
+	case "Spreadsheet_Row_Create":
+		return &Spreadsheet_Row_Create_Result{}, true
+	case "Spreadsheet_Sheet_List":
+		return &Spreadsheet_Sheet_List_Result{}, true
+	case "Swarm_Agent_List":
+		return &Swarm_Agent_List_Result{}, true
+	case "Swarm_Group_Send":
+		return &Swarm_Group_Send_Result{}, true
+	case "Swarm_Message_Send":
+		return &Swarm_Message_Send_Result{}, true
+	case "System_Process_Exec":
+		return &System_Process_Exec_Result{}, true
+	case "System_Process_List":
+		return &System_Process_List_Result{}, true
+	case "VersionControl_Branch_Create":
+		return &VersionControl_Branch_Create_Result{}, true
+	case "VersionControl_Branch_List":
+		return &VersionControl_Branch_List_Result{}, true
+	case "VersionControl_Commit_Create":
+		return &VersionControl_Commit_Create_Result{}, true
+	case "VersionControl_Log_List":
+		return &VersionControl_Log_List_Result{}, true
+	case "VersionControl_Remote_Push":
+		return &VersionControl_Remote_Push_Result{}, true
+	case "VersionControl_Status_Read":
+		return &VersionControl_Status_Read_Result{}, true
+	default:
+		return nil, false
+	}
+}
+
+// DecodeResultToJSON decodes a capability result payload into JSON for operator-facing rendering.
+func DecodeResultToJSON(name string, data []byte) ([]byte, bool, error) {
+	info, ok := GeneratedCapabilityInfoRegistry()[name]
+	if !ok {
+		return nil, false, nil
+	}
+	switch info.ReturnType {
+	case "string":
+		v, err := mus.ReadString(bytes.NewReader(data), mus.MaxPayloadBytes)
+		if err != nil {
+			return nil, false, err
+		}
+		jb, err := json.Marshal(v)
+		return jb, true, err
+	case "bool":
+		if len(data) != 1 {
+			return nil, false, fmt.Errorf("bool result: expected 1 byte, got %d", len(data))
+		}
+		jb, err := json.Marshal(data[0] != 0)
+		return jb, true, err
+	case "bytes":
+		jb, err := json.Marshal(base64.StdEncoding.EncodeToString(data))
+		return jb, true, err
+	case "list<list<string>>":
+		v, err := decodeStringMatrix(data)
+		if err != nil {
+			return nil, false, err
+		}
+		jb, err := json.Marshal(v)
+		return jb, true, err
+	default:
+		payload, ok := NewResultPayload(name)
+		if !ok {
+			return nil, false, nil
+		}
+		if err := payload.UnmarshalMUS(bytes.NewReader(data)); err != nil {
+			return nil, false, err
+		}
+		jb, err := json.Marshal(payload)
+		return jb, true, err
+	}
+}
+
+func decodeStringMatrix(data []byte) ([][]string, error) {
+	r := bytes.NewReader(data)
+	rowsN, err := mus.ReadVarint(r)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([][]string, rowsN)
+	for i := uint64(0); i < rowsN; i++ {
+		colsN, err := mus.ReadVarint(r)
+		if err != nil {
+			return nil, err
+		}
+		rows[i] = make([]string, colsN)
+		for j := uint64(0); j < colsN; j++ {
+			rows[i][j], err = mus.ReadString(r, mus.MaxPayloadBytes)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if r.Len() != 0 {
+		return nil, fmt.Errorf("string matrix result: trailing payload bytes")
+	}
+	return rows, nil
 }
 
 // Browser_Form_SubmitSchema is the JSON Schema for Browser_Form_Submit.
@@ -163,6 +516,41 @@ func (a *Browser_Form_Submit) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Browser_Form_Submit_Result is the typed MUS result payload.
+// Object with fields: final_url, status_code, page_text
+type Browser_Form_Submit_Result struct {
+	FinalURL   string `json:"final_url"`
+	StatusCode int    `json:"status_code"`
+	PageText   string `json:"page_text"`
+}
+
+func (a *Browser_Form_Submit_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.FinalURL)
+	b = mus.AppendVarint(b, uint64(a.StatusCode))
+	b = mus.AppendString(b, a.PageText)
+	return b
+}
+
+func (a *Browser_Form_Submit_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.FinalURL, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "final_url", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "status_code", err)
+		}
+		a.StatusCode = int(v)
+	}
+	if a.PageText, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "page_text", err)
+	}
+	return nil
+}
+
 // Browser_Link_ListSchema is the JSON Schema for Browser_Link_List.
 const Browser_Link_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -227,6 +615,63 @@ func (a *Browser_Link_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Browser_Link_List_ResultItem is the typed MUS result payload.
+// List of {text, href, rel} objects
+type Browser_Link_List_ResultItem struct {
+	Text string `json:"text"`
+	Href string `json:"href"`
+	Rel  string `json:"rel"`
+}
+
+func (a *Browser_Link_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Text)
+	b = mus.AppendString(b, a.Href)
+	b = mus.AppendString(b, a.Rel)
+	return b
+}
+
+func (a *Browser_Link_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Text, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "text", err)
+	}
+	if a.Href, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "href", err)
+	}
+	if a.Rel, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "rel", err)
+	}
+	return nil
+}
+
+// Browser_Link_List_Result is the typed MUS result for Browser_Link_List.
+type Browser_Link_List_Result []Browser_Link_List_ResultItem
+
+func (a *Browser_Link_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Browser_Link_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Browser_Link_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Browser_Page_GetTitleSchema is the JSON Schema for Browser_Page_GetTitle.
 const Browser_Page_GetTitleSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -268,6 +713,46 @@ func (a *Browser_Page_GetTitle) UnmarshalMUS(r io.Reader) error {
 	_ = err
 	if a.URL, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "url", err)
+	}
+	return nil
+}
+
+// Browser_Page_GetTitle_Result is the typed MUS result payload.
+// Object with fields: title, description, canonical_url, status_code
+type Browser_Page_GetTitle_Result struct {
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	CanonicalURL string `json:"canonical_url"`
+	StatusCode   int    `json:"status_code"`
+}
+
+func (a *Browser_Page_GetTitle_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Title)
+	b = mus.AppendString(b, a.Description)
+	b = mus.AppendString(b, a.CanonicalURL)
+	b = mus.AppendVarint(b, uint64(a.StatusCode))
+	return b
+}
+
+func (a *Browser_Page_GetTitle_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Title, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "title", err)
+	}
+	if a.Description, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "description", err)
+	}
+	if a.CanonicalURL, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "canonical_url", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "status_code", err)
+		}
+		a.StatusCode = int(v)
 	}
 	return nil
 }
@@ -540,6 +1025,32 @@ func (a *Calendar_Event_Create) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Calendar_Event_Create_Result is the typed MUS result payload.
+// Object with fields: event_id, html_link
+type Calendar_Event_Create_Result struct {
+	EventId  string `json:"event_id"`
+	HtmlLink string `json:"html_link"`
+}
+
+func (a *Calendar_Event_Create_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.EventId)
+	b = mus.AppendString(b, a.HtmlLink)
+	return b
+}
+
+func (a *Calendar_Event_Create_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.EventId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "event_id", err)
+	}
+	if a.HtmlLink, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "html_link", err)
+	}
+	return nil
+}
+
 // Calendar_Event_ListSchema is the JSON Schema for Calendar_Event_List.
 const Calendar_Event_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -610,6 +1121,79 @@ func (a *Calendar_Event_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Calendar_Event_List_ResultItem is the typed MUS result payload.
+// List of {id, title, start, end, location, attendees, organizer} objects
+type Calendar_Event_List_ResultItem struct {
+	Id        string   `json:"id"`
+	Title     string   `json:"title"`
+	Start     string   `json:"start"`
+	End       string   `json:"end"`
+	Location  string   `json:"location"`
+	Attendees []string `json:"attendees"`
+	Organizer string   `json:"organizer"`
+}
+
+func (a *Calendar_Event_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Id)
+	b = mus.AppendString(b, a.Title)
+	b = mus.AppendString(b, a.Start)
+	b = mus.AppendString(b, a.End)
+	b = mus.AppendString(b, a.Location)
+	b = mus.AppendString(b, a.Organizer)
+	return b
+}
+
+func (a *Calendar_Event_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Id, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "id", err)
+	}
+	if a.Title, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "title", err)
+	}
+	if a.Start, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "start", err)
+	}
+	if a.End, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "end", err)
+	}
+	if a.Location, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "location", err)
+	}
+	if a.Organizer, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "organizer", err)
+	}
+	return nil
+}
+
+// Calendar_Event_List_Result is the typed MUS result for Calendar_Event_List.
+type Calendar_Event_List_Result []Calendar_Event_List_ResultItem
+
+func (a *Calendar_Event_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Calendar_Event_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Calendar_Event_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Calendar_Event_ReadSchema is the JSON Schema for Calendar_Event_Read.
 const Calendar_Event_ReadSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -648,6 +1232,58 @@ func (a *Calendar_Event_Read) UnmarshalMUS(r io.Reader) error {
 	_ = err
 	if a.EventId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "event_id", err)
+	}
+	return nil
+}
+
+// Calendar_Event_Read_Result is the typed MUS result payload.
+// Object with fields: id, title, start, end, location, description, attendees, status
+type Calendar_Event_Read_Result struct {
+	Id          string   `json:"id"`
+	Title       string   `json:"title"`
+	Start       string   `json:"start"`
+	End         string   `json:"end"`
+	Location    string   `json:"location"`
+	Description string   `json:"description"`
+	Attendees   []string `json:"attendees"`
+	Status      string   `json:"status"`
+}
+
+func (a *Calendar_Event_Read_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Id)
+	b = mus.AppendString(b, a.Title)
+	b = mus.AppendString(b, a.Start)
+	b = mus.AppendString(b, a.End)
+	b = mus.AppendString(b, a.Location)
+	b = mus.AppendString(b, a.Description)
+	b = mus.AppendString(b, a.Status)
+	return b
+}
+
+func (a *Calendar_Event_Read_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Id, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "id", err)
+	}
+	if a.Title, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "title", err)
+	}
+	if a.Start, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "start", err)
+	}
+	if a.End, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "end", err)
+	}
+	if a.Location, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "location", err)
+	}
+	if a.Description, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "description", err)
+	}
+	if a.Status, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "status", err)
 	}
 	return nil
 }
@@ -771,6 +1407,58 @@ func (a *Calendar_Slot_Find) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Calendar_Slot_Find_ResultItem is the typed MUS result payload.
+// List of {start, end} free slot objects, sorted by start time
+type Calendar_Slot_Find_ResultItem struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+func (a *Calendar_Slot_Find_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Start)
+	b = mus.AppendString(b, a.End)
+	return b
+}
+
+func (a *Calendar_Slot_Find_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Start, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "start", err)
+	}
+	if a.End, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "end", err)
+	}
+	return nil
+}
+
+// Calendar_Slot_Find_Result is the typed MUS result for Calendar_Slot_Find.
+type Calendar_Slot_Find_Result []Calendar_Slot_Find_ResultItem
+
+func (a *Calendar_Slot_Find_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Calendar_Slot_Find_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Calendar_Slot_Find_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Code_Lint_RunSchema is the JSON Schema for Code_Lint_Run.
 const Code_Lint_RunSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -827,6 +1515,73 @@ func (a *Code_Lint_Run) UnmarshalMUS(r io.Reader) error {
 	}
 	if a.Path, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "path", err)
+	}
+	return nil
+}
+
+// Code_Lint_Run_ResultItem is the typed MUS result payload.
+// List of {file, line, severity, message, rule} objects
+type Code_Lint_Run_ResultItem struct {
+	File     string `json:"file"`
+	Line     string `json:"line"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Rule     string `json:"rule"`
+}
+
+func (a *Code_Lint_Run_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.File)
+	b = mus.AppendString(b, a.Line)
+	b = mus.AppendString(b, a.Severity)
+	b = mus.AppendString(b, a.Message)
+	b = mus.AppendString(b, a.Rule)
+	return b
+}
+
+func (a *Code_Lint_Run_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.File, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "file", err)
+	}
+	if a.Line, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "line", err)
+	}
+	if a.Severity, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "severity", err)
+	}
+	if a.Message, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "message", err)
+	}
+	if a.Rule, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "rule", err)
+	}
+	return nil
+}
+
+// Code_Lint_Run_Result is the typed MUS result for Code_Lint_Run.
+type Code_Lint_Run_Result []Code_Lint_Run_ResultItem
+
+func (a *Code_Lint_Run_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Code_Lint_Run_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Code_Lint_Run_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -908,6 +1663,46 @@ func (a *Code_Script_Exec) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Code_Script_Exec_Result is the typed MUS result payload.
+// Object with fields: stdout, stderr, exit_code, duration_ms
+type Code_Script_Exec_Result struct {
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	ExitCode   int    `json:"exit_code"`
+	DurationMs string `json:"duration_ms"`
+}
+
+func (a *Code_Script_Exec_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Stdout)
+	b = mus.AppendString(b, a.Stderr)
+	b = mus.AppendVarint(b, uint64(a.ExitCode))
+	b = mus.AppendString(b, a.DurationMs)
+	return b
+}
+
+func (a *Code_Script_Exec_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Stdout, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stdout", err)
+	}
+	if a.Stderr, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stderr", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "exit_code", err)
+		}
+		a.ExitCode = int(v)
+	}
+	if a.DurationMs, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "duration_ms", err)
+	}
+	return nil
+}
+
 // Code_Test_RunSchema is the JSON Schema for Code_Test_Run.
 const Code_Test_RunSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -981,96 +1776,50 @@ func (a *Code_Test_Run) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
-// Commerce_Order_CreateSchema is the JSON Schema for Commerce_Order_Create.
-const Commerce_Order_CreateSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Commerce_Order_Create",
-  "description": "Place an order with a configured commerce provider (e.g. Shopify, Amazon). Requires explicit operator approval by default due to critical risk level.",
-  "type": "object",
-  "properties": {
-    "confirm": {
-      "description": "Must be explicitly set to true; prevents accidental order placement",
-      "type": "boolean",
-      "additionalProperties": false,
-      "default": false
-    },
-    "quantity": {
-      "description": "Number of units to order",
-      "type": "integer",
-      "additionalProperties": false
-    },
-    "shipping_address_id": {
-      "description": "ID of a pre-registered shipping address in the operator vault",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "addr_home"
-      ]
-    },
-    "sku": {
-      "description": "Product SKU or provider item ID to purchase",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "B08N5WRWNW"
-      ]
-    }
-  },
-  "required": [
-    "sku",
-    "quantity",
-    "shipping_address_id",
-    "confirm"
-  ],
-  "additionalProperties": false
-}`
-
-// Commerce_Order_Create is the argument struct for the Commerce_Order_Create capability.
-// Place an order with a configured commerce provider (e.g. Shopify, Amazon). Requires explicit operator approval by default due to critical risk level.
-type Commerce_Order_Create struct {
-	Sku               string `json:"sku"`                 // Product SKU or provider item ID to purchase
-	Quantity          int    `json:"quantity"`            // Number of units to order
-	ShippingAddressId string `json:"shipping_address_id"` // ID of a pre-registered shipping address in the operator vault
-	Confirm           bool   `json:"confirm"`             // Must be explicitly set to true; prevents accidental order placement
+// Code_Test_Run_Result is the typed MUS result payload.
+// Object with fields: passed, failed, skipped, output
+type Code_Test_Run_Result struct {
+	Passed  int    `json:"passed"`
+	Failed  int    `json:"failed"`
+	Skipped int    `json:"skipped"`
+	Output  string `json:"output"`
 }
 
-// MarshalMUS serialises Commerce_Order_Create into binary MUS format.
-func (a *Commerce_Order_Create) MarshalMUS() []byte {
+func (a *Code_Test_Run_Result) MarshalMUS() []byte {
 	var b []byte
-	b = mus.AppendString(b, a.Sku)
-	b = mus.AppendVarint(b, uint64(a.Quantity))
-	b = mus.AppendString(b, a.ShippingAddressId)
-	if a.Confirm {
-		b = append(b, 1)
-	} else {
-		b = append(b, 0)
-	}
+	b = mus.AppendVarint(b, uint64(a.Passed))
+	b = mus.AppendVarint(b, uint64(a.Failed))
+	b = mus.AppendVarint(b, uint64(a.Skipped))
+	b = mus.AppendString(b, a.Output)
 	return b
 }
 
-// UnmarshalMUS deserialises Commerce_Order_Create from binary MUS format.
-func (a *Commerce_Order_Create) UnmarshalMUS(r io.Reader) error {
+func (a *Code_Test_Run_Result) UnmarshalMUS(r io.Reader) error {
 	var err error
 	_ = err
-	if a.Sku, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "sku", err)
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "passed", err)
+		}
+		a.Passed = int(v)
 	}
 	{
 		v, err := mus.ReadVarint(r)
 		if err != nil {
-			return fmt.Errorf("%s: %w", "quantity", err)
+			return fmt.Errorf("%s: %w", "failed", err)
 		}
-		a.Quantity = int(v)
-	}
-	if a.ShippingAddressId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "shipping_address_id", err)
+		a.Failed = int(v)
 	}
 	{
-		var b [1]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return fmt.Errorf("%s: %w", "confirm", err)
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "skipped", err)
 		}
-		a.Confirm = b[0] != 0
+		a.Skipped = int(v)
+	}
+	if a.Output, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "output", err)
 	}
 	return nil
 }
@@ -1149,6 +1898,46 @@ func (a *Database_Query_Exec) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Database_Query_Exec_Result is the typed MUS result payload.
+// Object with fields: columns, rows, row_count, truncated
+type Database_Query_Exec_Result struct {
+	Columns   []string   `json:"columns"`
+	Rows      [][]string `json:"rows"`
+	RowCount  int        `json:"row_count"`
+	Truncated bool       `json:"truncated"`
+}
+
+func (a *Database_Query_Exec_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(a.RowCount))
+	if a.Truncated {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	return b
+}
+
+func (a *Database_Query_Exec_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "row_count", err)
+		}
+		a.RowCount = int(v)
+	}
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "truncated", err)
+		}
+		a.Truncated = b[0] != 0
+	}
+	return nil
+}
+
 // Database_Schema_ReadSchema is the JSON Schema for Database_Schema_Read.
 const Database_Schema_ReadSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1205,6 +1994,76 @@ func (a *Database_Schema_Read) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Database_Schema_Read_ResultItem is the typed MUS result payload.
+// List of {column, type, nullable, default} objects
+type Database_Schema_Read_ResultItem struct {
+	Column   string `json:"column"`
+	Type     string `json:"type"`
+	Nullable bool   `json:"nullable"`
+	Default  string `json:"default"`
+}
+
+func (a *Database_Schema_Read_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Column)
+	b = mus.AppendString(b, a.Type)
+	if a.Nullable {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	b = mus.AppendString(b, a.Default)
+	return b
+}
+
+func (a *Database_Schema_Read_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Column, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "column", err)
+	}
+	if a.Type, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "type", err)
+	}
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "nullable", err)
+		}
+		a.Nullable = b[0] != 0
+	}
+	if a.Default, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "default", err)
+	}
+	return nil
+}
+
+// Database_Schema_Read_Result is the typed MUS result for Database_Schema_Read.
+type Database_Schema_Read_Result []Database_Schema_Read_ResultItem
+
+func (a *Database_Schema_Read_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Database_Schema_Read_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Database_Schema_Read_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Database_Table_ListSchema is the JSON Schema for Database_Table_List.
 const Database_Table_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1243,6 +2102,71 @@ func (a *Database_Table_List) UnmarshalMUS(r io.Reader) error {
 	_ = err
 	if a.SourceId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "source_id", err)
+	}
+	return nil
+}
+
+// Database_Table_List_ResultItem is the typed MUS result payload.
+// List of {name, row_count, size_bytes} objects
+type Database_Table_List_ResultItem struct {
+	Name      string `json:"name"`
+	RowCount  int    `json:"row_count"`
+	SizeBytes int    `json:"size_bytes"`
+}
+
+func (a *Database_Table_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Name)
+	b = mus.AppendVarint(b, uint64(a.RowCount))
+	b = mus.AppendVarint(b, uint64(a.SizeBytes))
+	return b
+}
+
+func (a *Database_Table_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Name, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "name", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "row_count", err)
+		}
+		a.RowCount = int(v)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "size_bytes", err)
+		}
+		a.SizeBytes = int(v)
+	}
+	return nil
+}
+
+// Database_Table_List_Result is the typed MUS result for Database_Table_List.
+type Database_Table_List_Result []Database_Table_List_ResultItem
+
+func (a *Database_Table_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Database_Table_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Database_Table_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1296,6 +2220,32 @@ func (a *Document_Content_Append) UnmarshalMUS(r io.Reader) error {
 	}
 	if a.Content, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "content", err)
+	}
+	return nil
+}
+
+// Document_Content_Append_Result is the typed MUS result payload.
+// Object with fields: document_id, revision_id
+type Document_Content_Append_Result struct {
+	DocumentId string `json:"document_id"`
+	RevisionId string `json:"revision_id"`
+}
+
+func (a *Document_Content_Append_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.DocumentId)
+	b = mus.AppendString(b, a.RevisionId)
+	return b
+}
+
+func (a *Document_Content_Append_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.DocumentId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "document_id", err)
+	}
+	if a.RevisionId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "revision_id", err)
 	}
 	return nil
 }
@@ -1409,6 +2359,41 @@ func (a *Document_Content_Replace) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Document_Content_Replace_Result is the typed MUS result payload.
+// Object with fields: document_id, revision_id, replaced_chars
+type Document_Content_Replace_Result struct {
+	DocumentId    string `json:"document_id"`
+	RevisionId    string `json:"revision_id"`
+	ReplacedChars int    `json:"replaced_chars"`
+}
+
+func (a *Document_Content_Replace_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.DocumentId)
+	b = mus.AppendString(b, a.RevisionId)
+	b = mus.AppendVarint(b, uint64(a.ReplacedChars))
+	return b
+}
+
+func (a *Document_Content_Replace_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.DocumentId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "document_id", err)
+	}
+	if a.RevisionId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "revision_id", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "replaced_chars", err)
+		}
+		a.ReplacedChars = int(v)
+	}
+	return nil
+}
+
 // Document_Doc_ListSchema is the JSON Schema for Document_Doc_List.
 const Document_Doc_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1461,6 +2446,68 @@ func (a *Document_Doc_List) UnmarshalMUS(r io.Reader) error {
 			return fmt.Errorf("%s: %w", "max_results", err)
 		}
 		a.MaxResults = int(v)
+	}
+	return nil
+}
+
+// Document_Doc_List_ResultItem is the typed MUS result payload.
+// List of {id, title, modified_at, owner} objects
+type Document_Doc_List_ResultItem struct {
+	Id         string `json:"id"`
+	Title      string `json:"title"`
+	ModifiedAt string `json:"modified_at"`
+	Owner      string `json:"owner"`
+}
+
+func (a *Document_Doc_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Id)
+	b = mus.AppendString(b, a.Title)
+	b = mus.AppendString(b, a.ModifiedAt)
+	b = mus.AppendString(b, a.Owner)
+	return b
+}
+
+func (a *Document_Doc_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Id, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "id", err)
+	}
+	if a.Title, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "title", err)
+	}
+	if a.ModifiedAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "modified_at", err)
+	}
+	if a.Owner, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "owner", err)
+	}
+	return nil
+}
+
+// Document_Doc_List_Result is the typed MUS result for Document_Doc_List.
+type Document_Doc_List_Result []Document_Doc_List_ResultItem
+
+func (a *Document_Doc_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Document_Doc_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Document_Doc_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1566,6 +2613,32 @@ func (a *Email_Message_Create) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Email_Message_Create_Result is the typed MUS result payload.
+// Object with fields: draft_id, created_at
+type Email_Message_Create_Result struct {
+	DraftId   string `json:"draft_id"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (a *Email_Message_Create_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.DraftId)
+	b = mus.AppendString(b, a.CreatedAt)
+	return b
+}
+
+func (a *Email_Message_Create_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.DraftId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "draft_id", err)
+	}
+	if a.CreatedAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "created_at", err)
+	}
+	return nil
+}
+
 // Email_Message_ListSchema is the JSON Schema for Email_Message_List.
 const Email_Message_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1656,6 +2729,94 @@ func (a *Email_Message_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Email_Message_List_ResultItem is the typed MUS result payload.
+// List of {id, from, subject, date, unread, has_attachments} objects
+type Email_Message_List_ResultItem struct {
+	Id             string `json:"id"`
+	From           string `json:"from"`
+	Subject        string `json:"subject"`
+	Date           string `json:"date"`
+	Unread         bool   `json:"unread"`
+	HasAttachments bool   `json:"has_attachments"`
+}
+
+func (a *Email_Message_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Id)
+	b = mus.AppendString(b, a.From)
+	b = mus.AppendString(b, a.Subject)
+	b = mus.AppendString(b, a.Date)
+	if a.Unread {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	if a.HasAttachments {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	return b
+}
+
+func (a *Email_Message_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Id, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "id", err)
+	}
+	if a.From, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "from", err)
+	}
+	if a.Subject, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "subject", err)
+	}
+	if a.Date, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "date", err)
+	}
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "unread", err)
+		}
+		a.Unread = b[0] != 0
+	}
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "has_attachments", err)
+		}
+		a.HasAttachments = b[0] != 0
+	}
+	return nil
+}
+
+// Email_Message_List_Result is the typed MUS result for Email_Message_List.
+type Email_Message_List_Result []Email_Message_List_ResultItem
+
+func (a *Email_Message_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Email_Message_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Email_Message_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Email_Message_ReadSchema is the JSON Schema for Email_Message_Read.
 const Email_Message_ReadSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1717,6 +2878,57 @@ func (a *Email_Message_Read) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Email_Message_Read_Result is the typed MUS result payload.
+// Object with fields: from, to, cc, subject, date, body_markdown, attachments
+type Email_Message_Read_Result struct {
+	From         string `json:"from"`
+	To           string `json:"to"`
+	Cc           string `json:"cc"`
+	Subject      string `json:"subject"`
+	Date         string `json:"date"`
+	BodyMarkdown string `json:"body_markdown"`
+	Attachments  string `json:"attachments"`
+}
+
+func (a *Email_Message_Read_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.From)
+	b = mus.AppendString(b, a.To)
+	b = mus.AppendString(b, a.Cc)
+	b = mus.AppendString(b, a.Subject)
+	b = mus.AppendString(b, a.Date)
+	b = mus.AppendString(b, a.BodyMarkdown)
+	b = mus.AppendString(b, a.Attachments)
+	return b
+}
+
+func (a *Email_Message_Read_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.From, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "from", err)
+	}
+	if a.To, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "to", err)
+	}
+	if a.Cc, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "cc", err)
+	}
+	if a.Subject, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "subject", err)
+	}
+	if a.Date, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "date", err)
+	}
+	if a.BodyMarkdown, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "body_markdown", err)
+	}
+	if a.Attachments, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "attachments", err)
+	}
+	return nil
+}
+
 // Email_Message_SendSchema is the JSON Schema for Email_Message_Send.
 const Email_Message_SendSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1755,6 +2967,32 @@ func (a *Email_Message_Send) UnmarshalMUS(r io.Reader) error {
 	_ = err
 	if a.DraftId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "draft_id", err)
+	}
+	return nil
+}
+
+// Email_Message_Send_Result is the typed MUS result payload.
+// Object with fields: message_id, sent_at
+type Email_Message_Send_Result struct {
+	MessageId string `json:"message_id"`
+	SentAt    string `json:"sent_at"`
+}
+
+func (a *Email_Message_Send_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.MessageId)
+	b = mus.AppendString(b, a.SentAt)
+	return b
+}
+
+func (a *Email_Message_Send_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.MessageId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "message_id", err)
+	}
+	if a.SentAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "sent_at", err)
 	}
 	return nil
 }
@@ -1862,6 +3100,72 @@ func (a *Filesystem_Dir_List) UnmarshalMUS(r io.Reader) error {
 			return fmt.Errorf("%s: %w", "recursive", err)
 		}
 		a.Recursive = b[0] != 0
+	}
+	return nil
+}
+
+// Filesystem_Dir_List_ResultItem is the typed MUS result payload.
+// List of {name, type, size_bytes, modified_at} objects
+type Filesystem_Dir_List_ResultItem struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	SizeBytes  int    `json:"size_bytes"`
+	ModifiedAt string `json:"modified_at"`
+}
+
+func (a *Filesystem_Dir_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Name)
+	b = mus.AppendString(b, a.Type)
+	b = mus.AppendVarint(b, uint64(a.SizeBytes))
+	b = mus.AppendString(b, a.ModifiedAt)
+	return b
+}
+
+func (a *Filesystem_Dir_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Name, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "name", err)
+	}
+	if a.Type, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "type", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "size_bytes", err)
+		}
+		a.SizeBytes = int(v)
+	}
+	if a.ModifiedAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "modified_at", err)
+	}
+	return nil
+}
+
+// Filesystem_Dir_List_Result is the typed MUS result for Filesystem_Dir_List.
+type Filesystem_Dir_List_Result []Filesystem_Dir_List_ResultItem
+
+func (a *Filesystem_Dir_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Filesystem_Dir_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Filesystem_Dir_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2119,6 +3423,36 @@ func (a *Filesystem_File_Write) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Filesystem_File_Write_Result is the typed MUS result payload.
+// Object with fields: path, bytes_written
+type Filesystem_File_Write_Result struct {
+	Path         string `json:"path"`
+	BytesWritten int    `json:"bytes_written"`
+}
+
+func (a *Filesystem_File_Write_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Path)
+	b = mus.AppendVarint(b, uint64(a.BytesWritten))
+	return b
+}
+
+func (a *Filesystem_File_Write_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Path, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "path", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "bytes_written", err)
+		}
+		a.BytesWritten = int(v)
+	}
+	return nil
+}
+
 // Media_Audio_TranscribeSchema is the JSON Schema for Media_Audio_Transcribe.
 const Media_Audio_TranscribeSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2173,6 +3507,41 @@ func (a *Media_Audio_Transcribe) UnmarshalMUS(r io.Reader) error {
 	}
 	if a.Language, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "language", err)
+	}
+	return nil
+}
+
+// Media_Audio_Transcribe_Result is the typed MUS result payload.
+// Object with fields: text, language, duration_seconds
+type Media_Audio_Transcribe_Result struct {
+	Text            string `json:"text"`
+	Language        string `json:"language"`
+	DurationSeconds int    `json:"duration_seconds"`
+}
+
+func (a *Media_Audio_Transcribe_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Text)
+	b = mus.AppendString(b, a.Language)
+	b = mus.AppendVarint(b, uint64(a.DurationSeconds))
+	return b
+}
+
+func (a *Media_Audio_Transcribe_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Text, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "text", err)
+	}
+	if a.Language, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "language", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "duration_seconds", err)
+		}
+		a.DurationSeconds = int(v)
 	}
 	return nil
 }
@@ -2331,6 +3700,64 @@ func (a *Memory_Fact_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Memory_Fact_List_ResultItem is the typed MUS result payload.
+// List of {key, value, tags, stored_at} objects
+type Memory_Fact_List_ResultItem struct {
+	Key      string   `json:"key"`
+	Value    string   `json:"value"`
+	Tags     []string `json:"tags"`
+	StoredAt string   `json:"stored_at"`
+}
+
+func (a *Memory_Fact_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Key)
+	b = mus.AppendString(b, a.Value)
+	b = mus.AppendString(b, a.StoredAt)
+	return b
+}
+
+func (a *Memory_Fact_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Key, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "key", err)
+	}
+	if a.Value, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "value", err)
+	}
+	if a.StoredAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stored_at", err)
+	}
+	return nil
+}
+
+// Memory_Fact_List_Result is the typed MUS result for Memory_Fact_List.
+type Memory_Fact_List_Result []Memory_Fact_List_ResultItem
+
+func (a *Memory_Fact_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Memory_Fact_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Memory_Fact_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Memory_Fact_SearchSchema is the JSON Schema for Memory_Fact_Search.
 const Memory_Fact_SearchSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2386,6 +3813,73 @@ func (a *Memory_Fact_Search) UnmarshalMUS(r io.Reader) error {
 			return fmt.Errorf("%s: %w", "max_results", err)
 		}
 		a.MaxResults = int(v)
+	}
+	return nil
+}
+
+// Memory_Fact_Search_ResultItem is the typed MUS result payload.
+// List of {key, value, tags, score, stored_at} objects
+type Memory_Fact_Search_ResultItem struct {
+	Key      string   `json:"key"`
+	Value    string   `json:"value"`
+	Tags     []string `json:"tags"`
+	Score    int      `json:"score"`
+	StoredAt string   `json:"stored_at"`
+}
+
+func (a *Memory_Fact_Search_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Key)
+	b = mus.AppendString(b, a.Value)
+	b = mus.AppendVarint(b, uint64(a.Score))
+	b = mus.AppendString(b, a.StoredAt)
+	return b
+}
+
+func (a *Memory_Fact_Search_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Key, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "key", err)
+	}
+	if a.Value, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "value", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "score", err)
+		}
+		a.Score = int(v)
+	}
+	if a.StoredAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stored_at", err)
+	}
+	return nil
+}
+
+// Memory_Fact_Search_Result is the typed MUS result for Memory_Fact_Search.
+type Memory_Fact_Search_Result []Memory_Fact_Search_ResultItem
+
+func (a *Memory_Fact_Search_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Memory_Fact_Search_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Memory_Fact_Search_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2471,257 +3965,28 @@ func (a *Memory_Fact_Store) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
-// Messaging_Channel_ListSchema is the JSON Schema for Messaging_Channel_List.
-const Messaging_Channel_ListSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Messaging_Channel_List",
-  "description": "List channels the credential has access to",
-  "type": "object",
-  "properties": {
-    "include_private": {
-      "description": "Include private channels the credential is a member of",
-      "type": "boolean",
-      "additionalProperties": false,
-      "default": false
-    }
-  },
-  "additionalProperties": false
-}`
-
-// Messaging_Channel_List is the argument struct for the Messaging_Channel_List capability.
-// List channels the credential has access to
-type Messaging_Channel_List struct {
-	IncludePrivate bool `json:"include_private,omitempty"` // Include private channels the credential is a member of
+// Memory_Fact_Store_Result is the typed MUS result payload.
+// Object with fields: key, stored_at
+type Memory_Fact_Store_Result struct {
+	Key      string `json:"key"`
+	StoredAt string `json:"stored_at"`
 }
 
-// MarshalMUS serialises Messaging_Channel_List into binary MUS format.
-func (a *Messaging_Channel_List) MarshalMUS() []byte {
+func (a *Memory_Fact_Store_Result) MarshalMUS() []byte {
 	var b []byte
-	if a.IncludePrivate {
-		b = append(b, 1)
-	} else {
-		b = append(b, 0)
-	}
+	b = mus.AppendString(b, a.Key)
+	b = mus.AppendString(b, a.StoredAt)
 	return b
 }
 
-// UnmarshalMUS deserialises Messaging_Channel_List from binary MUS format.
-func (a *Messaging_Channel_List) UnmarshalMUS(r io.Reader) error {
+func (a *Memory_Fact_Store_Result) UnmarshalMUS(r io.Reader) error {
 	var err error
 	_ = err
-	{
-		var b [1]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return fmt.Errorf("%s: %w", "include_private", err)
-		}
-		a.IncludePrivate = b[0] != 0
+	if a.Key, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "key", err)
 	}
-	return nil
-}
-
-// Messaging_Chat_SendSchema is the JSON Schema for Messaging_Chat_Send.
-const Messaging_Chat_SendSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Messaging_Chat_Send",
-  "description": "Send a message to a channel or user",
-  "type": "object",
-  "properties": {
-    "destination": {
-      "description": "Channel name (#channel) or user handle (@user)",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "#engineering"
-      ]
-    },
-    "text": {
-      "description": "Message body in plain text or provider markdown",
-      "type": "string",
-      "additionalProperties": false
-    },
-    "thread_ts": {
-      "description": "Thread timestamp to reply in a thread rather than the main channel",
-      "type": "string",
-      "additionalProperties": false
-    }
-  },
-  "required": [
-    "destination",
-    "text"
-  ],
-  "additionalProperties": false
-}`
-
-// Messaging_Chat_Send is the argument struct for the Messaging_Chat_Send capability.
-// Send a message to a channel or user
-type Messaging_Chat_Send struct {
-	Destination string `json:"destination"`         // Channel name (#channel) or user handle (@user)
-	Text        string `json:"text"`                // Message body in plain text or provider markdown
-	ThreadTs    string `json:"thread_ts,omitempty"` // Thread timestamp to reply in a thread rather than the main channel
-}
-
-// MarshalMUS serialises Messaging_Chat_Send into binary MUS format.
-func (a *Messaging_Chat_Send) MarshalMUS() []byte {
-	var b []byte
-	b = mus.AppendString(b, a.Destination)
-	b = mus.AppendString(b, a.Text)
-	b = mus.AppendString(b, a.ThreadTs)
-	return b
-}
-
-// UnmarshalMUS deserialises Messaging_Chat_Send from binary MUS format.
-func (a *Messaging_Chat_Send) UnmarshalMUS(r io.Reader) error {
-	var err error
-	_ = err
-	if a.Destination, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "destination", err)
-	}
-	if a.Text, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "text", err)
-	}
-	if a.ThreadTs, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "thread_ts", err)
-	}
-	return nil
-}
-
-// Messaging_Message_ListSchema is the JSON Schema for Messaging_Message_List.
-const Messaging_Message_ListSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Messaging_Message_List",
-  "description": "List recent messages from a channel",
-  "type": "object",
-  "properties": {
-    "channel": {
-      "description": "Channel identifier or name",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "#engineering"
-      ]
-    },
-    "max_results": {
-      "type": "integer",
-      "additionalProperties": false,
-      "default": 20
-    },
-    "since": {
-      "description": "Return only messages after this ISO8601 timestamp",
-      "type": "string",
-      "additionalProperties": false
-    }
-  },
-  "required": [
-    "channel"
-  ],
-  "additionalProperties": false
-}`
-
-// Messaging_Message_List is the argument struct for the Messaging_Message_List capability.
-// List recent messages from a channel
-type Messaging_Message_List struct {
-	Channel    string `json:"channel"` // Channel identifier or name
-	MaxResults int    `json:"max_results,omitempty"`
-	Since      string `json:"since,omitempty"` // Return only messages after this ISO8601 timestamp
-}
-
-// MarshalMUS serialises Messaging_Message_List into binary MUS format.
-func (a *Messaging_Message_List) MarshalMUS() []byte {
-	var b []byte
-	b = mus.AppendString(b, a.Channel)
-	b = mus.AppendVarint(b, uint64(a.MaxResults))
-	b = mus.AppendString(b, a.Since)
-	return b
-}
-
-// UnmarshalMUS deserialises Messaging_Message_List from binary MUS format.
-func (a *Messaging_Message_List) UnmarshalMUS(r io.Reader) error {
-	var err error
-	_ = err
-	if a.Channel, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "channel", err)
-	}
-	{
-		v, err := mus.ReadVarint(r)
-		if err != nil {
-			return fmt.Errorf("%s: %w", "max_results", err)
-		}
-		a.MaxResults = int(v)
-	}
-	if a.Since, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "since", err)
-	}
-	return nil
-}
-
-// Messaging_Sms_SendSchema is the JSON Schema for Messaging_Sms_Send.
-const Messaging_Sms_SendSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Messaging_Sms_Send",
-  "description": "Send a message to a contact via the configured messaging provider (e.g. WhatsApp, SMS, Signal)",
-  "type": "object",
-  "properties": {
-    "body": {
-      "description": "Plain-text message body",
-      "type": "string",
-      "additionalProperties": false
-    },
-    "provider": {
-      "description": "Messaging provider to use",
-      "type": "string",
-      "additionalProperties": false,
-      "enum": [
-        "whatsapp",
-        "sms",
-        "signal"
-      ],
-      "default": "whatsapp"
-    },
-    "to": {
-      "description": "Recipient phone number (E.164) or provider contact ID",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "+14155552671"
-      ]
-    }
-  },
-  "required": [
-    "to",
-    "body"
-  ],
-  "additionalProperties": false
-}`
-
-// Messaging_Sms_Send is the argument struct for the Messaging_Sms_Send capability.
-// Send a message to a contact via the configured messaging provider (e.g. WhatsApp, SMS, Signal)
-type Messaging_Sms_Send struct {
-	To       string `json:"to"`                 // Recipient phone number (E.164) or provider contact ID
-	Body     string `json:"body"`               // Plain-text message body
-	Provider string `json:"provider,omitempty"` // Messaging provider to use
-}
-
-// MarshalMUS serialises Messaging_Sms_Send into binary MUS format.
-func (a *Messaging_Sms_Send) MarshalMUS() []byte {
-	var b []byte
-	b = mus.AppendString(b, a.To)
-	b = mus.AppendString(b, a.Body)
-	b = mus.AppendString(b, a.Provider)
-	return b
-}
-
-// UnmarshalMUS deserialises Messaging_Sms_Send from binary MUS format.
-func (a *Messaging_Sms_Send) UnmarshalMUS(r io.Reader) error {
-	var err error
-	_ = err
-	if a.To, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "to", err)
-	}
-	if a.Body, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "body", err)
-	}
-	if a.Provider, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "provider", err)
+	if a.StoredAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stored_at", err)
 	}
 	return nil
 }
@@ -2800,6 +4065,67 @@ func (a *Search_Corpus_Query) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Search_Corpus_Query_ResultItem is the typed MUS result payload.
+// List of {content, source, score} objects
+type Search_Corpus_Query_ResultItem struct {
+	Content string `json:"content"`
+	Source  string `json:"source"`
+	Score   int    `json:"score"`
+}
+
+func (a *Search_Corpus_Query_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Content)
+	b = mus.AppendString(b, a.Source)
+	b = mus.AppendVarint(b, uint64(a.Score))
+	return b
+}
+
+func (a *Search_Corpus_Query_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Content, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "content", err)
+	}
+	if a.Source, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "source", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "score", err)
+		}
+		a.Score = int(v)
+	}
+	return nil
+}
+
+// Search_Corpus_Query_Result is the typed MUS result for Search_Corpus_Query.
+type Search_Corpus_Query_Result []Search_Corpus_Query_ResultItem
+
+func (a *Search_Corpus_Query_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Search_Corpus_Query_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Search_Corpus_Query_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Search_Web_QuerySchema is the JSON Schema for Search_Web_Query.
 const Search_Web_QuerySchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2873,77 +4199,64 @@ func (a *Search_Web_Query) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
-// SmartHome_Device_InvokeSchema is the JSON Schema for SmartHome_Device_Invoke.
-const SmartHome_Device_InvokeSchema = `{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "SmartHome_Device_Invoke",
-  "description": "Invoke an action on a smart home device via the configured hub (e.g. Home Assistant, Google Home)",
-  "type": "object",
-  "properties": {
-    "action": {
-      "description": "Action to invoke on the device",
-      "type": "string",
-      "additionalProperties": false,
-      "enum": [
-        "on",
-        "off",
-        "toggle",
-        "set"
-      ]
-    },
-    "device_id": {
-      "description": "Hub-assigned device identifier",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "light.living_room_main"
-      ]
-    },
-    "value": {
-      "description": "Parameter for 'set' actions, e.g. brightness percentage or target temperature",
-      "type": "string",
-      "additionalProperties": false,
-      "examples": [
-        "72"
-      ]
-    }
-  },
-  "required": [
-    "device_id",
-    "action"
-  ],
-  "additionalProperties": false
-}`
-
-// SmartHome_Device_Invoke is the argument struct for the SmartHome_Device_Invoke capability.
-// Invoke an action on a smart home device via the configured hub (e.g. Home Assistant, Google Home)
-type SmartHome_Device_Invoke struct {
-	DeviceId string `json:"device_id"`       // Hub-assigned device identifier
-	Action   string `json:"action"`          // Action to invoke on the device
-	Value    string `json:"value,omitempty"` // Parameter for 'set' actions, e.g. brightness percentage or target temperature
+// Search_Web_Query_ResultItem is the typed MUS result payload.
+// List of {title, url, snippet, published_date} objects
+type Search_Web_Query_ResultItem struct {
+	Title         string `json:"title"`
+	URL           string `json:"url"`
+	Snippet       string `json:"snippet"`
+	PublishedDate string `json:"published_date"`
 }
 
-// MarshalMUS serialises SmartHome_Device_Invoke into binary MUS format.
-func (a *SmartHome_Device_Invoke) MarshalMUS() []byte {
+func (a *Search_Web_Query_ResultItem) MarshalMUS() []byte {
 	var b []byte
-	b = mus.AppendString(b, a.DeviceId)
-	b = mus.AppendString(b, a.Action)
-	b = mus.AppendString(b, a.Value)
+	b = mus.AppendString(b, a.Title)
+	b = mus.AppendString(b, a.URL)
+	b = mus.AppendString(b, a.Snippet)
+	b = mus.AppendString(b, a.PublishedDate)
 	return b
 }
 
-// UnmarshalMUS deserialises SmartHome_Device_Invoke from binary MUS format.
-func (a *SmartHome_Device_Invoke) UnmarshalMUS(r io.Reader) error {
+func (a *Search_Web_Query_ResultItem) UnmarshalMUS(r io.Reader) error {
 	var err error
 	_ = err
-	if a.DeviceId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "device_id", err)
+	if a.Title, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "title", err)
 	}
-	if a.Action, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "action", err)
+	if a.URL, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "url", err)
 	}
-	if a.Value, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%s: %w", "value", err)
+	if a.Snippet, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "snippet", err)
+	}
+	if a.PublishedDate, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "published_date", err)
+	}
+	return nil
+}
+
+// Search_Web_Query_Result is the typed MUS result for Search_Web_Query.
+type Search_Web_Query_Result []Search_Web_Query_ResultItem
+
+func (a *Search_Web_Query_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Search_Web_Query_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Search_Web_Query_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -3056,7 +4369,10 @@ func (a *Spreadsheet_Range_Update) MarshalMUS() []byte {
 	b = mus.AppendString(b, a.Range)
 	b = mus.AppendVarint(b, uint64(len(a.Values)))
 	for _, v := range a.Values {
-		_ = v // TODO: support list<list<string>>
+		b = mus.AppendVarint(b, uint64(len(v)))
+		for _, vv := range v {
+			b = mus.AppendString(b, vv)
+		}
 	}
 	return b
 }
@@ -3078,7 +4394,49 @@ func (a *Spreadsheet_Range_Update) UnmarshalMUS(r io.Reader) error {
 		}
 		a.Values = make([][]string, n)
 		for i := uint64(0); i < n; i++ {
+			{
+				m, err := mus.ReadVarint(r)
+				if err != nil {
+					return fmt.Errorf("%s[%d]: %w", "values", i, err)
+				}
+				a.Values[i] = make([]string, m)
+				for j := uint64(0); j < m; j++ {
+					if a.Values[i][j], err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+						return fmt.Errorf("%s[%d][%d]: %w", "values", i, j, err)
+					}
+				}
+			}
 		}
+	}
+	return nil
+}
+
+// Spreadsheet_Range_Update_Result is the typed MUS result payload.
+// Object with fields: updated_range, updated_cells
+type Spreadsheet_Range_Update_Result struct {
+	UpdatedRange string `json:"updated_range"`
+	UpdatedCells int    `json:"updated_cells"`
+}
+
+func (a *Spreadsheet_Range_Update_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.UpdatedRange)
+	b = mus.AppendVarint(b, uint64(a.UpdatedCells))
+	return b
+}
+
+func (a *Spreadsheet_Range_Update_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.UpdatedRange, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "updated_range", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "updated_cells", err)
+		}
+		a.UpdatedCells = int(v)
 	}
 	return nil
 }
@@ -3162,6 +4520,36 @@ func (a *Spreadsheet_Row_Create) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Spreadsheet_Row_Create_Result is the typed MUS result payload.
+// Object with fields: range, updated_rows
+type Spreadsheet_Row_Create_Result struct {
+	Range       string `json:"range"`
+	UpdatedRows int    `json:"updated_rows"`
+}
+
+func (a *Spreadsheet_Row_Create_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Range)
+	b = mus.AppendVarint(b, uint64(a.UpdatedRows))
+	return b
+}
+
+func (a *Spreadsheet_Row_Create_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Range, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "range", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "updated_rows", err)
+		}
+		a.UpdatedRows = int(v)
+	}
+	return nil
+}
+
 // Spreadsheet_Sheet_ListSchema is the JSON Schema for Spreadsheet_Sheet_List.
 const Spreadsheet_Sheet_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3204,6 +4592,76 @@ func (a *Spreadsheet_Sheet_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Spreadsheet_Sheet_List_ResultItem is the typed MUS result payload.
+// List of {sheet_id, title, row_count, col_count} objects
+type Spreadsheet_Sheet_List_ResultItem struct {
+	SheetId  string `json:"sheet_id"`
+	Title    string `json:"title"`
+	RowCount int    `json:"row_count"`
+	ColCount int    `json:"col_count"`
+}
+
+func (a *Spreadsheet_Sheet_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.SheetId)
+	b = mus.AppendString(b, a.Title)
+	b = mus.AppendVarint(b, uint64(a.RowCount))
+	b = mus.AppendVarint(b, uint64(a.ColCount))
+	return b
+}
+
+func (a *Spreadsheet_Sheet_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.SheetId, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "sheet_id", err)
+	}
+	if a.Title, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "title", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "row_count", err)
+		}
+		a.RowCount = int(v)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "col_count", err)
+		}
+		a.ColCount = int(v)
+	}
+	return nil
+}
+
+// Spreadsheet_Sheet_List_Result is the typed MUS result for Spreadsheet_Sheet_List.
+type Spreadsheet_Sheet_List_Result []Spreadsheet_Sheet_List_ResultItem
+
+func (a *Spreadsheet_Sheet_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Spreadsheet_Sheet_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Spreadsheet_Sheet_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Swarm_Agent_ListSchema is the JSON Schema for Swarm_Agent_List.
 const Swarm_Agent_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3226,6 +4684,64 @@ func (a *Swarm_Agent_List) MarshalMUS() []byte {
 
 // UnmarshalMUS deserialises Swarm_Agent_List from binary MUS format.
 func (a *Swarm_Agent_List) UnmarshalMUS(r io.Reader) error {
+	return nil
+}
+
+// Swarm_Agent_List_ResultItem is the typed MUS result payload.
+// List of {id, status, groups, last_seen} objects
+type Swarm_Agent_List_ResultItem struct {
+	Id       string   `json:"id"`
+	Status   string   `json:"status"`
+	Groups   []string `json:"groups"`
+	LastSeen string   `json:"last_seen"`
+}
+
+func (a *Swarm_Agent_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Id)
+	b = mus.AppendString(b, a.Status)
+	b = mus.AppendString(b, a.LastSeen)
+	return b
+}
+
+func (a *Swarm_Agent_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Id, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "id", err)
+	}
+	if a.Status, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "status", err)
+	}
+	if a.LastSeen, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "last_seen", err)
+	}
+	return nil
+}
+
+// Swarm_Agent_List_Result is the typed MUS result for Swarm_Agent_List.
+type Swarm_Agent_List_Result []Swarm_Agent_List_ResultItem
+
+func (a *Swarm_Agent_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *Swarm_Agent_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]Swarm_Agent_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -3302,6 +4818,40 @@ func (a *Swarm_Group_Send) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// Swarm_Group_Send_Result is the typed MUS result payload.
+// Object with fields: seq_no, delivered_to_count
+type Swarm_Group_Send_Result struct {
+	SeqNo            int `json:"seq_no"`
+	DeliveredToCount int `json:"delivered_to_count"`
+}
+
+func (a *Swarm_Group_Send_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(a.SeqNo))
+	b = mus.AppendVarint(b, uint64(a.DeliveredToCount))
+	return b
+}
+
+func (a *Swarm_Group_Send_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "seq_no", err)
+		}
+		a.SeqNo = int(v)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "delivered_to_count", err)
+		}
+		a.DeliveredToCount = int(v)
+	}
+	return nil
+}
+
 // Swarm_Message_SendSchema is the JSON Schema for Swarm_Message_Send.
 const Swarm_Message_SendSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3372,6 +4922,36 @@ func (a *Swarm_Message_Send) UnmarshalMUS(r io.Reader) error {
 	}
 	if a.MsgType, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "msg_type", err)
+	}
+	return nil
+}
+
+// Swarm_Message_Send_Result is the typed MUS result payload.
+// Object with fields: seq_no, delivered_at
+type Swarm_Message_Send_Result struct {
+	SeqNo       int    `json:"seq_no"`
+	DeliveredAt string `json:"delivered_at"`
+}
+
+func (a *Swarm_Message_Send_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(a.SeqNo))
+	b = mus.AppendString(b, a.DeliveredAt)
+	return b
+}
+
+func (a *Swarm_Message_Send_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "seq_no", err)
+		}
+		a.SeqNo = int(v)
+	}
+	if a.DeliveredAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "delivered_at", err)
 	}
 	return nil
 }
@@ -3473,6 +5053,46 @@ func (a *System_Process_Exec) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// System_Process_Exec_Result is the typed MUS result payload.
+// Object with fields: stdout, stderr, exit_code, duration_ms
+type System_Process_Exec_Result struct {
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	ExitCode   int    `json:"exit_code"`
+	DurationMs string `json:"duration_ms"`
+}
+
+func (a *System_Process_Exec_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Stdout)
+	b = mus.AppendString(b, a.Stderr)
+	b = mus.AppendVarint(b, uint64(a.ExitCode))
+	b = mus.AppendString(b, a.DurationMs)
+	return b
+}
+
+func (a *System_Process_Exec_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Stdout, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stdout", err)
+	}
+	if a.Stderr, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "stderr", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "exit_code", err)
+		}
+		a.ExitCode = int(v)
+	}
+	if a.DurationMs, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "duration_ms", err)
+	}
+	return nil
+}
+
 // System_Process_KillSchema is the JSON Schema for System_Process_Kill.
 const System_Process_KillSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3561,6 +5181,85 @@ func (a *System_Process_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// System_Process_List_ResultItem is the typed MUS result payload.
+// List of {pid, name, cpu_pct, mem_mb, started_at} objects
+type System_Process_List_ResultItem struct {
+	Pid       int    `json:"pid"`
+	Name      string `json:"name"`
+	CpuPct    int    `json:"cpu_pct"`
+	MemMb     int    `json:"mem_mb"`
+	StartedAt string `json:"started_at"`
+}
+
+func (a *System_Process_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(a.Pid))
+	b = mus.AppendString(b, a.Name)
+	b = mus.AppendVarint(b, uint64(a.CpuPct))
+	b = mus.AppendVarint(b, uint64(a.MemMb))
+	b = mus.AppendString(b, a.StartedAt)
+	return b
+}
+
+func (a *System_Process_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "pid", err)
+		}
+		a.Pid = int(v)
+	}
+	if a.Name, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "name", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "cpu_pct", err)
+		}
+		a.CpuPct = int(v)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "mem_mb", err)
+		}
+		a.MemMb = int(v)
+	}
+	if a.StartedAt, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "started_at", err)
+	}
+	return nil
+}
+
+// System_Process_List_Result is the typed MUS result for System_Process_List.
+type System_Process_List_Result []System_Process_List_ResultItem
+
+func (a *System_Process_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *System_Process_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]System_Process_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // VersionControl_Branch_CreateSchema is the JSON Schema for VersionControl_Branch_Create.
 const VersionControl_Branch_CreateSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3628,6 +5327,32 @@ func (a *VersionControl_Branch_Create) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// VersionControl_Branch_Create_Result is the typed MUS result payload.
+// Object with fields: name, from_hash
+type VersionControl_Branch_Create_Result struct {
+	Name     string `json:"name"`
+	FromHash string `json:"from_hash"`
+}
+
+func (a *VersionControl_Branch_Create_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Name)
+	b = mus.AppendString(b, a.FromHash)
+	return b
+}
+
+func (a *VersionControl_Branch_Create_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Name, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "name", err)
+	}
+	if a.FromHash, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "from_hash", err)
+	}
+	return nil
+}
+
 // VersionControl_Branch_ListSchema is the JSON Schema for VersionControl_Branch_List.
 const VersionControl_Branch_ListSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3683,6 +5408,76 @@ func (a *VersionControl_Branch_List) UnmarshalMUS(r io.Reader) error {
 			return fmt.Errorf("%s: %w", "remote", err)
 		}
 		a.Remote = b[0] != 0
+	}
+	return nil
+}
+
+// VersionControl_Branch_List_ResultItem is the typed MUS result payload.
+// List of {name, is_current, last_commit_hash, last_commit_date} objects
+type VersionControl_Branch_List_ResultItem struct {
+	Name           string `json:"name"`
+	IsCurrent      bool   `json:"is_current"`
+	LastCommitHash string `json:"last_commit_hash"`
+	LastCommitDate string `json:"last_commit_date"`
+}
+
+func (a *VersionControl_Branch_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Name)
+	if a.IsCurrent {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	b = mus.AppendString(b, a.LastCommitHash)
+	b = mus.AppendString(b, a.LastCommitDate)
+	return b
+}
+
+func (a *VersionControl_Branch_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Name, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "name", err)
+	}
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "is_current", err)
+		}
+		a.IsCurrent = b[0] != 0
+	}
+	if a.LastCommitHash, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "last_commit_hash", err)
+	}
+	if a.LastCommitDate, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "last_commit_date", err)
+	}
+	return nil
+}
+
+// VersionControl_Branch_List_Result is the typed MUS result for VersionControl_Branch_List.
+type VersionControl_Branch_List_Result []VersionControl_Branch_List_ResultItem
+
+func (a *VersionControl_Branch_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *VersionControl_Branch_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]VersionControl_Branch_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -3762,6 +5557,41 @@ func (a *VersionControl_Commit_Create) UnmarshalMUS(r io.Reader) error {
 				return fmt.Errorf("%s[%d]: %w", "files", i, err)
 			}
 		}
+	}
+	return nil
+}
+
+// VersionControl_Commit_Create_Result is the typed MUS result payload.
+// Object with fields: hash, branch, files_changed
+type VersionControl_Commit_Create_Result struct {
+	Hash         string `json:"hash"`
+	Branch       string `json:"branch"`
+	FilesChanged int    `json:"files_changed"`
+}
+
+func (a *VersionControl_Commit_Create_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Hash)
+	b = mus.AppendString(b, a.Branch)
+	b = mus.AppendVarint(b, uint64(a.FilesChanged))
+	return b
+}
+
+func (a *VersionControl_Commit_Create_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Hash, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "hash", err)
+	}
+	if a.Branch, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "branch", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "files_changed", err)
+		}
+		a.FilesChanged = int(v)
 	}
 	return nil
 }
@@ -3896,6 +5726,68 @@ func (a *VersionControl_Log_List) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// VersionControl_Log_List_ResultItem is the typed MUS result payload.
+// List of {hash, author, date, subject} objects
+type VersionControl_Log_List_ResultItem struct {
+	Hash    string `json:"hash"`
+	Author  string `json:"author"`
+	Date    string `json:"date"`
+	Subject string `json:"subject"`
+}
+
+func (a *VersionControl_Log_List_ResultItem) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Hash)
+	b = mus.AppendString(b, a.Author)
+	b = mus.AppendString(b, a.Date)
+	b = mus.AppendString(b, a.Subject)
+	return b
+}
+
+func (a *VersionControl_Log_List_ResultItem) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Hash, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "hash", err)
+	}
+	if a.Author, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "author", err)
+	}
+	if a.Date, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "date", err)
+	}
+	if a.Subject, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "subject", err)
+	}
+	return nil
+}
+
+// VersionControl_Log_List_Result is the typed MUS result for VersionControl_Log_List.
+type VersionControl_Log_List_Result []VersionControl_Log_List_ResultItem
+
+func (a *VersionControl_Log_List_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendVarint(b, uint64(len(*a)))
+	for i := range *a {
+		b = append(b, (*a)[i].MarshalMUS()...)
+	}
+	return b
+}
+
+func (a *VersionControl_Log_List_Result) UnmarshalMUS(r io.Reader) error {
+	n, err := mus.ReadVarint(r)
+	if err != nil {
+		return err
+	}
+	*a = make([]VersionControl_Log_List_ResultItem, n)
+	for i := uint64(0); i < n; i++ {
+		if err := (*a)[i].UnmarshalMUS(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // VersionControl_Remote_PushSchema is the JSON Schema for VersionControl_Remote_Push.
 const VersionControl_Remote_PushSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3966,6 +5858,49 @@ func (a *VersionControl_Remote_Push) UnmarshalMUS(r io.Reader) error {
 	return nil
 }
 
+// VersionControl_Remote_Push_Result is the typed MUS result payload.
+// Object with fields: remote, branch, commits_pushed
+type VersionControl_Remote_Push_Result struct {
+	Remote        bool   `json:"remote"`
+	Branch        string `json:"branch"`
+	CommitsPushed int    `json:"commits_pushed"`
+}
+
+func (a *VersionControl_Remote_Push_Result) MarshalMUS() []byte {
+	var b []byte
+	if a.Remote {
+		b = append(b, 1)
+	} else {
+		b = append(b, 0)
+	}
+	b = mus.AppendString(b, a.Branch)
+	b = mus.AppendVarint(b, uint64(a.CommitsPushed))
+	return b
+}
+
+func (a *VersionControl_Remote_Push_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	{
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return fmt.Errorf("%s: %w", "remote", err)
+		}
+		a.Remote = b[0] != 0
+	}
+	if a.Branch, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "branch", err)
+	}
+	{
+		v, err := mus.ReadVarint(r)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "commits_pushed", err)
+		}
+		a.CommitsPushed = int(v)
+	}
+	return nil
+}
+
 // VersionControl_Status_ReadSchema is the JSON Schema for VersionControl_Status_Read.
 const VersionControl_Status_ReadSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -4002,6 +5937,42 @@ func (a *VersionControl_Status_Read) UnmarshalMUS(r io.Reader) error {
 	_ = err
 	if a.Path, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("%s: %w", "path", err)
+	}
+	return nil
+}
+
+// VersionControl_Status_Read_Result is the typed MUS result payload.
+// Object with fields: branch, staged, unstaged, untracked
+type VersionControl_Status_Read_Result struct {
+	Branch    string `json:"branch"`
+	Staged    string `json:"staged"`
+	Unstaged  string `json:"unstaged"`
+	Untracked string `json:"untracked"`
+}
+
+func (a *VersionControl_Status_Read_Result) MarshalMUS() []byte {
+	var b []byte
+	b = mus.AppendString(b, a.Branch)
+	b = mus.AppendString(b, a.Staged)
+	b = mus.AppendString(b, a.Unstaged)
+	b = mus.AppendString(b, a.Untracked)
+	return b
+}
+
+func (a *VersionControl_Status_Read_Result) UnmarshalMUS(r io.Reader) error {
+	var err error
+	_ = err
+	if a.Branch, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "branch", err)
+	}
+	if a.Staged, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "staged", err)
+	}
+	if a.Unstaged, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "unstaged", err)
+	}
+	if a.Untracked, err = mus.ReadString(r, mus.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%s: %w", "untracked", err)
 	}
 	return nil
 }

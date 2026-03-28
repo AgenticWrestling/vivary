@@ -18,19 +18,12 @@ package main
 //                                    keeperd ACL/dispatch
 //
 // The tool socket is created at $WARD_TOOL_SOCK (default: /run/ward-tool.sock).
-// Capability CLI binaries connect to it, send a JSON ToolRequest, and read a
-// JSON ToolResponse.  The Ward validates args, forwards to keeperd via MUS, and
-// writes back the response.
-//
-// Protocol (newline-delimited JSON, one request per connection):
-//   → {"capability":"Browser_Page_Read","args":{"url":"https://example.com"}}
-//   ← {"ok":true,"data":{"text":"..."}}
-//   ← {"ok":false,"error_code":"capability_denied","error_detail":"..."}
+// Capability CLI binaries connect to it, send one MUS-encoded ToolRequestPayload,
+// and read one MUS-encoded CapabilityResponsePayload.
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -39,6 +32,7 @@ import (
 	"time"
 
 	"vivary.dev/vivary/internal/capabilities"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 const defaultToolSockPath = "/run/ward-tool.sock"
@@ -46,19 +40,8 @@ const defaultToolSockPath = "/run/ward-tool.sock"
 // toolServerEnvKey is the env var capability CLIs read to find the socket path.
 const toolServerEnvKey = "WARD_TOOL_SOCK"
 
-// ToolRequest is the JSON struct sent by capability CLI binaries.
-type ToolRequest struct {
-	Capability string          `json:"capability"`
-	Args       json.RawMessage `json:"args"`
-}
-
-// ToolResponse is the JSON struct returned to the capability CLI binary.
-type ToolResponse struct {
-	OK          bool            `json:"ok"`
-	Data        json.RawMessage `json:"data,omitempty"`
-	ErrorCode   string          `json:"error_code,omitempty"`
-	ErrorDetail string          `json:"error_detail,omitempty"`
-}
+type ToolRequest = capabilities.ToolRequestPayload
+type ToolResponse = capabilities.CapabilityResponsePayload
 
 // toolServer listens on a Unix socket inside the nspawn container and handles
 // capability CLI requests.
@@ -118,11 +101,11 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	var req ToolRequest
-	if err := json.Unmarshal(data, &req); err != nil {
+	if err := req.UnmarshalMUS(bytes.NewReader(data)); err != nil {
 		s.w.abortActivePrompt("malformed_tool_call")
 		writeToolResponse(conn, ToolResponse{
 			OK: false, ErrorCode: "bad_request",
-			ErrorDetail: "malformed JSON: " + err.Error(),
+			ErrorDetail: "malformed MUS payload: " + err.Error(),
 		})
 		return
 	}
@@ -134,8 +117,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	// Schema-only request (from capwrap --help): return the static Explain() string.
-	if isSchemaOnly(req.Args) {
+	if req.Mode == capabilities.ToolRequestSchema {
 		schema := s.w.getCapabilitySchema(req.Capability)
 		if schema == "" {
 			writeToolResponse(conn, ToolResponse{
@@ -144,8 +126,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 			})
 			return
 		}
-		data, _ := json.Marshal(map[string]string{"schema": schema})
-		writeToolResponse(conn, ToolResponse{OK: true, Data: data})
+		writeToolResponse(conn, ToolResponse{OK: true, Data: capabilitiesString(schema)})
 		return
 	}
 
@@ -154,8 +135,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 }
 
 func writeToolResponse(conn net.Conn, resp ToolResponse) {
-	b, _ := json.Marshal(resp)
-	b = append(b, '\n')
+	b := resp.MarshalMUS()
 	_, _ = conn.Write(b)
 }
 
@@ -167,10 +147,6 @@ func writeToolResponse(conn net.Conn, resp ToolResponse) {
 // is killed and activeAbort is set so runLLMSubprocess can emit the correct
 // FailureEvent kind.
 func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
-	if req.Args == nil {
-		req.Args = json.RawMessage(`{}`)
-	}
-
 	// Loop detection: check before dispatching to keeperd.
 	if ld := w.activeLoop.Load(); ld != nil {
 		if ld.check(req.Capability, req.Args) {
@@ -195,7 +171,7 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	// Build the CapabilityRequest payload.
 	reqPayload := capabilities.CapabilityRequestPayload{
 		Capability: req.Capability,
-		Args:       req.Args, // bridge JSON Args
+		Args:       req.Args,
 	}
 
 	// Allocate sequence number and register pending slot.
@@ -219,15 +195,7 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 		if err := capResp.UnmarshalMUS(bytes.NewReader(cr.payload)); err != nil {
 			return ToolResponse{OK: false, ErrorCode: "decode_error", ErrorDetail: err.Error()}
 		}
-
-		// bridge JSON Data for now
-		var jsonData json.RawMessage
-		_ = json.Unmarshal(capResp.Data, &jsonData)
-
-		return ToolResponse{
-			OK: capResp.OK, Data: jsonData,
-			ErrorCode: capResp.ErrorCode, ErrorDetail: capResp.ErrorDetail,
-		}
+		return capResp
 	}
 }
 
@@ -241,14 +209,8 @@ func (w *ward) abortActivePrompt(kind string) {
 	}
 }
 
-// isSchemaOnly returns true if args contains only the sentinel __schema_only key.
-func isSchemaOnly(args json.RawMessage) bool {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(args, &m); err != nil {
-		return false
-	}
-	_, ok := m["__schema_only"]
-	return ok && len(m) == 1
+func capabilitiesString(v string) []byte {
+	return mus.AppendString(nil, v)
 }
 
 func parentDir(p string) string {

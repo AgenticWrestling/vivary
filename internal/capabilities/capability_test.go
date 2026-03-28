@@ -2,7 +2,6 @@ package capabilities
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,9 +40,7 @@ func TestCapabilityACL_AllowedCapability(t *testing.T) {
 		}},
 	})
 
-	args, _ := json.Marshal(Filesystem_File_Write{
-		Path: "out.txt", Content: "hello",
-	})
+	args := (&Filesystem_File_Write{Path: "out.txt", Content: "hello"}).MarshalMUS()
 	resp, err := d.Dispatch(context.Background(), Request{
 		Name: FilesystemFileWriteName, AgentID: "agent-1", SeqNo: 1, Args: args,
 	})
@@ -65,7 +62,7 @@ func TestCapabilityACL_UnauthorisedCapability(t *testing.T) {
 		Entries: []ACLEntry{}, // no entries — nothing allowed
 	})
 
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "x.txt", Content: "data"})
+	args := (&Filesystem_File_Write{Path: "x.txt", Content: "data"}).MarshalMUS()
 	resp, err := d.Dispatch(context.Background(), Request{
 		Name: FilesystemFileWriteName, AgentID: "agent-1", SeqNo: 2, Args: args,
 	})
@@ -84,7 +81,7 @@ func TestCapabilityACL_UnknownAgent(t *testing.T) {
 
 	resp, err := d.Dispatch(context.Background(), Request{
 		Name: FilesystemFileWriteName, AgentID: "ghost", SeqNo: 3,
-		Args: json.RawMessage(`{}`),
+		Args: (&Filesystem_File_Write{}).MarshalMUS(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +98,7 @@ func TestFilesystemWrite_AllowedWrite(t *testing.T) {
 	cap := &FilesystemFileWrite{}
 	ctx := fsCtx(scope)
 
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "result.txt", Content: "test data"})
+	args := (&Filesystem_File_Write{Path: "result.txt", Content: "test data"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{
 		Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 	})
@@ -127,7 +124,7 @@ func TestFilesystemWrite_PathTraversal(t *testing.T) {
 		"../../etc/passwd",
 		"sub/../../outside.txt",
 	} {
-		args, _ := json.Marshal(Filesystem_File_Write{Path: badPath, Content: "x"})
+		args := (&Filesystem_File_Write{Path: badPath, Content: "x"}).MarshalMUS()
 		resp, err := cap.Execute(ctx, Request{
 			Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 		})
@@ -145,7 +142,7 @@ func TestFilesystemWrite_AbsolutePath(t *testing.T) {
 	cap := &FilesystemFileWrite{}
 	ctx := fsCtx(scope)
 
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "/etc/passwd", Content: "x"})
+	args := (&Filesystem_File_Write{Path: "/etc/passwd", Content: "x"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{
 		Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 	})
@@ -161,7 +158,7 @@ func TestFilesystemWrite_NoScope(t *testing.T) {
 	cap := &FilesystemFileWrite{}
 	ctx := context.Background() // no constraints → no scope
 
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "out.txt", Content: "x"})
+	args := (&Filesystem_File_Write{Path: "out.txt", Content: "x"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{
 		Name: FilesystemFileWriteName, AgentID: "a", SeqNo: 1, Args: args,
 	})
@@ -179,7 +176,7 @@ func TestFilesystemWrite_Append(t *testing.T) {
 	ctx := fsCtx(scope)
 
 	for _, content := range []string{"line1\n", "line2\n"} {
-		args, _ := json.Marshal(Filesystem_File_Write{Path: "log.txt", Content: content, Append: true})
+		args := (&Filesystem_File_Write{Path: "log.txt", Content: content, Append: true}).MarshalMUS()
 		resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 		if err != nil || !resp.OK {
 			t.Fatalf("append failed: %v %s", err, resp.ErrorDetail)
@@ -206,7 +203,7 @@ func TestFilesystemWrite_SymlinkInsideScope(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := fsCtx(scope)
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "link.txt", Content: "via link"})
+	args := (&Filesystem_File_Write{Path: "link.txt", Content: "via link"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +223,7 @@ func TestFilesystemWrite_SymlinkEscapeScope(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := fsCtx(scope)
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "escape", Content: "x"})
+	args := (&Filesystem_File_Write{Path: "escape", Content: "x"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +243,7 @@ func TestFilesystemWrite_SymlinkIntermediateDirEscape(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := fsCtx(scope)
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "subdir/file.txt", Content: "x"})
+	args := (&Filesystem_File_Write{Path: "subdir/file.txt", Content: "x"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +267,7 @@ func TestFilesystemWrite_SymlinkLoop(t *testing.T) {
 
 	cap := &FilesystemFileWrite{}
 	ctx := fsCtx(scope)
-	args, _ := json.Marshal(Filesystem_File_Write{Path: "a", Content: "loop"})
+	args := (&Filesystem_File_Write{Path: "a", Content: "loop"}).MarshalMUS()
 	resp, err := cap.Execute(ctx, Request{Args: args, AgentID: "a", SeqNo: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +298,7 @@ func stubProxy(t *testing.T, wantAllow bool) func(ctx context.Context, agentID, 
 func TestBrowserPageRead_Execute_EmptyConstraintsDenies(t *testing.T) {
 	cap := &BrowserPageRead{ChromeProxy: stubProxy(t, false)}
 	ctx := context.Background() // no constraints
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+	args := (&Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -321,7 +318,7 @@ func TestBrowserPageRead_Execute_DomainConstraintAllows(t *testing.T) {
 		Entity:      "Link",
 		Constraints: ConstraintSet{"domain": {"example.com"}},
 	}})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+	args := (&Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -338,7 +335,7 @@ func TestBrowserPageRead_Execute_DomainConstraintDeniesOther(t *testing.T) {
 		Entity:      "Link",
 		Constraints: ConstraintSet{"domain": {"other.com"}},
 	}})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+	args := (&Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -356,7 +353,7 @@ func TestBrowserPageRead_Execute_ECSConstraintAllows(t *testing.T) {
 			"domain-suffix": {"wikipedia.org"},
 		}},
 	})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://en.wikipedia.org/wiki/Test"})
+	args := (&Browser_Page_Read{URL: "https://en.wikipedia.org/wiki/Test"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -387,7 +384,7 @@ func TestBrowserPageRead_Execute_PassesTypedWhitelistPolicyToProxy(t *testing.T)
 		}},
 		{Entity: "File", Constraints: map[string][]string{"path-prefix": {"/tmp/ignored"}}},
 	})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com:8443/allowed/page"})
+	args := (&Browser_Page_Read{URL: "https://example.com:8443/allowed/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "agent-browser", SeqNo: 1, Args: args})
 	if err != nil {
@@ -426,7 +423,7 @@ func TestBrowserPageRead_Execute_ECSConstraintDeniesOtherDomain(t *testing.T) {
 			"domain-suffix": {"wikipedia.org"},
 		}},
 	})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://evil.com/page"})
+	args := (&Browser_Page_Read{URL: "https://evil.com/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -445,7 +442,7 @@ func TestBrowserPageRead_Execute_ProxyDenySurfacesAsChromeError(t *testing.T) {
 		Entity:      "Link",
 		Constraints: ConstraintSet{"domain": {"example.com"}},
 	}})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+	args := (&Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -468,7 +465,7 @@ func TestBrowserPageRead_Execute_NilProxyReturnsUnavailable(t *testing.T) {
 		Entity:      "Link",
 		Constraints: ConstraintSet{"domain": {"example.com"}},
 	}})
-	args, _ := json.Marshal(Browser_Page_Read{URL: "https://example.com/page"})
+	args := (&Browser_Page_Read{URL: "https://example.com/page"}).MarshalMUS()
 
 	resp, err := cap.Execute(ctx, Request{Name: BrowserPageReadName, AgentID: "a", SeqNo: 1, Args: args})
 	if err != nil {
@@ -572,7 +569,7 @@ func TestURLMatchesConstraints(t *testing.T) {
 			url:  "https://en.wikipedia.org/allowed/page",
 			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
 				"domain-suffix": {"wikipedia.org"},
-				"path-prefix":    {"/allowed"},
+				"path-prefix":   {"/allowed"},
 			}}},
 			ok: true,
 		},
@@ -581,7 +578,7 @@ func TestURLMatchesConstraints(t *testing.T) {
 			url:  "https://en.wikipedia.org/wiki/Go",
 			constraints: []ScopeConstraint{{Entity: "Link", Constraints: ConstraintSet{
 				"domain-suffix": {"wikipedia.org"},
-				"path-prefix":    {"/allowed"},
+				"path-prefix":   {"/allowed"},
 			}}},
 			ok: false,
 		},

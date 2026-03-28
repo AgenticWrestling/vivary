@@ -1,14 +1,15 @@
 package capabilities
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
 	"vivary.dev/vivary/internal/chromproxy"
+	"vivary.dev/vivary/pkg/mus"
 )
 
 type browserScope struct {
@@ -39,7 +40,7 @@ func (b *BrowserPageRead) AuditPayload() bool { return true }
 
 func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, error) {
 	var args Browser_Page_Read
-	if err := json.Unmarshal(req.Args, &args); err != nil {
+	if err := args.UnmarshalMUS(bytes.NewReader(req.Args)); err != nil {
 		return DeniedResponse("args schema mismatch: " + err.Error()), nil
 	}
 	if args.URL == "" {
@@ -71,8 +72,7 @@ func (b *BrowserPageRead) Execute(ctx context.Context, req Request) (Response, e
 		return Response{OK: false, ErrorCode: "chrome_error", ErrorDetail: err.Error()}, nil
 	}
 
-	data, _ := json.Marshal(map[string]string{"text": text})
-	return Response{OK: true, Data: data}, nil
+	return Response{OK: true, Data: mus.AppendString(nil, text)}, nil
 }
 
 func normalizeBrowserScope(constraints []ScopeConstraint) browserScope {

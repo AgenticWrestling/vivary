@@ -23,6 +23,14 @@ func TestVivgenCommand_GoldenSnippets(t *testing.T) {
 	}
 
 	generated := mustReadGeneratedFile(t, outFile)
+	assertContains(t, generated, "func GeneratedCapabilityInfoRegistry() map[string]GeneratedCapabilityInfo")
+	assertContains(t, generated, "func NewArgumentPayload(name string) (interface {")
+	assertContains(t, generated, "func NewResultPayload(name string) (interface {")
+	assertContains(t, generated, "func DecodeResultToJSON(name string, data []byte) ([]byte, bool, error)")
+	assertContains(t, generated, "type Filesystem_File_Write_Result struct")
+	assertContains(t, generated, `ReturnType: "object"`)
+	assertContains(t, generated, "MarshalMUS() []byte")
+	assertContains(t, generated, "UnmarshalMUS(io.Reader) error")
 	got := extractGoldenSnippets(t, generated)
 	want := mustReadGeneratedFile(t, filepath.Join(root, "cmd", "vivgen", "testdata", "generated_snippets.golden"))
 	if strings.TrimSpace(got) != strings.TrimSpace(want) {
@@ -65,6 +73,9 @@ func TestVivgenCommand_GeneratesRegistry(t *testing.T) {
 
 	generated := mustReadGeneratedFile(t, outFile)
 	assertContains(t, generated, "func GeneratedRegistry() map[string]string")
+	assertContains(t, generated, "func GeneratedCapabilityInfoRegistry() map[string]GeneratedCapabilityInfo")
+	assertContains(t, generated, "func NewArgumentPayload(name string) (interface {")
+	assertContains(t, generated, "func NewResultPayload(name string) (interface {")
 	assertContains(t, generated, `"Browser_Page_Read"`)
 	assertContains(t, generated, `Browser_Page_ReadSchema`)
 	assertContains(t, generated, `"Filesystem_File_Write"`)
@@ -188,7 +199,6 @@ func assertContains(t *testing.T, got, want string) {
 func extractGoldenSnippets(t *testing.T, generated string) string {
 	t.Helper()
 	sections := []struct{ start, end string }{
-		{"func GeneratedRegistry() map[string]string {", "// Browser_Form_SubmitSchema"},
 		{"const Browser_Page_ReadSchema = `", "// Browser_Page_ScreenshotSchema"},
 		{"const Filesystem_File_WriteSchema = `", "// Media_Audio_TranscribeSchema"},
 	}
