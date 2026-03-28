@@ -155,6 +155,19 @@ func TestParseAgentKDL_BrowserHeadless(t *testing.T) {
 	if !cfg.Browser.Headless {
 		t.Fatal("Browser.Headless = false, want true")
 	}
+	if cfg.SchemaErrorRetries != 1 {
+		t.Fatalf("SchemaErrorRetries = %d, want 1", cfg.SchemaErrorRetries)
+	}
+}
+
+func TestParseAgentKDL_SchemaErrorRetries(t *testing.T) {
+	cfg, err := ParseAgentKDL([]byte("id \"test-agent\"\nschema-error-retries 4\n"))
+	if err != nil {
+		t.Fatalf("ParseAgentKDL: %v", err)
+	}
+	if cfg.SchemaErrorRetries != 4 {
+		t.Fatalf("SchemaErrorRetries = %d, want 4", cfg.SchemaErrorRetries)
+	}
 }
 
 func TestParseAgentKDL_Capabilities(t *testing.T) {
@@ -204,6 +217,13 @@ func TestValidateAgentConfig_InvalidCapabilityName(t *testing.T) {
 	}
 	if err := ValidateAgentConfig(cfg); err == nil {
 		t.Fatal("invalid capability name should fail")
+	}
+}
+
+func TestValidateAgentConfig_NegativeSchemaRetries(t *testing.T) {
+	cfg := AgentConfig{ID: "my-agent", SchemaErrorRetries: -1}
+	if err := ValidateAgentConfig(cfg); err == nil {
+		t.Fatal("negative schema retries should fail")
 	}
 }
 

@@ -91,9 +91,54 @@ capabilities {
 	}
 }
 
+func TestLoadAgentPromptConfig_DefaultSchemaRetries(t *testing.T) {
+	kdl := "id \"test-agent\"\ncapabilities {\n    Browser_Page_Read\n}\n"
+	f := filepath.Join(t.TempDir(), "agent.kdl")
+	if err := os.WriteFile(f, []byte(kdl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, retries := loadAgentPromptConfig(f)
+	if retries != 1 {
+		t.Fatalf("schema retries = %d, want 1", retries)
+	}
+}
+
+func TestLoadAgentPromptConfig_ConfiguredSchemaRetries(t *testing.T) {
+	kdl := "id \"test-agent\"\nschema-error-retries 3\ncapabilities {\n    Browser_Page_Read\n}\n"
+	f := filepath.Join(t.TempDir(), "agent.kdl")
+	if err := os.WriteFile(f, []byte(kdl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, retries := loadAgentPromptConfig(f)
+	if retries != 3 {
+		t.Fatalf("schema retries = %d, want 3", retries)
+	}
+}
+
 func TestCountCapLines(t *testing.T) {
 	prompt := "### Browser_Page_Read\nschema\n\n### Filesystem_File_Write\nschema\n"
 	if n := countCapLines(prompt); n != 2 {
 		t.Errorf("countCapLines = %d, want 2", n)
+	}
+}
+
+func TestAppendSchemaRetryInstruction(t *testing.T) {
+	prompt := appendSchemaRetryInstruction("do the task", `capability Browser_Page_Read: args must satisfy Browser_Page_Read schema: url: EOF`, 1)
+	if !strings.Contains(prompt, "Schema repair required:") {
+		t.Fatalf("retry prompt missing repair header: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Do not change the task intent") {
+		t.Fatalf("retry prompt missing intent guardrail: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Retry by emitting one corrected tool call with valid arguments only") {
+		t.Fatalf("retry prompt missing retry instruction: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Validation error: capability Browser_Page_Read: args must satisfy Browser_Page_Read schema: url: EOF") {
+		t.Fatalf("retry prompt missing validation detail: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Remaining schema retries after this attempt: 0") {
+		t.Fatalf("retry prompt missing remaining retry count: %q", prompt)
 	}
 }

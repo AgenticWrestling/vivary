@@ -200,6 +200,8 @@ Current flow:
 5. `keeperd` replies with `MsgType_CapabilityResponse`
 6. Ward matches the response by echoed `SeqNo`
 
+If Ward rejects a tool invocation as `schema_invalid`, it may re-run the prompt with the validation error appended to the prompt text, up to the agent's configured `schema-error-retries` budget (default `1`). Malformed tool payloads still fail immediately.
+
 Correlation rule:
 
 - capability responses reuse the request `SeqNo`

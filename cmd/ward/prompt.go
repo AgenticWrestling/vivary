@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	kdl "github.com/sblinch/kdl-go"
+	"vivary.dev/vivary/internal/config"
 )
 
 const systemPromptHeader = `You are a Vivary AI agent running inside an isolated container.
@@ -43,18 +44,20 @@ Do not ask follow-up questions unless the task explicitly requires interaction.
 // If agent.kdl cannot be read or contains no capabilities the Ward falls back
 // to an empty system prompt — the agent can still run but Claude won't know
 // about available tools.
-func buildSystemPrompt(kdlPath string) string {
+func loadAgentPromptConfig(kdlPath string) (string, int) {
 	data, err := os.ReadFile(kdlPath)
 	if err != nil {
-		return "" // no agent.kdl — skip tool injection (dev/test path)
+		return "", 1 // no agent.kdl — skip tool injection (dev/test path)
 	}
 
-	// Parse the KDL document and extract capability node names directly.
-	// config.ParseAgentKDL uses kdl:",arg" which captures positional args,
-	// not node names — capability entries in agent.kdl are node names.
+	cfg, err := config.ParseAgentKDL(data)
+	if err != nil {
+		return "", 1
+	}
+
 	doc, err := kdl.Parse(bytes.NewReader(data))
 	if err != nil {
-		return ""
+		return "", cfg.SchemaErrorRetries
 	}
 
 	var capNames []string
@@ -68,7 +71,7 @@ func buildSystemPrompt(kdlPath string) string {
 	}
 
 	if len(capNames) == 0 {
-		return ""
+		return "", cfg.SchemaErrorRetries
 	}
 
 	var sb strings.Builder
@@ -85,5 +88,10 @@ func buildSystemPrompt(kdlPath string) string {
 	}
 
 	sb.WriteString(systemPromptFooter)
-	return sb.String()
+	return sb.String(), cfg.SchemaErrorRetries
+}
+
+func buildSystemPrompt(kdlPath string) string {
+	prompt, _ := loadAgentPromptConfig(kdlPath)
+	return prompt
 }

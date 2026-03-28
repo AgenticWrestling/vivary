@@ -138,7 +138,7 @@ func TestLoadTemplateAgentConfig(t *testing.T) {
 
 func TestWriteAgentKDL_WritesBrowserSettings(t *testing.T) {
 	root := t.TempDir()
-	if err := writeAgentKDL(root, AgentConfig{ID: "agent-browser", Browser: AgentBrowserConfig{Headless: true}, CPUShares: 1024}); err != nil {
+	if err := writeAgentKDL(root, AgentConfig{ID: "agent-browser", Browser: AgentBrowserConfig{Headless: true}, CPUShares: 1024, SchemaErrorRetries: 2}); err != nil {
 		t.Fatalf("writeAgentKDL: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "agent.kdl"))
@@ -147,6 +147,9 @@ func TestWriteAgentKDL_WritesBrowserSettings(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "browser {") || !strings.Contains(string(data), "headless true") {
 		t.Fatalf("agent.kdl missing browser headless block:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "schema-error-retries 2") {
+		t.Fatalf("agent.kdl missing schema-error-retries:\n%s", string(data))
 	}
 }
 

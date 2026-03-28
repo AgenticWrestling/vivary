@@ -165,6 +165,7 @@ This plan tracks the MVP runtime core first and distinguishes between:
 
 - Keep the current Claude CLI -> Ward tool socket -> keeperd capability path as the single MVP execution path and avoid reintroducing overlapping mechanisms.
 - Keep the Ward validation/failure path stable and extend it to broader prompt-run coverage.
+- Keep Ward's schema-repair retry behavior narrow and explicit: configurable in `agent.kdl`, default one retry, and only for schema-invalid tool arguments.
 - Introduce one normalized internal event shape inside Ward so backend-specific parsing stays behind a very small adapter boundary.
 - Keep schema synchronization through `vivgen` as the only source of truth; do not reintroduce hard-coded schema copies.
 - If a future `AgentCLI` interface is added, keep it thin and justified by actual need, not speculative provider generalization.

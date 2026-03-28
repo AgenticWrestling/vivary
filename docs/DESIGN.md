@@ -83,6 +83,7 @@ The Ward uses a **per-prompt subprocess model**: a new LLM CLI process (e.g., `c
 - Emits execution facts from the local session boundary: subprocess exit status, timeout, malformed-call errors, and completion boundaries.
 - Enforces prompt completion boundaries: emits a **Completion Event** log record when the LLM subprocess exits.
 - Detects and reports local failure modes at the adapter boundary (see §10).
+- On schema-invalid tool arguments, may re-run the prompt a small configured number of times by appending the validation error back into the prompt text; the default is one retry from `agent.kdl` via `schema-error-retries`.
 
 **Responsibility split:**
 

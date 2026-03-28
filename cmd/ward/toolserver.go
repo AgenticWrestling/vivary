@@ -102,7 +102,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 
 	var req ToolRequest
 	if err := req.UnmarshalMUS(bytes.NewReader(data)); err != nil {
-		s.w.abortActivePrompt("malformed_tool_call")
+		s.w.abortActivePrompt("malformed_tool_call", "malformed MUS payload: "+err.Error())
 		writeToolResponse(conn, ToolResponse{
 			OK: false, ErrorCode: "bad_request",
 			ErrorDetail: "malformed MUS payload: " + err.Error(),
@@ -110,7 +110,7 @@ func (s *toolServer) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	if req.Capability == "" {
-		s.w.abortActivePrompt("malformed_tool_call")
+		s.w.abortActivePrompt("malformed_tool_call", "capability name is required")
 		writeToolResponse(conn, ToolResponse{
 			OK: false, ErrorCode: "bad_request", ErrorDetail: "capability name is required",
 		})
@@ -164,7 +164,7 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	}
 
 	if err := validateToolArgs(req.Capability, req.Args); err != nil {
-		w.abortActivePrompt("schema_invalid")
+		w.abortActivePrompt("schema_invalid", fmt.Sprintf("capability %s: %s", req.Capability, err.Error()))
 		return ToolResponse{OK: false, ErrorCode: "schema_invalid", ErrorDetail: err.Error()}
 	}
 
@@ -199,11 +199,14 @@ func (w *ward) executeTool(ctx context.Context, req ToolRequest) ToolResponse {
 	}
 }
 
-func (w *ward) abortActivePrompt(kind string) {
+func (w *ward) abortActivePrompt(kind string, detail string) {
 	if kind == "" {
 		return
 	}
 	w.activeAbort.Store(&kind)
+	if detail != "" {
+		w.activeAbortDetail.Store(&detail)
+	}
 	if cmd := w.activeCmd.Load(); cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}

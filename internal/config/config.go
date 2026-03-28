@@ -27,7 +27,6 @@ type OrchestratorConfig struct {
 	ChromeProxyServer       string `kdl:"chrome-proxy-server"`
 }
 
-
 // ProviderConfig is one entry from providers.kdl.
 type ProviderConfig struct {
 	Name        string `kdl:",arg"`
@@ -37,12 +36,13 @@ type ProviderConfig struct {
 
 // AgentConfig is parsed from <agent-subvolume>/agent.kdl.
 type AgentConfig struct {
-	ID             string             `kdl:"id"`
-	Provider       string             `kdl:"provider"`
-	CPUShares      uint32             `kdl:"cpu-shares"`
-	MemoryMaxBytes uint64             `kdl:"memory-max-bytes"`
-	Browser        AgentBrowserConfig `kdl:"browser,child"`
-	Capabilities   []AgentCapabilityEntry `kdl:"-"`
+	ID                 string                 `kdl:"id"`
+	Provider           string                 `kdl:"provider"`
+	CPUShares          uint32                 `kdl:"cpu-shares"`
+	MemoryMaxBytes     uint64                 `kdl:"memory-max-bytes"`
+	SchemaErrorRetries int                    `kdl:"schema-error-retries"`
+	Browser            AgentBrowserConfig     `kdl:"browser,child"`
+	Capabilities       []AgentCapabilityEntry `kdl:"-"`
 }
 
 type AgentBrowserConfig struct {
@@ -77,7 +77,6 @@ func DefaultOrchestratorConfig(workspaceRoot string) OrchestratorConfig {
 		ChromeProxyServer:       "",
 	}
 }
-
 
 // LoadOrchestratorConfig reads orchestrator.kdl from workspaceRoot, applying
 // values on top of the defaults. Returns the defaults if the file does not
@@ -158,7 +157,7 @@ func unquote(s string) string {
 
 // ParseAgentKDL parses an agent.kdl file.
 func ParseAgentKDL(data []byte) (AgentConfig, error) {
-	cfg := AgentConfig{CPUShares: 1024}
+	cfg := AgentConfig{CPUShares: 1024, SchemaErrorRetries: 1}
 
 	doc, err := kdl.Parse(bytes.NewReader(data))
 	if err != nil {
@@ -183,6 +182,10 @@ func ParseAgentKDL(data []byte) (AgentConfig, error) {
 		case "memory-max-bytes":
 			if len(node.Arguments) > 0 {
 				fmt.Sscanf(node.Arguments[0].String(), "%d", &cfg.MemoryMaxBytes)
+			}
+		case "schema-error-retries":
+			if len(node.Arguments) > 0 {
+				fmt.Sscanf(node.Arguments[0].String(), "%d", &cfg.SchemaErrorRetries)
 			}
 		case "browser":
 			for _, child := range node.Children {
@@ -279,6 +282,9 @@ func ValidateProviderConfig(providers map[string]ProviderConfig) error {
 func ValidateAgentConfig(cfg AgentConfig) error {
 	if err := ValidateAgentID(cfg.ID); err != nil {
 		return err
+	}
+	if cfg.SchemaErrorRetries < 0 {
+		return fmt.Errorf("schema-error-retries must be >= 0")
 	}
 	for _, cap := range cfg.Capabilities {
 		if !capNameRe.MatchString(cap.Name) {

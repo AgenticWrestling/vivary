@@ -61,7 +61,7 @@ func main() {
 	log.Debug("ward starting", "version", wardVersion, "agent", *agentID)
 
 	// Build the system prompt from agent.kdl (may be empty in dev/test mode).
-	sysPrompt := buildSystemPrompt(*agentKDL)
+	sysPrompt, schemaErrorRetries := loadAgentPromptConfig(*agentKDL)
 	if sysPrompt == "" {
 		log.Debug("ward: no agent.kdl found or no capabilities; LLM will have no tool context", "path", *agentKDL)
 	} else {
@@ -78,12 +78,13 @@ func main() {
 	}
 
 	w := &ward{
-		agentID:       *agentID,
-		pipe:          pipe,
-		loopThreshold: *loopThreshold,
-		toolSockPath:  *toolSock,
-		systemPrompt:  sysPrompt,
-		log:           log,
+		agentID:            *agentID,
+		pipe:               pipe,
+		loopThreshold:      *loopThreshold,
+		toolSockPath:       *toolSock,
+		systemPrompt:       sysPrompt,
+		schemaErrorRetries: schemaErrorRetries,
+		log:                log,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,12 +151,13 @@ func (p *musPipe) recv() (switchboard.SwarmHeader, []byte, error) {
 // ---- Ward ------------------------------------------------------------------
 
 type ward struct {
-	agentID       string
-	pipe          *musPipe
-	loopThreshold int
-	toolSockPath  string
-	systemPrompt  string
-	log           *slog.Logger
+	agentID            string
+	pipe               *musPipe
+	loopThreshold      int
+	toolSockPath       string
+	systemPrompt       string
+	schemaErrorRetries int
+	log                *slog.Logger
 
 	promptSeq atomic.Uint64
 
@@ -163,9 +165,10 @@ type ward struct {
 	// activeLoop is the loop detector for the current prompt run.
 	// activeCmd is the LLM subprocess; executeTool kills it on loop abort.
 	// activeAbort carries the failure kind when executeTool aborts the run.
-	activeLoop  atomic.Pointer[loopDetector]
-	activeCmd   atomic.Pointer[exec.Cmd]
-	activeAbort atomic.Pointer[string]
+	activeLoop        atomic.Pointer[loopDetector]
+	activeCmd         atomic.Pointer[exec.Cmd]
+	activeAbort       atomic.Pointer[string]
+	activeAbortDetail atomic.Pointer[string]
 }
 
 func (w *ward) run(ctx context.Context) error {
@@ -302,6 +305,23 @@ func (w *ward) getCapabilitySchema(name string) string {
 // the subprocess exits.  Returns (outcome, "", nil) on success, or
 // (zero, failureKind, err) on failure.
 func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutcome, string, error) {
+	attemptPrompt := promptText
+	remainingRetries := w.schemaErrorRetries
+	for {
+		outcome, kind, err := w.runLLMSubprocessOnce(ctx, attemptPrompt)
+		if err == nil || kind != "schema_invalid" || remainingRetries <= 0 {
+			return outcome, kind, err
+		}
+		detail := "schema validation failed"
+		if abortDetail := w.activeAbortDetail.Swap(nil); abortDetail != nil && *abortDetail != "" {
+			detail = *abortDetail
+		}
+		attemptPrompt = appendSchemaRetryInstruction(promptText, detail, remainingRetries)
+		remainingRetries--
+	}
+}
+
+func (w *ward) runLLMSubprocessOnce(ctx context.Context, promptText string) (llmOutcome, string, error) {
 	// claude --print passes the prompt as a positional argument and runs
 	// non-interactively.  WARD_TOOL_SOCK is set so capability CLIs can reach
 	// the tool server.  --system-prompt injects the capability tool context so
@@ -336,6 +356,7 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	w.activeLoop.Store(loop)
 	w.activeCmd.Store(cmd)
 	w.activeAbort.Store(nil)
+	w.activeAbortDetail.Store(nil)
 	defer func() {
 		w.activeLoop.Store(nil)
 		w.activeCmd.Store(nil)
@@ -391,6 +412,9 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	if err := cmd.Wait(); err != nil {
 		// Check whether executeTool aborted the run (e.g. loop_detected).
 		if kind := w.activeAbort.Swap(nil); kind != nil {
+			if detail := w.activeAbortDetail.Load(); detail != nil && *detail != "" {
+				return llmOutcome{}, *kind, fmt.Errorf("prompt aborted: %s: %s", *kind, *detail)
+			}
 			return llmOutcome{}, *kind, fmt.Errorf("prompt aborted: %s", *kind)
 		}
 		if ctx.Err() != nil {
@@ -400,6 +424,15 @@ func (w *ward) runLLMSubprocess(ctx context.Context, promptText string) (llmOutc
 	}
 
 	return outcome, "", nil
+}
+
+func appendSchemaRetryInstruction(promptText, detail string, remainingRetries int) string {
+	return promptText + "\n\nSchema repair required:\n" +
+		"- The previous tool call was rejected before execution.\n" +
+		"- Do not change the task intent. Do not ask follow-up questions.\n" +
+		"- Retry by emitting one corrected tool call with valid arguments only.\n" +
+		"- Validation error: " + detail + "\n" +
+		"- Remaining schema retries after this attempt: " + fmt.Sprintf("%d", remainingRetries-1)
 }
 
 func resolveClaudePath() (string, error) {

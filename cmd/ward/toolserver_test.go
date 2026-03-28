@@ -457,7 +457,7 @@ func TestHandlePrompt_EmitsFailureEventForAbortedPrompt(t *testing.T) {
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
 			if w.activeCmd.Load() != nil {
-				w.abortActivePrompt("schema_invalid")
+				w.abortActivePrompt("schema_invalid", "synthetic schema failure")
 				return
 			}
 			time.Sleep(10 * time.Millisecond)
