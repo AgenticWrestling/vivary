@@ -101,6 +101,15 @@ main {
     text-transform: uppercase;
     letter-spacing: 0.16em;
     color: var(--signal);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.section-kicker::before,
+.eyebrow::before {
+    content: "//";
+    opacity: 0.5;
 }
 
 .mark-name,
