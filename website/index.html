@@ -21,6 +21,7 @@
                 <ul class="nav-links">
                     <li><a href="#what">What</a></li>
                     <li><a href="#why">Why</a></li>
+                    <li><a href="#compliance">Audit</a></li>
                     <li><a href="#how">How</a></li>
                     <li><a href="https://github.com/AgenticWrestling/vivary"><i class="fa-brands fa-github"></i> GitHub</a></li>
                 </ul>
@@ -31,26 +32,25 @@
             <section class="hero">
                 <div class="container">
                     <div class="hero-copy">
-                        <p class="eyebrow">Coordinate AI agents in ways you can actually explain.</p>
-                        <h1>A Go runtime for isolated, governed AI agents.</h1>
-                        <p class="hero-lead">Capabilities are self-describing Unix CLI tools. Credentials never enter the container. Every action produces a human-legible audit record.</p>
+                        <p class="eyebrow">The Hypervisor for Agentic Workflows</p>
+                        <h1>Give agents tool access. Without the blast radius.</h1>
+                        <p class="hero-lead">VIVARY is the open-source runtime that wraps tool-using LLMs in a hard-isolation boundary. Move from "prompts and prayers" to governed, auditable, and production-ready agent execution.</p>
                         <div class="hero-actions">
-                            <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Open Source</a>
-                            <a href="#what" class="btn btn-secondary">Benefits</a>
-                            <a href="#how" class="btn btn-secondary">Tech Stack</a>
+                            <a href="https://github.com/AgenticWrestling/vivary" class="btn btn-primary"><i class="fa-brands fa-github"></i> Get Started</a>
+                            <a href="#how" class="btn btn-secondary">Architecture</a>
                         </div>
                         <dl class="hero-facts">
                             <div>
                                 <dt>Isolation</dt>
-                                <dd>systemd-nspawn per agent, no raw credentials</dd>
+                                <dd>systemd-nspawn</dd>
                             </div>
                             <div>
-                                <dt>Policy Authority</dt>
-                                <dd><code>keeperd</code> — routes, audits, enforces</dd>
+                                <dt>Policy</dt>
+                                <dd>KDL ACLs</dd>
                             </div>
                             <div>
                                 <dt>Audit</dt>
-                                <dd>MUS frames → SQLite → <code>vivlog</code></dd>
+                                <dd>MUS over SQLite</dd>
                             </div>
                         </dl>
                     </div>
@@ -110,6 +110,26 @@
                         <article class="why-card">
                             <h3>Raw containers or VMs</h3>
                             <p>You get OS-level isolation but nothing above it. No capability schema. No policy enforcement. No audit protocol. No orchestration. Every project ends up rebuilding the same ad-hoc governance layer from scratch.</p>
+                        </article>
+                    </div>
+                </div>
+            </section>
+
+            <section id="compliance" class="why-section">
+                <div class="container">
+                    <div class="section-heading">
+                        <p class="section-kicker">Forensic Visibility</p>
+                        <h2>Agents shouldn't be a black box.</h2>
+                    </div>
+                    <p class="cap-intro">VIVARY provides a forensically-sound SQLite trail of every byte that passed between your LLM and your infrastructure. MUS-framed, timestamped, and immutable.</p>
+                    <div class="why-grid">
+                        <article class="why-card">
+                            <h3>Full Byte-Stream Audit</h3>
+                            <p>Every capability request and response is captured in its raw binary form. Decouple your audit trail from the model's own (often unreliable) internal logs.</p>
+                        </article>
+                        <article class="why-card">
+                            <h3>Security Event Logging</h3>
+                            <p>Denials are not just errors; they are security events. Every blocked URL, path traversal attempt, or rate-limit trigger is recorded with agent-level identity stamping.</p>
                         </article>
                     </div>
                 </div>
