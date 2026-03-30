@@ -12,10 +12,10 @@
     --line: rgba(167, 181, 194, 0.22);
     --line-soft: rgba(167, 181, 194, 0.12);
     --shadow: rgba(0, 0, 0, 0.45);
-    --font-display: "Arial Narrow", "Franklin Gothic Medium", "Avenir Next Condensed", sans-serif;
-    --font-logo: "Georgia", "Times New Roman", serif;
-    --font-body: "Segoe UI", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
-    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    --font-display: 'Pathway Gothic One', sans-serif;
+    --font-logo: 'Fascinate', serif;
+    --font-body: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
 }
 
 * {
