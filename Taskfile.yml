@@ -201,4 +201,4 @@ tasks:
       - test -d {{.WEBSITE_DIR}}
       - git diff --quiet
       - git diff --cached --quiet
-      - git subtree push --prefix {{.WEBSITE_DIR}} origin {{.PAGES_BRANCH}}
+      - git push --force-with-lease origin "$(git subtree split --prefix {{.WEBSITE_DIR}} HEAD)":{{.PAGES_BRANCH}}
