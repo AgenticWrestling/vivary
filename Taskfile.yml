@@ -6,6 +6,8 @@ vars:
   CLI_ARGS: '{{default "" .CLI_ARGS}}'
   CONTAINER: '{{default "vivary" .CONTAINER}}'
   KEEPERD_WORKSPACE: '{{default "/var/lib/vivary/workspace" .KEEPERD_WORKSPACE}}'
+  WEBSITE_DIR: '{{default "website" .WEBSITE_DIR}}'
+  PAGES_BRANCH: '{{default "gh-pages" .PAGES_BRANCH}}'
 
 tasks:
   default:
@@ -192,3 +194,11 @@ tasks:
         vars:
           CONTAINER: '{{.CONTAINER}}'
           KEEPERD_WORKSPACE: '{{.KEEPERD_WORKSPACE}}'
+
+  website:pages:push:
+    desc: Publish ./website to the GitHub Pages branch using git subtree
+    cmds:
+      - test -d {{.WEBSITE_DIR}}
+      - git diff --quiet
+      - git diff --cached --quiet
+      - git subtree push --prefix {{.WEBSITE_DIR}} origin {{.PAGES_BRANCH}}
